@@ -1,11 +1,22 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  Channel,
+  InsertChannel,
+  InsertPurchaseRecord,
+  InsertSaleRecord,
+  InsertUser,
+  PurchaseRecord,
+  SaleRecord,
+  channels,
+  purchaseRecords,
+  saleRecords,
+  users,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -18,75 +29,296 @@ export async function getDb() {
   return _db;
 }
 
+// ─── Users ───────────────────────────────────────────────────────────────────
+
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
+  if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
+  if (!db) return;
+
+  const values: InsertUser = { openId: user.openId };
+  const updateSet: Record<string, unknown> = {};
+
+  const textFields = ["name", "email", "loginMethod"] as const;
+  for (const field of textFields) {
+    const value = user[field];
+    if (value === undefined) continue;
+    const normalized = value ?? null;
+    values[field] = normalized;
+    updateSet[field] = normalized;
   }
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
+  if (user.lastSignedIn !== undefined) {
+    values.lastSignedIn = user.lastSignedIn;
+    updateSet.lastSignedIn = user.lastSignedIn;
   }
+  if (user.role !== undefined) {
+    values.role = user.role;
+    updateSet.role = user.role;
+  } else if (user.openId === ENV.ownerOpenId) {
+    values.role = "admin";
+    updateSet.role = "admin";
+  }
+
+  if (!values.lastSignedIn) values.lastSignedIn = new Date();
+  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
+
+  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
+  if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ─── Channels ─────────────────────────────────────────────────────────────────
+
+export async function getChannelsByUser(userId: number): Promise<Channel[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(channels)
+    .where(eq(channels.userId, userId))
+    .orderBy(channels.createdAt);
+}
+
+export async function getChannelById(id: number, userId: number): Promise<Channel | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(channels)
+    .where(and(eq(channels.id, id), eq(channels.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function createChannel(data: InsertChannel): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(channels).values(data);
+  return (result[0] as { insertId: number }).insertId;
+}
+
+export async function updateChannel(
+  id: number,
+  userId: number,
+  data: Partial<Pick<InsertChannel, "name" | "description">>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(channels)
+    .set(data)
+    .where(and(eq(channels.id, id), eq(channels.userId, userId)));
+}
+
+export async function deleteChannel(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(channels).where(and(eq(channels.id, id), eq(channels.userId, userId)));
+}
+
+// ─── Purchase Records ─────────────────────────────────────────────────────────
+
+export async function getPurchaseRecords(
+  userId: number,
+  filters: { channelId?: number; month?: string; paymentStatus?: string }
+): Promise<PurchaseRecord[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [eq(purchaseRecords.userId, userId)];
+  if (filters.channelId) conditions.push(eq(purchaseRecords.channelId, filters.channelId));
+  if (filters.month) conditions.push(eq(purchaseRecords.month, filters.month));
+  if (filters.paymentStatus && ["paid", "unpaid", "partial"].includes(filters.paymentStatus)) {
+    conditions.push(
+      eq(
+        purchaseRecords.paymentStatus,
+        filters.paymentStatus as "paid" | "unpaid" | "partial"
+      )
+    );
+  }
+
+  return db
+    .select()
+    .from(purchaseRecords)
+    .where(and(...conditions))
+    .orderBy(desc(purchaseRecords.date));
+}
+
+export async function createPurchaseRecord(data: InsertPurchaseRecord): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(purchaseRecords).values(data);
+  return (result[0] as { insertId: number }).insertId;
+}
+
+export async function updatePurchaseRecord(
+  id: number,
+  userId: number,
+  data: Partial<InsertPurchaseRecord>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(purchaseRecords)
+    .set(data)
+    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId)));
+}
+
+export async function deletePurchaseRecord(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(purchaseRecords)
+    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId)));
+}
+
+// ─── Sale Records ─────────────────────────────────────────────────────────────
+
+export async function getSaleRecords(
+  userId: number,
+  filters: { channelId?: number; month?: string; paymentStatus?: string }
+): Promise<SaleRecord[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [eq(saleRecords.userId, userId)];
+  if (filters.channelId) conditions.push(eq(saleRecords.channelId, filters.channelId));
+  if (filters.month) conditions.push(eq(saleRecords.month, filters.month));
+  if (filters.paymentStatus && ["paid", "unpaid", "partial"].includes(filters.paymentStatus)) {
+    conditions.push(
+      eq(saleRecords.paymentStatus, filters.paymentStatus as "paid" | "unpaid" | "partial")
+    );
+  }
+
+  return db
+    .select()
+    .from(saleRecords)
+    .where(and(...conditions))
+    .orderBy(desc(saleRecords.date));
+}
+
+export async function createSaleRecord(data: InsertSaleRecord): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(saleRecords).values(data);
+  return (result[0] as { insertId: number }).insertId;
+}
+
+export async function updateSaleRecord(
+  id: number,
+  userId: number,
+  data: Partial<InsertSaleRecord>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(saleRecords)
+    .set(data)
+    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId)));
+}
+
+export async function deleteSaleRecord(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(saleRecords)
+    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId)));
+}
+
+// ─── Financial Summaries ──────────────────────────────────────────────────────
+
+export interface ChannelSummary {
+  channelId: number;
+  channelName: string;
+  totalPurchaseCost: number;
+  totalSaleRevenue: number;
+  profit: number;
+  purchaseCount: number;
+  saleCount: number;
+}
+
+export async function getFinancialSummary(
+  userId: number,
+  month?: string
+): Promise<ChannelSummary[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const userChannels = await getChannelsByUser(userId);
+  if (userChannels.length === 0) return [];
+
+  const summaries: ChannelSummary[] = [];
+
+  for (const channel of userChannels) {
+    const purchaseConditions = [
+      eq(purchaseRecords.userId, userId),
+      eq(purchaseRecords.channelId, channel.id),
+    ];
+    if (month) purchaseConditions.push(eq(purchaseRecords.month, month));
+
+    const saleConditions = [
+      eq(saleRecords.userId, userId),
+      eq(saleRecords.channelId, channel.id),
+    ];
+    if (month) saleConditions.push(eq(saleRecords.month, month));
+
+    const purchaseAgg = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(CAST(cost AS DECIMAL(12,2))), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(purchaseRecords)
+      .where(and(...purchaseConditions));
+
+    const saleAgg = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(CAST(cost AS DECIMAL(12,2))), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(saleRecords)
+      .where(and(...saleConditions));
+
+    const totalPurchaseCost = parseFloat(purchaseAgg[0]?.total ?? "0");
+    const totalSaleRevenue = parseFloat(saleAgg[0]?.total ?? "0");
+
+    summaries.push({
+      channelId: channel.id,
+      channelName: channel.name,
+      totalPurchaseCost,
+      totalSaleRevenue,
+      profit: totalSaleRevenue - totalPurchaseCost,
+      purchaseCount: Number(purchaseAgg[0]?.count ?? 0),
+      saleCount: Number(saleAgg[0]?.count ?? 0),
+    });
+  }
+
+  return summaries;
+}
+
+export async function getAvailableMonths(userId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const purchaseMonths = await db
+    .selectDistinct({ month: purchaseRecords.month })
+    .from(purchaseRecords)
+    .where(eq(purchaseRecords.userId, userId));
+
+  const saleMonths = await db
+    .selectDistinct({ month: saleRecords.month })
+    .from(saleRecords)
+    .where(eq(saleRecords.userId, userId));
+
+  const all = new Set([
+    ...purchaseMonths.map((r) => r.month),
+    ...saleMonths.map((r) => r.month),
+  ]);
+
+  return Array.from(all).sort().reverse();
+}
