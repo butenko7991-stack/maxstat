@@ -15,6 +15,13 @@
       "when": 1777836006823,
       "tag": "0001_strong_angel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1777955917617,
+      "tag": "0002_friendly_gamora",
+      "breakpoints": true
     }
   ]
 }

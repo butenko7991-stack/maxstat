@@ -25,7 +25,7 @@ import {
 // ─── Shared validators ────────────────────────────────────────────────────────
 
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
-const timeSlotEnum = z.enum(["утро", "обед", "вечер", "ночной топ"]);
+const timeSlotEnum = z.string().max(100);
 
 // ─── Channels router ──────────────────────────────────────────────────────────
 

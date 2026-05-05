@@ -24,3 +24,6 @@
 - [x] Mobile-first responsive layout verified
 - [x] Empty states for all lists
 - [x] Loading skeletons for all data tables
+
+## Изменения по запросу пользователя
+- [x] Поле "Время" в форме продажи: заменить выпадающий список на свободный текстовый ввод

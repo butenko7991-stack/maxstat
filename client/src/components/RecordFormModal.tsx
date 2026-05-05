@@ -17,7 +17,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
-export type TimeSlot = "утро" | "обед" | "вечер" | "ночной топ";
+export type TimeSlot = string;
 
 export interface PurchaseFormData {
   channelId: string;
@@ -42,7 +42,7 @@ export interface SaleFormData {
   date: string;
   admin: string;
   link: string;
-  timeSlot: TimeSlot | "";
+  timeSlot: string;
   tariff: string;
   platform: string;
   spm: string;
@@ -336,23 +336,12 @@ export function SaleFormModal({
 
             <div className="space-y-1.5">
               <Label>Время</Label>
-              <Select
-                value={form.timeSlot || "none"}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, timeSlot: v === "none" ? "" : (v as TimeSlot) }))
-                }
-              >
-                <SelectTrigger className="bg-input border-border">
-                  <SelectValue placeholder="Выберите" />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  <SelectItem value="none">—</SelectItem>
-                  <SelectItem value="утро">утро</SelectItem>
-                  <SelectItem value="обед">обед</SelectItem>
-                  <SelectItem value="вечер">вечер</SelectItem>
-                  <SelectItem value="ночной топ">ночной топ</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                value={form.timeSlot}
+                onChange={(e) => setForm((f) => ({ ...f, timeSlot: e.target.value }))}
+                placeholder="утро, 10:00, вечер..."
+                className="bg-input border-border"
+              />
             </div>
 
             <div className="space-y-1.5">

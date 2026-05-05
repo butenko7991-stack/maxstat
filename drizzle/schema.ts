@@ -96,8 +96,8 @@ export const saleRecords = mysqlTable("sale_records", {
   admin: varchar("admin", { length: 255 }),
   /** Link in MAX or TG */
   link: varchar("link", { length: 1024 }),
-  /** Time slot */
-  timeSlot: mysqlEnum("timeSlot", ["утро", "обед", "вечер", "ночной топ"]),
+  /** Time slot — free text (e.g. утро, 10:00, вечер) */
+  timeSlot: varchar("timeSlot", { length: 100 }),
   /** Tariff type */
   tariff: varchar("tariff", { length: 100 }),
   /** Platform where the ad appears (e.g. Сетка, MAX, TG) */

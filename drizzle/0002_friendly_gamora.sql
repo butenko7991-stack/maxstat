@@ -1,0 +1,1 @@
+ALTER TABLE `sale_records` MODIFY COLUMN `timeSlot` varchar(100);
