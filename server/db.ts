@@ -322,3 +322,26 @@ export async function getAvailableMonths(userId: number): Promise<string[]> {
 
   return Array.from(all).sort().reverse();
 }
+
+// ─── Single-record lookups (for duplication) ─────────────────────────────────
+export async function getPurchaseById(id: number, userId: number): Promise<PurchaseRecord | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(purchaseRecords)
+    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function getSaleById(id: number, userId: number): Promise<SaleRecord | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(saleRecords)
+    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId)))
+    .limit(1);
+  return result[0];
+}

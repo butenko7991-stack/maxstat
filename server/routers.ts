@@ -15,7 +15,9 @@ import {
   getChannelById,
   getChannelsByUser,
   getFinancialSummary,
+  getPurchaseById,
   getPurchaseRecords,
+  getSaleById,
   getSaleRecords,
   updateChannel,
   updatePurchaseRecord,
@@ -23,22 +25,14 @@ import {
 } from "./db";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
-
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
 const timeSlotEnum = z.string().max(100);
 
 // ─── Channels router ──────────────────────────────────────────────────────────
-
 const channelsRouter = router({
   list: protectedProcedure.query(({ ctx }) => getChannelsByUser(ctx.user.id)),
-
   create: protectedProcedure
-    .input(
-      z.object({
-        name: z.string().min(1).max(255),
-        description: z.string().max(1000).optional(),
-      })
-    )
+    .input(z.object({ name: z.string().min(1).max(255), description: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const id = await createChannel({
         userId: ctx.user.id,
@@ -47,37 +41,35 @@ const channelsRouter = router({
       });
       return { id };
     }),
-
   update: protectedProcedure
     .input(
       z.object({
         id: z.number().int().positive(),
         name: z.string().min(1).max(255).optional(),
-        description: z.string().max(1000).optional(),
+        description: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const channel = await getChannelById(input.id, ctx.user.id);
-      if (!channel) throw new TRPCError({ code: "NOT_FOUND" });
-      await updateChannel(input.id, ctx.user.id, {
-        name: input.name,
-        description: input.description,
-      });
+      const { id, ...rest } = input;
+      await updateChannel(id, ctx.user.id, rest);
       return { success: true };
     }),
-
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      const channel = await getChannelById(input.id, ctx.user.id);
-      if (!channel) throw new TRPCError({ code: "NOT_FOUND" });
       await deleteChannel(input.id, ctx.user.id);
       return { success: true };
+    }),
+  getById: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const channel = await getChannelById(input.id, ctx.user.id);
+      if (!channel) throw new TRPCError({ code: "NOT_FOUND" });
+      return channel;
     }),
 });
 
 // ─── Purchases router ─────────────────────────────────────────────────────────
-
 const purchaseInput = z.object({
   channelId: z.number().int().positive(),
   date: z.string(), // ISO date string
@@ -112,7 +104,6 @@ const purchasesRouter = router({
         paymentStatus: input.paymentStatus,
       })
     ),
-
   create: protectedProcedure.input(purchaseInput).mutation(async ({ ctx, input }) => {
     const id = await createPurchaseRecord({
       userId: ctx.user.id,
@@ -134,7 +125,6 @@ const purchasesRouter = router({
     });
     return { id };
   }),
-
   update: protectedProcedure
     .input(purchaseInput.partial().extend({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
@@ -144,17 +134,40 @@ const purchasesRouter = router({
       await updatePurchaseRecord(id, ctx.user.id, updateData as Parameters<typeof updatePurchaseRecord>[2]);
       return { success: true };
     }),
-
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       await deletePurchaseRecord(input.id, ctx.user.id);
       return { success: true };
     }),
+  quickUpdatePayment: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), paymentStatus: paymentStatusEnum }))
+    .mutation(async ({ ctx, input }) => {
+      await updatePurchaseRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus });
+      return { success: true };
+    }),
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const original = await getPurchaseById(input.id, ctx.user.id);
+      if (!original) throw new TRPCError({ code: "NOT_FOUND" });
+      const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = original;
+      const newId = await createPurchaseRecord({ ...rest });
+      return { id: newId };
+    }),
+  exportData: protectedProcedure
+    .input(
+      z.object({
+        month: z.string().optional(),
+        channelId: z.number().int().positive().optional(),
+      })
+    )
+    .query(({ ctx, input }) =>
+      getPurchaseRecords(ctx.user.id, { month: input.month, channelId: input.channelId })
+    ),
 });
 
 // ─── Sales router ─────────────────────────────────────────────────────────────
-
 const saleInput = z.object({
   channelId: z.number().int().positive(),
   date: z.string(),
@@ -188,7 +201,6 @@ const salesRouter = router({
         paymentStatus: input.paymentStatus,
       })
     ),
-
   create: protectedProcedure.input(saleInput).mutation(async ({ ctx, input }) => {
     const id = await createSaleRecord({
       userId: ctx.user.id,
@@ -209,7 +221,6 @@ const salesRouter = router({
     });
     return { id };
   }),
-
   update: protectedProcedure
     .input(saleInput.partial().extend({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
@@ -219,27 +230,48 @@ const salesRouter = router({
       await updateSaleRecord(id, ctx.user.id, updateData as Parameters<typeof updateSaleRecord>[2]);
       return { success: true };
     }),
-
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       await deleteSaleRecord(input.id, ctx.user.id);
       return { success: true };
     }),
+  quickUpdatePayment: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), paymentStatus: paymentStatusEnum }))
+    .mutation(async ({ ctx, input }) => {
+      await updateSaleRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus });
+      return { success: true };
+    }),
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const original = await getSaleById(input.id, ctx.user.id);
+      if (!original) throw new TRPCError({ code: "NOT_FOUND" });
+      const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = original;
+      const newId = await createSaleRecord({ ...rest });
+      return { id: newId };
+    }),
+  exportData: protectedProcedure
+    .input(
+      z.object({
+        month: z.string().optional(),
+        channelId: z.number().int().positive().optional(),
+      })
+    )
+    .query(({ ctx, input }) =>
+      getSaleRecords(ctx.user.id, { month: input.month, channelId: input.channelId })
+    ),
 });
 
 // ─── Summary router ───────────────────────────────────────────────────────────
-
 const summaryRouter = router({
   financial: protectedProcedure
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getFinancialSummary(ctx.user.id, input.month)),
-
   months: protectedProcedure.query(({ ctx }) => getAvailableMonths(ctx.user.id)),
 });
 
 // ─── App router ───────────────────────────────────────────────────────────────
-
 export const appRouter = router({
   system: systemRouter,
   auth: router({
