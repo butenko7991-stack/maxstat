@@ -345,3 +345,66 @@ export async function getSaleById(id: number, userId: number): Promise<SaleRecor
     .limit(1);
   return result[0];
 }
+
+// ─── Monthly stats for charts ─────────────────────────────────────────────────
+export interface MonthlyStatPoint {
+  month: string; // "2026-04"
+  purchases: number;
+  sales: number;
+  profit: number;
+}
+
+export async function getMonthlyStats(
+  userId: number,
+  channelId?: number
+): Promise<MonthlyStatPoint[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const purchaseConds: ReturnType<typeof eq>[] = [eq(purchaseRecords.userId, userId)];
+  const saleConds: ReturnType<typeof eq>[] = [eq(saleRecords.userId, userId)];
+  if (channelId) {
+    purchaseConds.push(eq(purchaseRecords.channelId, channelId));
+    saleConds.push(eq(saleRecords.channelId, channelId));
+  }
+
+  const purchaseByMonth = await db
+    .select({
+      month: purchaseRecords.month,
+      total: sql<string>`COALESCE(SUM(CAST(${purchaseRecords.cost} AS DECIMAL(12,2))), 0)`,
+    })
+    .from(purchaseRecords)
+    .where(and(...purchaseConds))
+    .groupBy(purchaseRecords.month);
+
+  const saleByMonth = await db
+    .select({
+      month: saleRecords.month,
+      total: sql<string>`COALESCE(SUM(CAST(${saleRecords.cost} AS DECIMAL(12,2))), 0)`,
+    })
+    .from(saleRecords)
+    .where(and(...saleConds))
+    .groupBy(saleRecords.month);
+
+  // Merge into a map
+  const map = new Map<string, { purchases: number; sales: number }>();
+  for (const row of purchaseByMonth) {
+    const entry = map.get(row.month) ?? { purchases: 0, sales: 0 };
+    entry.purchases = parseFloat(row.total);
+    map.set(row.month, entry);
+  }
+  for (const row of saleByMonth) {
+    const entry = map.get(row.month) ?? { purchases: 0, sales: 0 };
+    entry.sales = parseFloat(row.total);
+    map.set(row.month, entry);
+  }
+
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, { purchases, sales }]) => ({
+      month,
+      purchases,
+      sales,
+      profit: sales - purchases,
+    }));
+}

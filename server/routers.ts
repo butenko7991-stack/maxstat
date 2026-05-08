@@ -22,6 +22,7 @@ import {
   updateChannel,
   updatePurchaseRecord,
   updateSaleRecord,
+  getMonthlyStats,
 } from "./db";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
@@ -271,6 +272,9 @@ const summaryRouter = router({
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getFinancialSummary(ctx.user.id, input.month)),
   months: protectedProcedure.query(({ ctx }) => getAvailableMonths(ctx.user.id)),
+  monthlyStats: protectedProcedure
+    .input(z.object({ channelId: z.number().int().positive().optional() }))
+    .query(({ ctx, input }) => getMonthlyStats(ctx.user.id, input.channelId)),
 });
 
 // ─── App router ───────────────────────────────────────────────────────────────
