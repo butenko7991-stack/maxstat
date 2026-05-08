@@ -20,7 +20,7 @@ import * as XLSX from "xlsx";
 
 const EMPTY_FORM: PurchaseFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", targetChannels: "",
-  direction: "", tariff: "", buyer: "", spm: "", cost: "", paymentStatus: "unpaid",
+  direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
 };
 
@@ -172,7 +172,7 @@ export default function PurchasesPage() {
       channelId: String(r.channelId), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : todayIso(),
       admin: r.admin ?? "", link: r.link ?? "", targetChannels: r.targetChannels ?? "",
       direction: r.direction ?? "", tariff: r.tariff ?? "", buyer: r.buyer ?? "",
-      spm: r.spm ?? "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
+      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, notes: r.notes ?? "",
     });
@@ -187,7 +187,9 @@ export default function PurchasesPage() {
       admin: form.admin || undefined, link: form.link || undefined,
       targetChannels: form.targetChannels || undefined, direction: form.direction || undefined,
       tariff: form.tariff || undefined, buyer: form.buyer || undefined,
-      spm: form.spm || undefined, cost: form.cost || undefined,
+      spm: form.spm || undefined,
+      reach: form.reach ? Number(form.reach) : undefined,
+      cost: form.cost || undefined,
       paymentStatus: form.paymentStatus, botStories: form.botStories || undefined,
       botStoriesCost: form.botStoriesCost || undefined, month: form.month,
       notes: form.notes || undefined,

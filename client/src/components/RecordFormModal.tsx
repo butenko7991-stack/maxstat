@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useEffect } from "react";
+import { Calculator } from "lucide-react";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
 export type TimeSlot = string;
@@ -29,6 +31,7 @@ export interface PurchaseFormData {
   tariff: string;
   buyer: string;
   spm: string;
+  reach: string; // audience reach for SPM cost calculation
   cost: string;
   paymentStatus: PaymentStatus;
   botStories: string;
@@ -46,6 +49,7 @@ export interface SaleFormData {
   tariff: string;
   platform: string;
   spm: string;
+  reach: string; // audience reach for SPM cost calculation
   cost: string;
   paymentStatus: PaymentStatus;
   botStories: string;
@@ -57,6 +61,21 @@ export interface SaleFormData {
 interface Channel {
   id: number;
   name: string;
+}
+
+/**
+ * Calculates cost from reach and SPM value.
+ * SPM field can be a plain number (e.g. "1000") or text like "1000СПМ".
+ * Formula: cost = (reach × spmValue) / 1000
+ */
+function calcCostFromSpm(reach: string, spm: string): string {
+  const reachNum = parseFloat(reach);
+  // Extract numeric part from spm string (e.g. "1000СПМ" → 1000, "1500" → 1500)
+  const spmMatch = spm.match(/[\d.,]+/);
+  if (!spmMatch) return "";
+  const spmNum = parseFloat(spmMatch[0].replace(",", "."));
+  if (!isFinite(reachNum) || !isFinite(spmNum) || reachNum <= 0 || spmNum <= 0) return "";
+  return String(Math.round((reachNum * spmNum) / 1000));
 }
 
 interface PurchaseFormModalProps {
@@ -80,6 +99,15 @@ export function PurchaseFormModal({
   onSubmit,
   isPending,
 }: PurchaseFormModalProps) {
+  // Auto-calculate cost when reach or spm changes
+  useEffect(() => {
+    if (!form.reach || !form.spm) return;
+    const calculated = calcCostFromSpm(form.reach, form.spm);
+    if (calculated) {
+      setForm((f) => ({ ...f, cost: calculated }));
+    }
+  }, [form.reach, form.spm]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg bg-card border-border max-h-[90vh] overflow-y-auto">
@@ -153,14 +181,58 @@ export function PurchaseFormModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Стоимость (₽)</Label>
+              <Label>Тариф</Label>
               <Input
-                type="number"
-                value={form.cost}
-                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
-                placeholder="0"
+                value={form.tariff}
+                onChange={(e) => setForm((f) => ({ ...f, tariff: e.target.value }))}
+                placeholder="1/48, фикс..."
                 className="bg-input border-border"
               />
+            </div>
+
+            {/* SPM + Reach + Auto-calculated cost block */}
+            <div className="col-span-2 rounded-xl border border-border/60 bg-muted/20 p-3 space-y-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                <Calculator className="w-3.5 h-3.5" />
+                Расчёт по СПМ: Охваты × СПМ / 1000
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Охваты</Label>
+                  <Input
+                    type="number"
+                    value={form.reach}
+                    onChange={(e) => setForm((f) => ({ ...f, reach: e.target.value }))}
+                    placeholder="500"
+                    className="bg-input border-border"
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">СПМ</Label>
+                  <Input
+                    value={form.spm}
+                    onChange={(e) => setForm((f) => ({ ...f, spm: e.target.value }))}
+                    placeholder="1000"
+                    className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Стоимость (₽)</Label>
+                  <Input
+                    type="number"
+                    value={form.cost}
+                    onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
+                    placeholder="авто"
+                    className="bg-input border-border"
+                  />
+                </div>
+              </div>
+              {form.reach && form.spm && calcCostFromSpm(form.reach, form.spm) && (
+                <p className="text-xs text-primary/80">
+                  = {form.reach} × {form.spm.match(/[\d.,]+/)?.[0] ?? "?"} / 1000 = <strong>{calcCostFromSpm(form.reach, form.spm)} ₽</strong>
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5 col-span-2">
@@ -184,31 +256,11 @@ export function PurchaseFormModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Тариф</Label>
-              <Input
-                value={form.tariff}
-                onChange={(e) => setForm((f) => ({ ...f, tariff: e.target.value }))}
-                placeholder="1/48, фикс..."
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
               <Label>Закупщик</Label>
               <Input
                 value={form.buyer}
                 onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))}
                 placeholder="Имя закупщика"
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>СПМ</Label>
-              <Input
-                value={form.spm}
-                onChange={(e) => setForm((f) => ({ ...f, spm: e.target.value }))}
-                placeholder="1000СПМ, фикс..."
                 className="bg-input border-border"
               />
             </div>
@@ -291,6 +343,15 @@ export function SaleFormModal({
   onSubmit,
   isPending,
 }: SaleFormModalProps) {
+  // Auto-calculate cost when reach or spm changes
+  useEffect(() => {
+    if (!form.reach || !form.spm) return;
+    const calculated = calcCostFromSpm(form.reach, form.spm);
+    if (calculated) {
+      setForm((f) => ({ ...f, cost: calculated }));
+    }
+  }, [form.reach, form.spm]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg bg-card border-border max-h-[90vh] overflow-y-auto">
@@ -364,17 +425,6 @@ export function SaleFormModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Стоимость (₽)</Label>
-              <Input
-                type="number"
-                value={form.cost}
-                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
-                placeholder="0"
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
               <Label>Админ</Label>
               <Input
                 value={form.admin}
@@ -394,6 +444,51 @@ export function SaleFormModal({
               />
             </div>
 
+            {/* SPM + Reach + Auto-calculated cost block */}
+            <div className="col-span-2 rounded-xl border border-border/60 bg-muted/20 p-3 space-y-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                <Calculator className="w-3.5 h-3.5" />
+                Расчёт по СПМ: Охваты × СПМ / 1000
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Охваты</Label>
+                  <Input
+                    type="number"
+                    value={form.reach}
+                    onChange={(e) => setForm((f) => ({ ...f, reach: e.target.value }))}
+                    placeholder="500"
+                    className="bg-input border-border"
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">СПМ</Label>
+                  <Input
+                    value={form.spm}
+                    onChange={(e) => setForm((f) => ({ ...f, spm: e.target.value }))}
+                    placeholder="1000"
+                    className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Стоимость (₽)</Label>
+                  <Input
+                    type="number"
+                    value={form.cost}
+                    onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
+                    placeholder="авто"
+                    className="bg-input border-border"
+                  />
+                </div>
+              </div>
+              {form.reach && form.spm && calcCostFromSpm(form.reach, form.spm) && (
+                <p className="text-xs text-primary/80">
+                  = {form.reach} × {form.spm.match(/[\d.,]+/)?.[0] ?? "?"} / 1000 = <strong>{calcCostFromSpm(form.reach, form.spm)} ₽</strong>
+                </p>
+              )}
+            </div>
+
             <div className="space-y-1.5 col-span-2">
               <Label>Ссылка (MAX/TG)</Label>
               <Input
@@ -410,16 +505,6 @@ export function SaleFormModal({
                 value={form.platform}
                 onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))}
                 placeholder="Сетка, MAX, TG..."
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>СПМ</Label>
-              <Input
-                value={form.spm}
-                onChange={(e) => setForm((f) => ({ ...f, spm: e.target.value }))}
-                placeholder="1000СПМ, фикс..."
                 className="bg-input border-border"
               />
             </div>

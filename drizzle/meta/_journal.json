@@ -22,6 +22,13 @@
       "when": 1777955917617,
       "tag": "0002_friendly_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1778168988932,
+      "tag": "0003_broad_talos",
+      "breakpoints": true
     }
   ]
 }

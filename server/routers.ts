@@ -80,6 +80,7 @@ const purchaseInput = z.object({
   tariff: z.string().max(100).optional(),
   buyer: z.string().max(255).optional(),
   spm: z.string().max(100).optional(),
+  reach: z.number().int().nonnegative().optional(), // audience reach for SPM calculation
   cost: z.string().optional(), // decimal as string
   paymentStatus: paymentStatusEnum.optional(),
   botStories: z.string().max(255).optional(),
@@ -87,7 +88,6 @@ const purchaseInput = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
   notes: z.string().optional(),
 });
-
 const purchasesRouter = router({
   list: protectedProcedure
     .input(
@@ -116,6 +116,7 @@ const purchasesRouter = router({
       tariff: input.tariff ?? null,
       buyer: input.buyer ?? null,
       spm: input.spm ?? null,
+      reach: input.reach ?? null,
       cost: input.cost ?? null,
       paymentStatus: input.paymentStatus ?? "unpaid",
       botStories: input.botStories ?? null,
@@ -177,6 +178,7 @@ const saleInput = z.object({
   tariff: z.string().max(100).optional(),
   platform: z.string().max(255).optional(),
   spm: z.string().max(100).optional(),
+  reach: z.number().int().nonnegative().optional(), // audience reach for SPM calculation
   cost: z.string().optional(),
   paymentStatus: paymentStatusEnum.optional(),
   botStories: z.string().max(255).optional(),
@@ -184,7 +186,6 @@ const saleInput = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
   notes: z.string().optional(),
 });
-
 const salesRouter = router({
   list: protectedProcedure
     .input(
@@ -212,6 +213,7 @@ const salesRouter = router({
       tariff: input.tariff ?? null,
       platform: input.platform ?? null,
       spm: input.spm ?? null,
+      reach: input.reach ?? null,
       cost: input.cost ?? null,
       paymentStatus: input.paymentStatus ?? "unpaid",
       botStories: input.botStories ?? null,

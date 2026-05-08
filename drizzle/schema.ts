@@ -64,6 +64,8 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   buyer: varchar("buyer", { length: 255 }),
   /** SPM value (e.g. "1000СПМ", "фикс", or numeric) */
   spm: varchar("spm", { length: 100 }),
+  /** Reach / audience size (e.g. 500, 1000) — used for SPM cost calculation */
+  reach: bigint("reach", { mode: "number" }),
   /** Cost in rubles */
   cost: decimal("cost", { precision: 12, scale: 2 }),
   /** Payment status */
@@ -104,6 +106,8 @@ export const saleRecords = mysqlTable("sale_records", {
   platform: varchar("platform", { length: 255 }),
   /** SPM value */
   spm: varchar("spm", { length: 100 }),
+  /** Reach / audience size (e.g. 500, 1000) — used for SPM cost calculation */
+  reach: bigint("reach", { mode: "number" }),
   /** Revenue in rubles */
   cost: decimal("cost", { precision: 12, scale: 2 }),
   /** Payment status */

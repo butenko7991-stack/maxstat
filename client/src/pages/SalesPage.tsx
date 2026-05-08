@@ -21,7 +21,7 @@ import * as XLSX from "xlsx";
 
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "",
-  tariff: "", platform: "", spm: "", cost: "", paymentStatus: "unpaid",
+  tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
 };
 
@@ -176,8 +176,7 @@ export default function SalesPage() {
     setForm({
       channelId: String(r.channelId), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : todayIso(),
       admin: r.admin ?? "", link: r.link ?? "", timeSlot: (r.timeSlot as TimeSlot) ?? "",
-      tariff: r.tariff ?? "", platform: r.platform ?? "", spm: r.spm ?? "",
-      cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
+      tariff: r.tariff ?? "", platform: r.platform ?? "",      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, notes: r.notes ?? "",
     });
@@ -192,7 +191,9 @@ export default function SalesPage() {
       admin: form.admin || undefined, link: form.link || undefined,
       timeSlot: (form.timeSlot || undefined) as TimeSlot | undefined,
       tariff: form.tariff || undefined, platform: form.platform || undefined,
-      spm: form.spm || undefined, cost: form.cost || undefined,
+      spm: form.spm || undefined,
+      reach: form.reach ? Number(form.reach) : undefined,
+      cost: form.cost || undefined,
       paymentStatus: form.paymentStatus, botStories: form.botStories || undefined,
       botStoriesCost: form.botStoriesCost || undefined, month: form.month,
       notes: form.notes || undefined,
@@ -200,7 +201,6 @@ export default function SalesPage() {
     if (editingId) { updateMutation.mutate({ id: editingId, ...payload }); }
     else { createMutation.mutate(payload); }
   }
-
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
