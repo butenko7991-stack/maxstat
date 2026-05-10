@@ -23,6 +23,8 @@ import {
   updatePurchaseRecord,
   updateSaleRecord,
   getMonthlyStats,
+  getUnpaidDebts,
+  getAutocompleteSuggestions,
 } from "./db";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
@@ -275,6 +277,20 @@ const summaryRouter = router({
   monthlyStats: protectedProcedure
     .input(z.object({ channelId: z.number().int().positive().optional() }))
     .query(({ ctx, input }) => getMonthlyStats(ctx.user.id, input.channelId)),
+  unpaidDebts: protectedProcedure
+    .input(z.object({
+      channelId: z.number().int().positive().optional(),
+      month: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const byChannel = await getUnpaidDebts(ctx.user.id, input.channelId, input.month);
+      const unpaidPurchases = byChannel.reduce((s, c) => s + c.unpaidPurchases, 0);
+      const unpaidSales = byChannel.reduce((s, c) => s + c.unpaidSales, 0);
+      const unpaidPurchaseCount = byChannel.reduce((s, c) => s + c.unpaidPurchaseCount, 0);
+      const unpaidSaleCount = byChannel.reduce((s, c) => s + c.unpaidSaleCount, 0);
+      return { unpaidPurchases, unpaidSales, unpaidPurchaseCount, unpaidSaleCount, byChannel };
+    }),
+  autocomplete: protectedProcedure.query(({ ctx }) => getAutocompleteSuggestions(ctx.user.id)),
 });
 
 // ─── App router ───────────────────────────────────────────────────────────────

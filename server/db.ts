@@ -408,3 +408,112 @@ export async function getMonthlyStats(
       profit: sales - purchases,
     }));
 }
+
+// ─── Unpaid debts per channel ─────────────────────────────────────────────────
+export async function getUnpaidDebts(userId: number, channelId?: number, month?: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Build purchase conditions
+  const purchaseConds = [eq(purchaseRecords.userId, userId), eq(purchaseRecords.paymentStatus, "unpaid")];
+  if (channelId) purchaseConds.push(eq(purchaseRecords.channelId, channelId));
+  if (month) purchaseConds.push(eq(purchaseRecords.month, month));
+
+  // Build sale conditions
+  const saleConds = [eq(saleRecords.userId, userId), eq(saleRecords.paymentStatus, "unpaid")];
+  if (channelId) saleConds.push(eq(saleRecords.channelId, channelId));
+  if (month) saleConds.push(eq(saleRecords.month, month));
+
+  // Unpaid purchases per channel
+  const unpaidPurchases = await db
+    .select({
+      channelId: purchaseRecords.channelId,
+      total: sql<string>`COALESCE(SUM(CAST(${purchaseRecords.cost} AS DECIMAL(12,2))), 0)`,
+      count: sql<string>`COUNT(*)`,
+    })
+    .from(purchaseRecords)
+    .where(and(...purchaseConds))
+    .groupBy(purchaseRecords.channelId);
+
+  // Unpaid sales per channel
+  const unpaidSales = await db
+    .select({
+      channelId: saleRecords.channelId,
+      total: sql<string>`COALESCE(SUM(CAST(${saleRecords.cost} AS DECIMAL(12,2))), 0)`,
+      count: sql<string>`COUNT(*)`,
+    })
+    .from(saleRecords)
+    .where(and(...saleConds))
+    .groupBy(saleRecords.channelId);
+
+  // Get channel names
+  const userChannels = await db
+    .select({ id: channels.id, name: channels.name })
+    .from(channels)
+    .where(eq(channels.userId, userId));
+
+  const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
+
+  // Merge by channelId
+  const map = new Map<number, { channelId: number; channelName: string; unpaidPurchases: number; unpaidSales: number; unpaidPurchaseCount: number; unpaidSaleCount: number }>();
+
+  for (const row of unpaidPurchases) {
+    const cid = row.channelId;
+    const entry = map.get(cid) ?? { channelId: cid, channelName: channelMap.get(cid) ?? "—", unpaidPurchases: 0, unpaidSales: 0, unpaidPurchaseCount: 0, unpaidSaleCount: 0 };
+    entry.unpaidPurchases = parseFloat(row.total);
+    entry.unpaidPurchaseCount = parseInt(row.count);
+    map.set(cid, entry);
+  }
+  for (const row of unpaidSales) {
+    const cid = row.channelId;
+    const entry = map.get(cid) ?? { channelId: cid, channelName: channelMap.get(cid) ?? "—", unpaidPurchases: 0, unpaidSales: 0, unpaidPurchaseCount: 0, unpaidSaleCount: 0 };
+    entry.unpaidSales = parseFloat(row.total);
+    entry.unpaidSaleCount = parseInt(row.count);
+    map.set(cid, entry);
+  }
+
+  return Array.from(map.values()).filter(
+    (e) => e.unpaidPurchases > 0 || e.unpaidSales > 0
+  );
+}
+
+// ─── Autocomplete suggestions ─────────────────────────────────────────────────
+export async function getAutocompleteSuggestions(userId: number) {
+  const db = await getDb();
+  if (!db) return { admins: [], directions: [], buyers: [], platforms: [] };
+
+  const [purchaseRows, saleRows] = await Promise.all([
+    db
+      .select({ admin: purchaseRecords.admin, direction: purchaseRecords.direction, buyer: purchaseRecords.buyer })
+      .from(purchaseRecords)
+      .where(eq(purchaseRecords.userId, userId))
+      .orderBy(desc(purchaseRecords.createdAt))
+      .limit(200),
+    db
+      .select({ admin: saleRecords.admin, platform: saleRecords.platform })
+      .from(saleRecords)
+      .where(eq(saleRecords.userId, userId))
+      .orderBy(desc(saleRecords.createdAt))
+      .limit(200),
+  ]);
+
+  const unique = <T>(arr: (T | null | undefined)[]): string[] => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const v of arr) {
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (s === "" || seen.has(s)) continue;
+      seen.add(s);
+      result.push(s);
+    }
+    return result;
+  };
+
+  return {
+    admins: unique([...purchaseRows.map((r) => r.admin), ...saleRows.map((r) => r.admin)]),
+    directions: unique(purchaseRows.map((r) => r.direction)),
+    buyers: unique(purchaseRows.map((r) => r.buyer)),
+    platforms: unique(saleRows.map((r) => r.platform)),
+  };
+}

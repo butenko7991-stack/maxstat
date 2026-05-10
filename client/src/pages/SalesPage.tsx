@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Plus, TrendingUp, Pencil, Trash2, X, Check,
-  ExternalLink, Copy, Download, Search,
+  ExternalLink, Copy, Download, Search, ArrowUpDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   type SaleFormData,
   type PaymentStatus,
   type TimeSlot,
+  type AutocompleteSuggestions,
 } from "@/components/RecordFormModal";
 import { formatMonthLabel, formatCost, todayIso, currentMonth } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -57,6 +58,8 @@ export default function SalesPage() {
   const [selectedPayment, setSelectedPayment] = useState<string>("all");
   const [selectedChannel, setSelectedChannel] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<"date" | "cost" | "paymentStatus">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<SaleFormData>(EMPTY_FORM);
@@ -70,6 +73,13 @@ export default function SalesPage() {
   }), [selectedChannel, selectedMonth, selectedPayment]);
 
   const { data: records, isLoading } = trpc.sales.list.useQuery(listInput);
+  const { data: autocompleteData } = trpc.summary.autocomplete.useQuery();
+  const suggestions: AutocompleteSuggestions = {
+    admins: autocompleteData?.admins ?? [],
+    directions: autocompleteData?.directions ?? [],
+    buyers: autocompleteData?.buyers ?? [],
+    platforms: autocompleteData?.platforms ?? [],
+  };
 
   const { data: exportData, isFetching: exportFetching, refetch: refetchExport } =
     trpc.sales.exportData.useQuery(
@@ -116,16 +126,30 @@ export default function SalesPage() {
   );
 
   const filteredRecords = useMemo(() => {
-    if (!searchQuery.trim()) return records ?? [];
-    const q = searchQuery.toLowerCase();
-    return (records ?? []).filter((r) =>
-      (r.admin ?? "").toLowerCase().includes(q) ||
-      (r.link ?? "").toLowerCase().includes(q) ||
-      (r.platform ?? "").toLowerCase().includes(q) ||
-      (r.timeSlot ?? "").toLowerCase().includes(q) ||
-      (channelMap[r.channelId] ?? "").toLowerCase().includes(q)
-    );
-  }, [records, searchQuery, channelMap]);
+    let list = records ?? [];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter((r) =>
+        (r.admin ?? "").toLowerCase().includes(q) ||
+        (r.link ?? "").toLowerCase().includes(q) ||
+        (r.platform ?? "").toLowerCase().includes(q) ||
+        (r.timeSlot ?? "").toLowerCase().includes(q) ||
+        (channelMap[r.channelId] ?? "").toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "date") {
+        cmp = new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime();
+      } else if (sortField === "cost") {
+        cmp = (parseFloat(a.cost ?? "0") || 0) - (parseFloat(b.cost ?? "0") || 0);
+      } else if (sortField === "paymentStatus") {
+        const order: Record<string, number> = { unpaid: 0, partial: 1, paid: 2 };
+        cmp = (order[a.paymentStatus] ?? 0) - (order[b.paymentStatus] ?? 0);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [records, searchQuery, channelMap, sortField, sortDir]);
 
   const totalRevenue = useMemo(
     () => filteredRecords.reduce((s, r) => s + (parseFloat(r.cost ?? "0") || 0), 0),
@@ -283,6 +307,28 @@ export default function SalesPage() {
             <SelectItem value="partial">Частично</SelectItem>
           </SelectContent>
         </Select>
+        {/* Sort control */}
+        <div className="flex items-center gap-1 ml-auto">
+          <Select value={sortField} onValueChange={(v) => setSortField(v as typeof sortField)}>
+            <SelectTrigger className="w-36 bg-card border-border text-sm h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover border-border">
+              <SelectItem value="date">По дате</SelectItem>
+              <SelectItem value="cost">По стоимости</SelectItem>
+              <SelectItem value="paymentStatus">По оплате</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 w-9 p-0 bg-transparent"
+            title={sortDir === "asc" ? "По возрастанию" : "По убыванию"}
+            onClick={() => setSortDir((d) => d === "asc" ? "desc" : "asc")}
+          >
+            <ArrowUpDown className="w-3.5 h-3.5" style={{ transform: sortDir === "asc" ? "none" : "scaleY(-1)" }} />
+          </Button>
+        </div>
       </div>
 
       {/* Summary bar */}
@@ -426,6 +472,7 @@ export default function SalesPage() {
         setForm={setForm}
         onSubmit={handleSubmit}
         isPending={isPending}
+        suggestions={suggestions}
       />
     </div>
   );

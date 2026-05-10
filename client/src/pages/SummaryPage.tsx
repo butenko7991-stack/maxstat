@@ -7,6 +7,7 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownRight,
+  AlertCircle,
 } from "lucide-react";
 import {
   Select,
@@ -76,6 +77,11 @@ export default function SummaryPage() {
   const { data: summaries, isLoading } = trpc.summary.financial.useQuery({
     month: selectedMonth !== "all" ? selectedMonth : undefined,
   });
+  const { data: unpaidDebts } = trpc.summary.unpaidDebts.useQuery({
+    channelId: selectedChannelId !== "all" ? Number(selectedChannelId) : undefined,
+    month: selectedMonth !== "all" ? selectedMonth : undefined,
+  });
+
   const { data: chartData, isLoading: chartLoading } = trpc.summary.monthlyStats.useQuery({
     channelId: selectedChannelId !== "all" ? Number(selectedChannelId) : undefined,
   });
@@ -167,6 +173,50 @@ export default function SummaryPage() {
               signed
             />
           </div>
+
+          {/* Unpaid debts widget */}
+          {unpaidDebts && (unpaidDebts.unpaidPurchases > 0 || unpaidDebts.unpaidSales > 0) && (
+            <div className="glass rounded-xl p-4 space-y-3 border border-amber-500/20">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400" />
+                <h2 className="text-sm font-semibold text-foreground">Неоплаченные долги</h2>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {unpaidDebts.unpaidPurchases > 0 && (
+                  <div className="bg-loss/10 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Закуп не оплачен</p>
+                    <p className="text-sm font-bold text-loss">{formatCost(unpaidDebts.unpaidPurchases)} ₽</p>
+                    <p className="text-xs text-muted-foreground">{unpaidDebts.unpaidPurchaseCount} записей</p>
+                  </div>
+                )}
+                {unpaidDebts.unpaidSales > 0 && (
+                  <div className="bg-amber-500/10 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Продажа не оплачена</p>
+                    <p className="text-sm font-bold text-amber-400">{formatCost(unpaidDebts.unpaidSales)} ₽</p>
+                    <p className="text-xs text-muted-foreground">{unpaidDebts.unpaidSaleCount} записей</p>
+                  </div>
+                )}
+              </div>
+              {unpaidDebts.byChannel && unpaidDebts.byChannel.length > 1 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">По каналам</p>
+                  {unpaidDebts.byChannel.map((ch) => (
+                    <div key={ch.channelId} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground truncate max-w-[140px]">{ch.channelName}</span>
+                      <div className="flex items-center gap-3">
+                        {ch.unpaidPurchases > 0 && (
+                          <span className="text-loss">−{formatCost(ch.unpaidPurchases)} ₽</span>
+                        )}
+                        {ch.unpaidSales > 0 && (
+                          <span className="text-amber-400">+{formatCost(ch.unpaidSales)} ₽</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Charts ─────────────────────────────────────────────────────── */}
           {chartLoading ? (

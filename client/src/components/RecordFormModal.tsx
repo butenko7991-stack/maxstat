@@ -17,6 +17,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useEffect } from "react";
 import { Calculator } from "lucide-react";
+import { AutocompleteInput } from "./AutocompleteInput";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
 export type TimeSlot = string;
@@ -31,7 +32,7 @@ export interface PurchaseFormData {
   tariff: string;
   buyer: string;
   spm: string;
-  reach: string; // audience reach for SPM cost calculation
+  reach: string;
   cost: string;
   paymentStatus: PaymentStatus;
   botStories: string;
@@ -49,13 +50,20 @@ export interface SaleFormData {
   tariff: string;
   platform: string;
   spm: string;
-  reach: string; // audience reach for SPM cost calculation
+  reach: string;
   cost: string;
   paymentStatus: PaymentStatus;
   botStories: string;
   botStoriesCost: string;
   month: string;
   notes: string;
+}
+
+export interface AutocompleteSuggestions {
+  admins: string[];
+  directions: string[];
+  buyers: string[];
+  platforms: string[];
 }
 
 interface Channel {
@@ -65,12 +73,10 @@ interface Channel {
 
 /**
  * Calculates cost from reach and SPM value.
- * SPM field can be a plain number (e.g. "1000") or text like "1000СПМ".
  * Formula: cost = (reach × spmValue) / 1000
  */
 function calcCostFromSpm(reach: string, spm: string): string {
   const reachNum = parseFloat(reach);
-  // Extract numeric part from spm string (e.g. "1000СПМ" → 1000, "1500" → 1500)
   const spmMatch = spm.match(/[\d.,]+/);
   if (!spmMatch) return "";
   const spmNum = parseFloat(spmMatch[0].replace(",", "."));
@@ -78,6 +84,7 @@ function calcCostFromSpm(reach: string, spm: string): string {
   return String(Math.round((reachNum * spmNum) / 1000));
 }
 
+// ─── Purchase Form Modal ──────────────────────────────────────────────────────
 interface PurchaseFormModalProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -87,6 +94,7 @@ interface PurchaseFormModalProps {
   setForm: React.Dispatch<React.SetStateAction<PurchaseFormData>>;
   onSubmit: (e: React.FormEvent) => void;
   isPending: boolean;
+  suggestions?: AutocompleteSuggestions;
 }
 
 export function PurchaseFormModal({
@@ -98,6 +106,7 @@ export function PurchaseFormModal({
   setForm,
   onSubmit,
   isPending,
+  suggestions,
 }: PurchaseFormModalProps) {
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
@@ -172,9 +181,10 @@ export function PurchaseFormModal({
 
             <div className="space-y-1.5">
               <Label>Админ</Label>
-              <Input
+              <AutocompleteInput
                 value={form.admin}
-                onChange={(e) => setForm((f) => ({ ...f, admin: e.target.value }))}
+                onChange={(v) => setForm((f) => ({ ...f, admin: v }))}
+                suggestions={suggestions?.admins ?? []}
                 placeholder="Имя администратора"
                 className="bg-input border-border"
               />
@@ -230,7 +240,8 @@ export function PurchaseFormModal({
               </div>
               {form.reach && form.spm && calcCostFromSpm(form.reach, form.spm) && (
                 <p className="text-xs text-primary/80">
-                  = {form.reach} × {form.spm.match(/[\d.,]+/)?.[0] ?? "?"} / 1000 = <strong>{calcCostFromSpm(form.reach, form.spm)} ₽</strong>
+                  = {form.reach} × {form.spm.match(/[\d.,]+/)?.[0] ?? "?"} / 1000 ={" "}
+                  <strong>{calcCostFromSpm(form.reach, form.spm)} ₽</strong>
                 </p>
               )}
             </div>
@@ -247,9 +258,10 @@ export function PurchaseFormModal({
 
             <div className="space-y-1.5">
               <Label>Направление</Label>
-              <Input
+              <AutocompleteInput
                 value={form.direction}
-                onChange={(e) => setForm((f) => ({ ...f, direction: e.target.value }))}
+                onChange={(v) => setForm((f) => ({ ...f, direction: v }))}
+                suggestions={suggestions?.directions ?? []}
                 placeholder="психология, мода..."
                 className="bg-input border-border"
               />
@@ -257,9 +269,10 @@ export function PurchaseFormModal({
 
             <div className="space-y-1.5">
               <Label>Закупщик</Label>
-              <Input
+              <AutocompleteInput
                 value={form.buyer}
-                onChange={(e) => setForm((f) => ({ ...f, buyer: e.target.value }))}
+                onChange={(v) => setForm((f) => ({ ...f, buyer: v }))}
+                suggestions={suggestions?.buyers ?? []}
                 placeholder="Имя закупщика"
                 className="bg-input border-border"
               />
@@ -309,7 +322,12 @@ export function PurchaseFormModal({
           </div>
 
           <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => onOpenChange(false)}
+            >
               Отмена
             </Button>
             <Button type="submit" className="flex-1" disabled={isPending}>
@@ -322,6 +340,7 @@ export function PurchaseFormModal({
   );
 }
 
+// ─── Sale Form Modal ──────────────────────────────────────────────────────────
 interface SaleFormModalProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -331,6 +350,7 @@ interface SaleFormModalProps {
   setForm: React.Dispatch<React.SetStateAction<SaleFormData>>;
   onSubmit: (e: React.FormEvent) => void;
   isPending: boolean;
+  suggestions?: AutocompleteSuggestions;
 }
 
 export function SaleFormModal({
@@ -342,6 +362,7 @@ export function SaleFormModal({
   setForm,
   onSubmit,
   isPending,
+  suggestions,
 }: SaleFormModalProps) {
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
@@ -426,9 +447,10 @@ export function SaleFormModal({
 
             <div className="space-y-1.5">
               <Label>Админ</Label>
-              <Input
+              <AutocompleteInput
                 value={form.admin}
-                onChange={(e) => setForm((f) => ({ ...f, admin: e.target.value }))}
+                onChange={(v) => setForm((f) => ({ ...f, admin: v }))}
+                suggestions={suggestions?.admins ?? []}
                 placeholder="Имя администратора"
                 className="bg-input border-border"
               />
@@ -484,7 +506,8 @@ export function SaleFormModal({
               </div>
               {form.reach && form.spm && calcCostFromSpm(form.reach, form.spm) && (
                 <p className="text-xs text-primary/80">
-                  = {form.reach} × {form.spm.match(/[\d.,]+/)?.[0] ?? "?"} / 1000 = <strong>{calcCostFromSpm(form.reach, form.spm)} ₽</strong>
+                  = {form.reach} × {form.spm.match(/[\d.,]+/)?.[0] ?? "?"} / 1000 ={" "}
+                  <strong>{calcCostFromSpm(form.reach, form.spm)} ₽</strong>
                 </p>
               )}
             </div>
@@ -501,9 +524,10 @@ export function SaleFormModal({
 
             <div className="space-y-1.5">
               <Label>Платформа</Label>
-              <Input
+              <AutocompleteInput
                 value={form.platform}
-                onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))}
+                onChange={(v) => setForm((f) => ({ ...f, platform: v }))}
+                suggestions={suggestions?.platforms ?? []}
                 placeholder="Сетка, MAX, TG..."
                 className="bg-input border-border"
               />
@@ -543,7 +567,12 @@ export function SaleFormModal({
           </div>
 
           <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => onOpenChange(false)}
+            >
               Отмена
             </Button>
             <Button type="submit" className="flex-1" disabled={isPending}>
