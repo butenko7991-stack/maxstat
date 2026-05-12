@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   BarChart3,
   BookOpen,
+  CalendarDays,
   Layers,
   LogOut,
   Menu,
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/channels", label: "Каналы", icon: Layers },
   { href: "/purchases", label: "Закуп", icon: ShoppingCart },
   { href: "/sales", label: "Продажа", icon: TrendingUp },
+  { href: "/schedule", label: "Расписание", icon: CalendarDays },
   { href: "/summary", label: "Итоги", icon: BarChart3 },
 ];
 

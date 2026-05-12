@@ -1,0 +1,1 @@
+ALTER TABLE `sale_records` ADD `bookingSlot` enum('утро','обед','вечер');

@@ -25,6 +25,8 @@ import {
   getMonthlyStats,
   getUnpaidDebts,
   getAutocompleteSuggestions,
+  getScheduleData,
+  checkBookingConflict,
 } from "./db";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
@@ -189,6 +191,7 @@ const saleInput = z.object({
   botStories: z.string().max(255).optional(),
   botStoriesCost: z.string().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
+  bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
   notes: z.string().optional(),
 });
 const salesRouter = router({
@@ -208,6 +211,14 @@ const salesRouter = router({
       })
     ),
   create: protectedProcedure.input(saleInput).mutation(async ({ ctx, input }) => {
+    // Check booking conflict if bookingSlot is specified
+    if (input.bookingSlot) {
+      const dateStr = input.date.slice(0, 10);
+      const conflict = await checkBookingConflict(ctx.user.id, input.channelId, dateStr, input.bookingSlot);
+      if (conflict) {
+        throw new TRPCError({ code: "CONFLICT", message: `Слот уже занят (запись #${conflict})` });
+      }
+    }
     const id = await createSaleRecord({
       userId: ctx.user.id,
       channelId: input.channelId,
@@ -215,6 +226,7 @@ const salesRouter = router({
       admin: input.admin ?? null,
       link: input.link ?? null,
       timeSlot: input.timeSlot ?? null,
+      bookingSlot: input.bookingSlot ?? null,
       tariff: input.tariff ?? null,
       platform: input.platform ?? null,
       spm: input.spm ?? null,
@@ -234,6 +246,14 @@ const salesRouter = router({
       const { id, date, ...rest } = input;
       const updateData: Record<string, unknown> = { ...rest };
       if (date) updateData.date = new Date(date);
+      // Check booking conflict if bookingSlot is being updated
+      if (input.bookingSlot && input.channelId && input.date) {
+        const dateStr = input.date.slice(0, 10);
+        const conflict = await checkBookingConflict(ctx.user.id, input.channelId, dateStr, input.bookingSlot, id);
+        if (conflict) {
+          throw new TRPCError({ code: "CONFLICT", message: `Слот "${input.bookingSlot}" уже занят для этого канала на выбранную дату.` });
+        }
+      }
       await updateSaleRecord(id, ctx.user.id, updateData as Parameters<typeof updateSaleRecord>[2]);
       return { success: true };
     }),
@@ -294,8 +314,13 @@ const summaryRouter = router({
     }),
   autocomplete: protectedProcedure.query(({ ctx }) => getAutocompleteSuggestions(ctx.user.id)),
 });
-
-// ─── App router ───────────────────────────────────────────────────────────────
+// ─── Schedule router ─────────────────────────────────────────────────────────────────────────────────────
+const scheduleRouter = router({
+  getData: protectedProcedure
+    .input(z.object({ startDate: z.string(), endDate: z.string() }))
+    .query(({ ctx, input }) => getScheduleData(ctx.user.id, input.startDate, input.endDate)),
+});
+// ─── App router ──────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -309,6 +334,7 @@ export const appRouter = router({
   channels: channelsRouter,
   purchases: purchasesRouter,
   sales: salesRouter,
+  schedule: scheduleRouter,
   summary: summaryRouter,
 });
 

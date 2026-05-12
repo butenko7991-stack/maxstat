@@ -517,3 +517,90 @@ export async function getAutocompleteSuggestions(userId: number) {
     platforms: unique(saleRows.map((r) => r.platform)),
   };
 }
+
+// ─── Schedule / Booking Calendar ─────────────────────────────────────────────
+export async function getScheduleData(
+  userId: number,
+  startDate: string,
+  endDate: string
+): Promise<{
+  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff">>;
+  purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus">>;
+}> {
+  const db = await getDb();
+  if (!db) return { sales: [], purchases: [] };
+
+  const [sales, purchases] = await Promise.all([
+    db
+      .select({
+        id: saleRecords.id,
+        channelId: saleRecords.channelId,
+        date: saleRecords.date,
+        timeSlot: saleRecords.timeSlot,
+        bookingSlot: saleRecords.bookingSlot,
+        admin: saleRecords.admin,
+        cost: saleRecords.cost,
+        paymentStatus: saleRecords.paymentStatus,
+        link: saleRecords.link,
+        tariff: saleRecords.tariff,
+      })
+      .from(saleRecords)
+      .where(
+        and(
+          eq(saleRecords.userId, userId),
+          sql`DATE(${saleRecords.date}) >= ${startDate}`,
+          sql`DATE(${saleRecords.date}) <= ${endDate}`
+        )
+      )
+      .orderBy(saleRecords.date),
+    db
+      .select({
+        id: purchaseRecords.id,
+        channelId: purchaseRecords.channelId,
+        date: purchaseRecords.date,
+        admin: purchaseRecords.admin,
+        cost: purchaseRecords.cost,
+        paymentStatus: purchaseRecords.paymentStatus,
+      })
+      .from(purchaseRecords)
+      .where(
+        and(
+          eq(purchaseRecords.userId, userId),
+          sql`DATE(${purchaseRecords.date}) >= ${startDate}`,
+          sql`DATE(${purchaseRecords.date}) <= ${endDate}`
+        )
+      )
+      .orderBy(purchaseRecords.date),
+  ]);
+
+  return { sales, purchases };
+}
+
+/** Check if a booking slot is already taken for a given channel/date/bookingSlot.
+ * Returns the conflicting record id if found, or null if free.
+ * Pass excludeId to ignore a specific record (for update operations).
+ */
+export async function checkBookingConflict(
+  userId: number,
+  channelId: number,
+  date: string, // YYYY-MM-DD
+  bookingSlot: "утро" | "обед" | "вечер",
+  excludeId?: number
+): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select({ id: saleRecords.id })
+    .from(saleRecords)
+    .where(
+      and(
+        eq(saleRecords.userId, userId),
+        eq(saleRecords.channelId, channelId),
+        sql`DATE(${saleRecords.date}) = ${date}`,
+        eq(saleRecords.bookingSlot, bookingSlot)
+      )
+    )
+    .limit(2);
+  const filtered = excludeId ? rows.filter((r) => r.id !== excludeId) : rows;
+  return filtered.length > 0 ? filtered[0].id : null;
+}

@@ -102,6 +102,8 @@ export const saleRecords = mysqlTable("sale_records", {
   link: varchar("link", { length: 1024 }),
   /** Time slot — free text (e.g. утро, 10:00, вечер) */
   timeSlot: varchar("timeSlot", { length: 100 }),
+  /** Booking slot for schedule grid — normalized enum */
+  bookingSlot: mysqlEnum("bookingSlot", ["утро", "обед", "вечер"]),
   /** Tariff type */
   tariff: varchar("tariff", { length: 100 }),
   /** Platform where the ad appears (e.g. Сетка, MAX, TG) */

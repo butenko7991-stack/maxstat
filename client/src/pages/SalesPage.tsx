@@ -21,7 +21,7 @@ import { formatMonthLabel, formatCost, todayIso, currentMonth } from "@/lib/util
 import * as XLSX from "xlsx";
 
 const EMPTY_FORM: SaleFormData = {
-  channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "",
+  channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
 };
@@ -200,6 +200,7 @@ export default function SalesPage() {
     setForm({
       channelId: String(r.channelId), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : todayIso(),
       admin: r.admin ?? "", link: r.link ?? "", timeSlot: (r.timeSlot as TimeSlot) ?? "",
+      bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер") ?? "",
       tariff: r.tariff ?? "", platform: r.platform ?? "",      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, notes: r.notes ?? "",
@@ -214,6 +215,7 @@ export default function SalesPage() {
       channelId: Number(form.channelId), date: form.date,
       admin: form.admin || undefined, link: form.link || undefined,
       timeSlot: (form.timeSlot || undefined) as TimeSlot | undefined,
+      bookingSlot: (form.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
       tariff: form.tariff || undefined, platform: form.platform || undefined,
       spm: form.spm || undefined,
       reach: form.reach ? Number(form.reach) : undefined,
