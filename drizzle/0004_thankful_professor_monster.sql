@@ -1,0 +1,1 @@
+ALTER TABLE `purchase_records` ADD `subscribersGained` int;

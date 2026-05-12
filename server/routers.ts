@@ -86,6 +86,7 @@ const purchaseInput = z.object({
   reach: z.number().int().nonnegative().optional(), // audience reach for SPM calculation
   cost: z.string().optional(), // decimal as string
   paymentStatus: paymentStatusEnum.optional(),
+  subscribersGained: z.number().int().nonnegative().optional(), // actual subscribers gained
   botStories: z.string().max(255).optional(),
   botStoriesCost: z.string().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
@@ -122,6 +123,7 @@ const purchasesRouter = router({
       reach: input.reach ?? null,
       cost: input.cost ?? null,
       paymentStatus: input.paymentStatus ?? "unpaid",
+      subscribersGained: input.subscribersGained ?? null,
       botStories: input.botStories ?? null,
       botStoriesCost: input.botStoriesCost ?? null,
       month: input.month,

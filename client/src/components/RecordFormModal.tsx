@@ -35,6 +35,7 @@ export interface PurchaseFormData {
   reach: string;
   cost: string;
   paymentStatus: PaymentStatus;
+  subscribersGained: string;
   botStories: string;
   botStoriesCost: string;
   month: string;
@@ -286,6 +287,33 @@ export function PurchaseFormModal({
                 placeholder="Каналы для размещения"
                 className="bg-input border-border"
               />
+            </div>
+            {/* Subscribers gained */}
+            <div className="col-span-2 rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-emerald-400/80 font-medium">
+                Фактический результат размещения
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Пришло подписчиков</Label>
+                  <Input
+                    type="number"
+                    value={form.subscribersGained}
+                    onChange={(e) => setForm((f) => ({ ...f, subscribersGained: e.target.value }))}
+                    placeholder="0"
+                    className="bg-input border-border"
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Стоимость подписчика</Label>
+                  <div className="flex items-center h-10 px-3 rounded-md border border-border bg-muted/30 text-sm">
+                    {form.subscribersGained && form.cost && Number(form.subscribersGained) > 0
+                      ? <span className="text-emerald-400 font-semibold">{Math.round(Number(form.cost) / Number(form.subscribersGained))} ₽/подп.</span>
+                      : <span className="text-muted-foreground text-xs">введите данные</span>}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-1.5">

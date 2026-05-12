@@ -22,7 +22,7 @@ import * as XLSX from "xlsx";
 const EMPTY_FORM: PurchaseFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", targetChannels: "",
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
-  botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
+  subscribersGained: "", botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
 };
 
 const PAYMENT_CYCLE: Record<PaymentStatus, PaymentStatus> = {
@@ -148,6 +148,11 @@ export default function PurchasesPage() {
     () => filteredRecords.reduce((s, r) => s + (parseFloat(r.cost ?? "0") || 0), 0),
     [filteredRecords]
   );
+  const totalSubscribers = useMemo(
+    () => filteredRecords.reduce((s, r) => s + (r.subscribersGained ?? 0), 0),
+    [filteredRecords]
+  );
+  const avgCostPerSub = totalSubscribers > 0 ? Math.round(totalCost / totalSubscribers) : null;
 
   // Export effect: when exportData arrives after user click, build xlsx
   useEffect(() => {
@@ -171,6 +176,10 @@ export default function PurchasesPage() {
       "СПМ": r.spm ?? "",
       "Стоимость": r.cost ? parseFloat(r.cost) : "",
       "Оплата": PAYMENT_LABELS[r.paymentStatus] ?? r.paymentStatus,
+      "Пришло подписчиков": r.subscribersGained ?? "",
+      "Стоимость подписчика": (r.subscribersGained && r.cost && Number(r.subscribersGained) > 0)
+        ? Math.round(parseFloat(r.cost) / r.subscribersGained)
+        : "",
       "Бот/Сторис": r.botStories ?? "",
       "Стоимость бот/сторис": r.botStoriesCost ? parseFloat(r.botStoriesCost) : "",
       "Заметки": r.notes ?? "",
@@ -197,6 +206,7 @@ export default function PurchasesPage() {
       admin: r.admin ?? "", link: r.link ?? "", targetChannels: r.targetChannels ?? "",
       direction: r.direction ?? "", tariff: r.tariff ?? "", buyer: r.buyer ?? "",
       spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
+      subscribersGained: r.subscribersGained ? String(r.subscribersGained) : "",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, notes: r.notes ?? "",
     });
@@ -214,7 +224,9 @@ export default function PurchasesPage() {
       spm: form.spm || undefined,
       reach: form.reach ? Number(form.reach) : undefined,
       cost: form.cost || undefined,
-      paymentStatus: form.paymentStatus, botStories: form.botStories || undefined,
+      paymentStatus: form.paymentStatus,
+      subscribersGained: form.subscribersGained ? Number(form.subscribersGained) : undefined,
+      botStories: form.botStories || undefined,
       botStoriesCost: form.botStoriesCost || undefined, month: form.month,
       notes: form.notes || undefined,
     };
@@ -337,6 +349,12 @@ export default function PurchasesPage() {
           <span className="text-muted-foreground">
             Итого: <span className="text-loss font-semibold">{formatCost(totalCost)} ₽</span>
           </span>
+          {totalSubscribers > 0 && (
+            <span className="text-muted-foreground">
+              Подп.: <span className="text-emerald-400 font-semibold">+{totalSubscribers}</span>
+              {avgCostPerSub && <span className="text-muted-foreground ml-1">({avgCostPerSub} ₽/подп.)</span>}
+            </span>
+          )}
         </div>
       )}
 
@@ -409,6 +427,18 @@ export default function PurchasesPage() {
                   <span className="text-sm font-semibold text-loss">
                     {r.cost ? `${formatCost(parseFloat(r.cost))} ₽` : "—"}
                   </span>
+                  {r.subscribersGained != null && r.subscribersGained > 0 && (
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-xs text-emerald-400 font-medium">
+                        +{r.subscribersGained} подп.
+                      </span>
+                      {r.cost && (
+                        <span className="text-xs text-muted-foreground">
+                          {Math.round(parseFloat(r.cost) / r.subscribersGained)} ₽/подп.
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => duplicateMutation.mutate({ id: r.id })}

@@ -70,6 +70,8 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   cost: decimal("cost", { precision: 12, scale: 2 }),
   /** Payment status */
   paymentStatus: mysqlEnum("paymentStatus", ["paid", "unpaid", "partial"]).default("unpaid").notNull(),
+  /** Actual subscribers gained from this placement */
+  subscribersGained: int("subscribersGained"),
   /** Bot / stories flag */
   botStories: varchar("botStories", { length: 255 }),
   /** Bot / stories payment amount */
