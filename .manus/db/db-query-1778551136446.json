@@ -1,0 +1,35 @@
+{
+  "query": "SELECT id, timeSlot, bookingSlot FROM sale_records ORDER BY id LIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute SELECT id, timeSlot, bookingSlot FROM sale_records ORDER BY id LIMIT 20;",
+  "rows": [
+    {
+      "id": "1",
+      "timeSlot": "18:00",
+      "bookingSlot": "NULL"
+    },
+    {
+      "id": "30001",
+      "timeSlot": "18:05",
+      "bookingSlot": "NULL"
+    },
+    {
+      "id": "30002",
+      "timeSlot": "14:00",
+      "bookingSlot": "NULL"
+    },
+    {
+      "id": "30003",
+      "timeSlot": "14:00",
+      "bookingSlot": "NULL"
+    },
+    {
+      "id": "30004",
+      "timeSlot": "18.00",
+      "bookingSlot": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttimeSlot\tbookingSlot\n1\t18:00\tNULL\n30001\t18:05\tNULL\n30002\t14:00\tNULL\n30003\t14:00\tNULL\n30004\t18.00\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 281
+}

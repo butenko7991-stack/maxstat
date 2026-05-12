@@ -176,6 +176,28 @@ const purchasesRouter = router({
 });
 
 // ─── Sales router ─────────────────────────────────────────────────────────────
+
+/** Derive a bookingSlot from a free-text timeSlot string.
+ * Maps time values to утро/обед/вечер based on hour of day.
+ * Also handles direct text values like "утро", "обед", "вечер".
+ */
+function deriveBookingSlot(timeSlot: string | undefined | null): "утро" | "обед" | "вечер" | null {
+  if (!timeSlot) return null;
+  const lower = timeSlot.toLowerCase().trim();
+  if (lower === "утро" || lower === "утром") return "утро";
+  if (lower === "обед" || lower === "днём" || lower === "день") return "обед";
+  if (lower === "вечер" || lower === "вечером") return "вечер";
+  // Try to parse HH:MM or HH.MM format
+  const match = lower.match(/^(\d{1,2})[:\.](\d{2})/);
+  if (match) {
+    const hour = parseInt(match[1], 10);
+    if (hour < 12) return "утро";
+    if (hour < 17) return "обед";
+    return "вечер";
+  }
+  return null;
+}
+
 const saleInput = z.object({
   channelId: z.number().int().positive(),
   date: z.string(),
@@ -226,7 +248,7 @@ const salesRouter = router({
       admin: input.admin ?? null,
       link: input.link ?? null,
       timeSlot: input.timeSlot ?? null,
-      bookingSlot: input.bookingSlot ?? null,
+      bookingSlot: input.bookingSlot ?? deriveBookingSlot(input.timeSlot),
       tariff: input.tariff ?? null,
       platform: input.platform ?? null,
       spm: input.spm ?? null,
@@ -246,6 +268,11 @@ const salesRouter = router({
       const { id, date, ...rest } = input;
       const updateData: Record<string, unknown> = { ...rest };
       if (date) updateData.date = new Date(date);
+      // Auto-derive bookingSlot from timeSlot if bookingSlot is not explicitly set
+      if (!input.bookingSlot && input.timeSlot) {
+        const derived = deriveBookingSlot(input.timeSlot);
+        if (derived) updateData.bookingSlot = derived;
+      }
       // Check booking conflict if bookingSlot is being updated
       if (input.bookingSlot && input.channelId && input.date) {
         const dateStr = input.date.slice(0, 10);
