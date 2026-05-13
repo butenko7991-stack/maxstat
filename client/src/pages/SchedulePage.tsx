@@ -264,7 +264,7 @@ export default function SchedulePage() {
         <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
           <div className="min-w-[640px]">
             {/* Day headers */}
-            <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}>
+            <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
               <div /> {/* empty corner */}
               {weekDates.map((d) => {
                 const { weekday, day, month } = formatDay(d);
@@ -316,7 +316,7 @@ export default function SchedulePage() {
                       <div
                         key={slot}
                         className="grid gap-1 p-2"
-                        style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}
+                        style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}
                       >
                         {/* Slot label */}
                         <div className="flex items-center gap-1.5 px-1">
@@ -336,20 +336,20 @@ export default function SchedulePage() {
                               <button
                                 key={dateStr}
                                 onClick={() => openDetail(channel.id, channel.name, dateStr, slot)}
-                                className="relative rounded-lg border bg-red-500/15 border-red-500/30 hover:bg-red-500/25 transition-colors p-1.5 text-left min-h-[52px] group"
+                                className="relative rounded-lg border bg-red-500/15 border-red-500/30 hover:bg-red-500/25 transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group"
                               >
-                                <div className="flex items-start justify-between gap-1">
-                                  <span className="text-[10px] font-semibold text-red-400 leading-tight truncate">
+                                <div className="flex items-start justify-between gap-1 min-w-0">
+                                  <span className="text-[10px] font-semibold text-red-400 leading-tight truncate min-w-0 block">
                                     {records[0]?.admin ?? "—"}
                                   </span>
                                   <Eye className="w-3 h-3 text-red-400/60 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </div>
                                 {records[0]?.cost && (
-                                  <div className="text-[10px] text-red-300/70 mt-0.5">
+                                  <div className="text-[10px] text-red-300/70 mt-0.5 truncate">
                                     {formatCost(parseFloat(records[0].cost))} ₽
                                   </div>
                                 )}
-                                <div className={cn("text-[9px] mt-0.5", PAYMENT_COLORS[records[0]?.paymentStatus ?? "unpaid"])}>
+                                <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[records[0]?.paymentStatus ?? "unpaid"])}>
                                   {PAYMENT_LABELS[records[0]?.paymentStatus ?? "unpaid"]}
                                 </div>
                                 {records.length > 1 && (
