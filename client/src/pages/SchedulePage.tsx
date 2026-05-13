@@ -85,6 +85,7 @@ export default function SchedulePage() {
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saleForm, setSaleForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
+  const [conflictError, setConflictError] = useState<string | null>(null);
   const [detailSlot, setDetailSlot] = useState<null | {
     channelName: string;
     date: string;
@@ -110,7 +111,13 @@ export default function SchedulePage() {
       setDialogOpen(false);
       toast.success("Запись создана");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      if (e.data?.code === "CONFLICT") {
+        setConflictError(e.message);
+      } else {
+        toast.error(e.message);
+      }
+    },
   });
 
   const visibleChannels = useMemo(() => {
@@ -166,6 +173,7 @@ export default function SchedulePage() {
       bookingSlot: slot,
       month,
     });
+    setConflictError(null);
     setDialogOpen(true);
   }
 
@@ -384,10 +392,12 @@ export default function SchedulePage() {
         {dialogOpen && (
           <SaleFormModal
             open={dialogOpen}
-            onOpenChange={(v) => setDialogOpen(v)}
+            onOpenChange={(v) => { setDialogOpen(v); if (!v) setConflictError(null); }}
             title="Новая запись продажи"
             form={saleForm as any}
-            setForm={setSaleForm as any}
+            setForm={(updater: any) => { setConflictError(null); setSaleForm(updater); }}
+            conflictError={conflictError}
+            onClearConflict={() => setConflictError(null)}
             onSubmit={(e: React.FormEvent) => {
               e.preventDefault();
               if (!saleForm.channelId || !saleForm.date) return;

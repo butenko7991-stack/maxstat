@@ -81,3 +81,8 @@
 - [x] getScheduleData возвращает bookingSlot
 - [x] saleMap строится по bookingSlot (с фоллбэком на timeSlot)
 - [x] Проверка конфликта добавлена в sales.update с excludeId
+
+## Проверка пересечения бронирований
+- [x] SaleFormModal: добавить проп `conflictError` и показывать алерт с сообщением об ошибке
+- [x] SalesPage: перехватывать CONFLICT ошибку в onError мутаций create/update, передавать в форму
+- [x] SchedulePage: перехватывать CONFLICT ошибку в onError мутации create, показывать в форме

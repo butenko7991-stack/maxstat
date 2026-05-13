@@ -65,6 +65,7 @@ export default function SalesPage() {
   const [form, setForm] = useState<SaleFormData>(EMPTY_FORM);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [exportPending, setExportPending] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
 
   const listInput = useMemo(() => ({
     channelId: selectedChannel !== "all" ? Number(selectedChannel) : undefined,
@@ -90,11 +91,23 @@ export default function SalesPage() {
 
   const createMutation = trpc.sales.create.useMutation({
     onSuccess: () => { utils.sales.list.invalidate(); utils.summary.financial.invalidate(); utils.summary.months.invalidate(); toast.success("Запись добавлена"); setDialogOpen(false); },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      if (e.data?.code === "CONFLICT") {
+        setConflictError(e.message);
+      } else {
+        toast.error(e.message);
+      }
+    },
   });
   const updateMutation = trpc.sales.update.useMutation({
     onSuccess: () => { utils.sales.list.invalidate(); utils.summary.financial.invalidate(); toast.success("Запись обновлена"); setDialogOpen(false); },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      if (e.data?.code === "CONFLICT") {
+        setConflictError(e.message);
+      } else {
+        toast.error(e.message);
+      }
+    },
   });
   const deleteMutation = trpc.sales.delete.useMutation({
     onSuccess: () => { utils.sales.list.invalidate(); utils.summary.financial.invalidate(); toast.success("Запись удалена"); },
@@ -194,9 +207,10 @@ export default function SalesPage() {
     refetchExport();
   }
 
-  function openCreate() { setEditingId(null); setForm({ ...EMPTY_FORM }); setDialogOpen(true); }
+  function openCreate() { setEditingId(null); setForm({ ...EMPTY_FORM }); setConflictError(null); setDialogOpen(true); }
   function openEdit(r: NonNullable<typeof records>[number]) {
     setEditingId(r.id);
+    setConflictError(null);
     setForm({
       channelId: String(r.channelId), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : todayIso(),
       admin: r.admin ?? "", link: r.link ?? "", timeSlot: (r.timeSlot as TimeSlot) ?? "",
@@ -467,14 +481,16 @@ export default function SalesPage() {
 
       <SaleFormModal
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(v) => { setDialogOpen(v); if (!v) setConflictError(null); }}
         title={editingId ? "Редактировать продажу" : "Новая запись продажи"}
         channels={channels ?? []}
         form={form}
-        setForm={setForm}
+        setForm={(updater) => { setConflictError(null); setForm(updater); }}
         onSubmit={handleSubmit}
         isPending={isPending}
         suggestions={suggestions}
+        conflictError={conflictError}
+        onClearConflict={() => setConflictError(null)}
       />
     </div>
   );

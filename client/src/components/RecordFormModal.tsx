@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useEffect } from "react";
-import { Calculator } from "lucide-react";
+import { AlertCircle, Calculator } from "lucide-react";
 import { AutocompleteInput } from "./AutocompleteInput";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
@@ -380,6 +380,8 @@ interface SaleFormModalProps {
   onSubmit: (e: React.FormEvent) => void;
   isPending: boolean;
   suggestions?: AutocompleteSuggestions;
+  conflictError?: string | null;
+  onClearConflict?: () => void;
 }
 
 export function SaleFormModal({
@@ -392,6 +394,8 @@ export function SaleFormModal({
   onSubmit,
   isPending,
   suggestions,
+  conflictError,
+  onClearConflict,
 }: SaleFormModalProps) {
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
@@ -615,6 +619,22 @@ export function SaleFormModal({
             </div>
           </div>
 
+          {conflictError && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2.5 text-sm text-red-400">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="flex-1">{conflictError}</span>
+              {onClearConflict && (
+                <button
+                  type="button"
+                  onClick={onClearConflict}
+                  className="ml-1 text-red-400/60 hover:text-red-400 transition-colors"
+                  aria-label="Закрыть"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <Button
               type="button"
