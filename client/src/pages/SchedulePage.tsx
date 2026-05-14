@@ -97,8 +97,8 @@ export default function SchedulePage() {
   const startDate = toIso(weekDates[0]);
   const endDate = toIso(weekDates[6]);
 
-  const { data: channels = [] } = trpc.channels.list.useQuery();
-  const { data: scheduleData, refetch } = trpc.schedule.getData.useQuery(
+  const { data: channels = [], isLoading: channelsLoading, isError: channelsError } = trpc.channels.list.useQuery();
+  const { data: scheduleData, refetch, isLoading: scheduleLoading, isError: scheduleError } = trpc.schedule.getData.useQuery(
     { startDate, endDate },
     { refetchOnWindowFocus: false }
   );
@@ -142,15 +142,17 @@ export default function SchedulePage() {
     return map;
   }, [scheduleData]);
 
-  // Purchases per channel per date (reference only)
+  // Purchases per channel per date (reference only) — stores list of admins
   const purchaseMap = useMemo(() => {
-    const map: Record<number, Record<string, number>> = {};
+    const map: Record<number, Record<string, { count: number; admins: string[] }>> = {};
     if (!scheduleData?.purchases) return map;
     for (const p of scheduleData.purchases) {
       const cid = p.channelId;
       const dateStr = p.date ? toIso(new Date(p.date)) : "";
       if (!map[cid]) map[cid] = {};
-      map[cid][dateStr] = (map[cid][dateStr] ?? 0) + 1;
+      if (!map[cid][dateStr]) map[cid][dateStr] = { count: 0, admins: [] };
+      map[cid][dateStr].count += 1;
+      if (p.admin) map[cid][dateStr].admins.push(p.admin);
     }
     return map;
   }, [scheduleData]);
@@ -288,7 +290,36 @@ export default function SchedulePage() {
             </div>
 
             {/* Channel rows */}
-            {visibleChannels.length === 0 ? (
+            {(channelsLoading || scheduleLoading) ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="glass rounded-xl overflow-hidden animate-pulse">
+                    <div className="px-3 py-2 border-b border-border/50 bg-card/50">
+                      <div className="h-3 w-28 rounded bg-muted/60" />
+                    </div>
+                    {["утро", "обед", "вечер"].map((s) => (
+                      <div key={s} className="grid gap-1 p-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
+                        <div className="h-3 w-12 rounded bg-muted/40 self-center" />
+                        {[1,2,3,4,5,6,7].map((d) => (
+                          <div key={d} className="rounded-lg bg-muted/20 min-h-[52px]" />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : (channelsError || scheduleError) ? (
+              <div className="text-center py-16 text-muted-foreground text-sm">
+                <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-red-400 mb-2">Ошибка загрузки данных расписания.</p>
+                <button
+                  onClick={() => refetch()}
+                  className="text-xs underline text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Попробовать снова
+                </button>
+              </div>
+            ) : visibleChannels.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground text-sm">
                 <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 Нет каналов. Добавьте каналы в разделе «Каналы».
@@ -302,7 +333,7 @@ export default function SchedulePage() {
                       <span className="text-xs font-semibold text-foreground">{channel.name}</span>
                       {/* Show purchase count for the week as reference */}
                       {(() => {
-                        const total = weekDates.reduce((s, d) => s + (purchaseMap[channel.id]?.[toIso(d)] ?? 0), 0);
+                        const total = weekDates.reduce((s, d) => s + (purchaseMap[channel.id]?.[toIso(d)]?.count ?? 0), 0);
                         return total > 0 ? (
                           <span className="ml-2 text-[10px] text-muted-foreground flex-inline items-center gap-1">
                             <ShoppingCart className="w-3 h-3 inline" /> {total} закуп.
@@ -329,7 +360,8 @@ export default function SchedulePage() {
                           const dateStr = toIso(d);
                           const records = saleMap[channel.id]?.[dateStr]?.[slot] ?? [];
                           const booked = records.length > 0;
-                          const hasPurchase = (purchaseMap[channel.id]?.[dateStr] ?? 0) > 0;
+                          const purchaseInfo = purchaseMap[channel.id]?.[dateStr];
+                          const hasPurchase = (purchaseInfo?.count ?? 0) > 0;
 
                           if (booked) {
                             return (
@@ -357,6 +389,16 @@ export default function SchedulePage() {
                                     {records.length}
                                   </div>
                                 )}
+                                {hasPurchase && purchaseInfo && (
+                                  <div className="mt-0.5 flex items-center gap-0.5 rounded bg-muted/30 border border-border/30 px-1 py-0.5 overflow-hidden">
+                                    <ShoppingCart className="w-2 h-2 text-muted-foreground/50 shrink-0" />
+                                    <span className="text-[9px] text-muted-foreground/60 truncate leading-tight">
+                                      {purchaseInfo.admins.length > 0
+                                        ? purchaseInfo.admins.slice(0, 1).join(", ") + (purchaseInfo.count > 1 ? ` +${purchaseInfo.count - 1}` : "")
+                                        : `${purchaseInfo.count} закуп.`}
+                                    </span>
+                                  </div>
+                                )}
                               </button>
                             );
                           }
@@ -371,9 +413,16 @@ export default function SchedulePage() {
                               )}
                             >
                               <Plus className="w-3.5 h-3.5 text-emerald-500/40 group-hover:text-emerald-400 transition-colors" />
-                              {hasPurchase && (
-                                <div className="absolute bottom-1 right-1">
-                                  <ShoppingCart className="w-2.5 h-2.5 text-muted-foreground/40" />
+                              {hasPurchase && purchaseInfo && (
+                                <div className="absolute bottom-0 left-0 right-0 px-1 pb-1">
+                                  <div className="flex items-center gap-0.5 rounded bg-muted/40 border border-border/40 px-1 py-0.5 overflow-hidden">
+                                    <ShoppingCart className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
+                                    <span className="text-[9px] text-muted-foreground/70 truncate leading-tight">
+                                      {purchaseInfo.admins.length > 0
+                                        ? purchaseInfo.admins.slice(0, 2).join(", ") + (purchaseInfo.count > 2 ? ` +${purchaseInfo.count - 2}` : "")
+                                        : `${purchaseInfo.count} закуп.`}
+                                    </span>
+                                  </div>
                                 </div>
                               )}
                             </button>
