@@ -43,6 +43,13 @@
       "when": 1778550159264,
       "tag": "0005_dusty_ares",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1778809234100,
+      "tag": "0006_ancient_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,8 @@ export interface PurchaseFormData {
   botStoriesCost: string;
   month: string;
   notes: string;
+  timeSlot: string;
+  bookingSlot: "утро" | "обед" | "вечер" | "";
 }
 
 export interface SaleFormData {
@@ -334,6 +336,36 @@ export function PurchaseFormModal({
                 value={form.botStoriesCost}
                 onChange={(e) => setForm((f) => ({ ...f, botStoriesCost: e.target.value }))}
                 placeholder="0"
+                className="bg-input border-border"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Слот бронирования</Label>
+              <Select
+                value={form.bookingSlot || "none"}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, bookingSlot: (v === "none" ? "" : v) as "утро" | "обед" | "вечер" | "" }))
+                }
+              >
+                <SelectTrigger className="bg-input border-border">
+                  <SelectValue placeholder="Выберите слот..." />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border">
+                  <SelectItem value="none">Не указан</SelectItem>
+                  <SelectItem value="утро">Утро</SelectItem>
+                  <SelectItem value="обед">Обед</SelectItem>
+                  <SelectItem value="вечер">Вечер</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Время (свободный формат)</Label>
+              <Input
+                value={form.timeSlot}
+                onChange={(e) => setForm((f) => ({ ...f, timeSlot: e.target.value }))}
+                placeholder="утро, 10:00, вечер..."
                 className="bg-input border-border"
               />
             </div>

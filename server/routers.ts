@@ -93,6 +93,8 @@ const purchaseInput = z.object({
   botStoriesCost: z.string().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
   notes: z.string().optional(),
+  timeSlot: timeSlotEnum.optional(),
+  bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
 });
 const purchasesRouter = router({
   list: protectedProcedure
@@ -130,6 +132,8 @@ const purchasesRouter = router({
       botStoriesCost: input.botStoriesCost ?? null,
       month: input.month,
       notes: input.notes ?? null,
+      timeSlot: input.timeSlot ?? null,
+      bookingSlot: input.bookingSlot ?? deriveBookingSlot(input.timeSlot),
     });
     return { id };
   }),

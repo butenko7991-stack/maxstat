@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SaleFormModal } from "@/components/RecordFormModal";
+import { SaleFormModal, PurchaseFormModal, type PurchaseFormData } from "@/components/RecordFormModal";
 import { toast } from "sonner";
 
 const SLOTS = ["утро", "обед", "вечер"] as const;
@@ -80,12 +80,22 @@ const EMPTY_SALE_FORM = {
   botStories: "", botStoriesCost: "", month: "", notes: "",
 };
 
+const EMPTY_PURCHASE_FORM: PurchaseFormData = {
+  channelId: "", date: "", admin: "", link: "", targetChannels: "",
+  direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "",
+  paymentStatus: "unpaid", subscribersGained: "", botStories: "",
+  botStoriesCost: "", month: "", notes: "", timeSlot: "", bookingSlot: "",
+};
+
 export default function SchedulePage() {
   const [baseDate, setBaseDate] = useState(() => new Date());
   const [channelFilter, setChannelFilter] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<"sales" | "purchases">("sales");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saleForm, setSaleForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
   const [conflictError, setConflictError] = useState<string | null>(null);
+  const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
+  const [purchaseForm, setPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
   const [detailSlot, setDetailSlot] = useState<null | {
     channelName: string;
     date: string;
@@ -104,6 +114,15 @@ export default function SchedulePage() {
   );
 
   const utils = trpc.useUtils();
+  const createPurchaseMutation = trpc.purchases.create.useMutation({
+    onSuccess: () => {
+      utils.schedule.getData.invalidate();
+      utils.purchases.list.invalidate();
+      setPurchaseDialogOpen(false);
+      toast.success("Запись закупа создана");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const createSaleMutation = trpc.sales.create.useMutation({
     onSuccess: () => {
       utils.schedule.getData.invalidate();
@@ -124,6 +143,22 @@ export default function SchedulePage() {
     if (channelFilter === "all") return channels;
     return channels.filter((c) => String(c.id) === channelFilter);
   }, [channels, channelFilter]);
+
+  // Build purchase slot lookup: channelId -> date -> slot -> purchases[]
+  const purchaseSlotMap = useMemo(() => {
+    const map: Record<number, Record<string, Record<string, NonNullable<typeof scheduleData>["purchases"]>>> = {};
+    if (!scheduleData) return map;
+    for (const p of scheduleData.purchases) {
+      const cid = p.channelId;
+      const dateStr = p.date ? toIso(new Date(p.date)) : "";
+      const slot = ((p.bookingSlot ?? p.timeSlot) ?? "").toLowerCase();
+      if (!map[cid]) map[cid] = {};
+      if (!map[cid][dateStr]) map[cid][dateStr] = {};
+      if (!map[cid][dateStr][slot]) map[cid][dateStr][slot] = [];
+      map[cid][dateStr][slot].push(p);
+    }
+    return map;
+  }, [scheduleData]);
 
   // Build lookup: channelId -> date -> slot -> records[]
   const saleMap = useMemo(() => {
@@ -166,7 +201,7 @@ export default function SchedulePage() {
   const goToday = useCallback(() => setBaseDate(new Date()), []);
 
   function openCreate(channelId: number, dateStr: string, slot: Slot) {
-    const month = dateStr.slice(0, 7); // YYYY-MM
+    const month = dateStr.slice(0, 7);
     setSaleForm({
       ...EMPTY_SALE_FORM,
       channelId: String(channelId),
@@ -177,6 +212,18 @@ export default function SchedulePage() {
     });
     setConflictError(null);
     setDialogOpen(true);
+  }
+  function openPurchaseCreate(channelId: number, dateStr: string, slot: Slot) {
+    const month = dateStr.slice(0, 7);
+    setPurchaseForm({
+      ...EMPTY_PURCHASE_FORM,
+      channelId: String(channelId),
+      date: dateStr,
+      timeSlot: slot,
+      bookingSlot: slot as "" | "утро" | "обед" | "вечер",
+      month,
+    });
+    setPurchaseDialogOpen(true);
   }
 
   function openDetail(channelId: number, channelName: string, dateStr: string, slot: Slot) {
@@ -246,6 +293,32 @@ export default function SchedulePage() {
           </Select>
         </div>
 
+        {/* Tab switcher */}
+        <div className="flex items-center gap-1 glass rounded-xl p-1 w-fit">
+          <button
+            onClick={() => setActiveTab("sales")}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
+              activeTab === "sales"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+          >
+            Продажа
+          </button>
+          <button
+            onClick={() => setActiveTab("purchases")}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
+              activeTab === "purchases"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+          >
+            Закуп
+          </button>
+        </div>
+
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
@@ -263,7 +336,7 @@ export default function SchedulePage() {
         </div>
 
         {/* Calendar grid — scrollable horizontally on mobile */}
-        <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
+        {activeTab === "sales" && <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
           <div className="min-w-[640px]">
             {/* Day headers */}
             <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
@@ -435,7 +508,174 @@ export default function SchedulePage() {
               </div>
             )}
           </div>
-        </div>
+        </div>}
+
+        {/* Purchase grid */}
+        {activeTab === "purchases" && (
+          <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
+            <div className="min-w-[640px]">
+              {/* Day headers */}
+              <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
+                <div />
+                {weekDates.map((d) => {
+                  const { weekday, day, month } = formatDay(d);
+                  const today = isToday(d);
+                  return (
+                    <div
+                      key={toIso(d)}
+                      className={cn(
+                        "text-center py-2 rounded-xl text-xs font-medium",
+                        today ? "bg-primary/15 text-primary" : "text-muted-foreground"
+                      )}
+                    >
+                      <div className="capitalize">{weekday}</div>
+                      <div className={cn("text-base font-semibold", today ? "text-primary" : "text-foreground")}>{day}</div>
+                      <div className="text-[10px] opacity-60">{month}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Channel rows */}
+              {(channelsLoading || scheduleLoading) ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="glass rounded-xl overflow-hidden animate-pulse">
+                      <div className="px-3 py-2 border-b border-border/50 bg-card/50">
+                        <div className="h-3 w-28 rounded bg-muted/60" />
+                      </div>
+                      {["утро", "обед", "вечер"].map((s) => (
+                        <div key={s} className="grid gap-1 p-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
+                          <div className="h-3 w-12 rounded bg-muted/40 self-center" />
+                          {[1,2,3,4,5,6,7].map((d) => <div key={d} className="rounded-lg bg-muted/20 min-h-[52px]" />)}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : visibleChannels.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground text-sm">
+                  <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  Нет каналов.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {visibleChannels.map((channel) => (
+                    <div key={channel.id} className="glass rounded-xl overflow-hidden">
+                      <div className="px-3 py-2 border-b border-border/50 bg-card/50">
+                        <span className="text-xs font-semibold text-foreground">{channel.name}</span>
+                      </div>
+                      {SLOTS.map((slot) => (
+                        <div key={slot} className="grid gap-1 p-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
+                          <div className="flex items-center gap-1.5 px-1">
+                            <Clock className={cn("w-3 h-3 shrink-0", SLOT_COLORS[slot])} />
+                            <span className={cn("text-xs font-medium capitalize", SLOT_COLORS[slot])}>{slot}</span>
+                          </div>
+                          {weekDates.map((d) => {
+                            const dateStr = toIso(d);
+                            const purchases = purchaseSlotMap[channel.id]?.[dateStr]?.[slot] ?? [];
+                            const booked = purchases.length > 0;
+                            if (booked) {
+                              return (
+                                <button
+                                  key={dateStr}
+                                  onClick={() => {
+                                    setDetailSlot({
+                                      channelName: channel.name,
+                                      date: dateStr,
+                                      slot,
+                                      records: purchases.map((p) => ({
+                                        id: p.id,
+                                        admin: p.admin,
+                                        cost: p.cost,
+                                        paymentStatus: p.paymentStatus,
+                                        link: null,
+                                        tariff: null,
+                                      })),
+                                    });
+                                  }}
+                                  className="relative rounded-lg border bg-blue-500/15 border-blue-500/30 hover:bg-blue-500/25 transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group"
+                                >
+                                  <div className="flex items-start justify-between gap-1 min-w-0">
+                                    <span className="text-[10px] font-semibold text-blue-400 leading-tight truncate min-w-0 block">
+                                      {purchases[0]?.admin ?? "—"}
+                                    </span>
+                                    <Eye className="w-3 h-3 text-blue-400/60 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                  {purchases[0]?.cost && (
+                                    <div className="text-[10px] text-blue-300/70 mt-0.5 truncate">
+                                      {formatCost(parseFloat(purchases[0].cost))} ₽
+                                    </div>
+                                  )}
+                                  <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[purchases[0]?.paymentStatus ?? "unpaid"])}>
+                                    {PAYMENT_LABELS[purchases[0]?.paymentStatus ?? "unpaid"]}
+                                  </div>
+                                  {purchases.length > 1 && (
+                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 text-white text-[9px] flex items-center justify-center font-bold">
+                                      {purchases.length}
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            }
+                            return (
+                              <button
+                                key={dateStr}
+                                onClick={() => openPurchaseCreate(channel.id, dateStr, slot)}
+                                className="relative rounded-lg border transition-colors p-1.5 min-h-[52px] group flex flex-col items-center justify-center gap-1 bg-blue-500/5 border-blue-500/15 hover:bg-blue-500/20 hover:border-blue-500/40"
+                              >
+                                <Plus className="w-3.5 h-3.5 text-blue-500/40 group-hover:text-blue-400 transition-colors" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Purchase create dialog */}
+        {purchaseDialogOpen && (
+          <PurchaseFormModal
+            open={purchaseDialogOpen}
+            onOpenChange={setPurchaseDialogOpen}
+            title="Новый закуп"
+            form={purchaseForm}
+            setForm={setPurchaseForm}
+            onSubmit={(e: React.FormEvent) => {
+              e.preventDefault();
+              if (!purchaseForm.channelId || !purchaseForm.date) return;
+              const f = purchaseForm;
+              createPurchaseMutation.mutate({
+                channelId: Number(f.channelId),
+                date: f.date,
+                admin: f.admin || undefined,
+                link: f.link || undefined,
+                targetChannels: f.targetChannels || undefined,
+                direction: f.direction || undefined,
+                tariff: f.tariff || undefined,
+                buyer: f.buyer || undefined,
+                spm: f.spm || undefined,
+                reach: f.reach ? Number(f.reach) : undefined,
+                cost: f.cost || undefined,
+                paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
+                subscribersGained: f.subscribersGained ? Number(f.subscribersGained) : undefined,
+                botStories: f.botStories || undefined,
+                botStoriesCost: f.botStoriesCost || undefined,
+                month: f.month,
+                notes: f.notes || undefined,
+                timeSlot: f.timeSlot || undefined,
+                bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+              });
+            }}
+            isPending={createPurchaseMutation.isPending}
+            channels={channels}
+            suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
+          />
+        )}
 
         {/* Sale create dialog */}
         {dialogOpen && (

@@ -23,6 +23,7 @@ const EMPTY_FORM: PurchaseFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", targetChannels: "",
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   subscribersGained: "", botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
+  timeSlot: "", bookingSlot: "",
 };
 
 const PAYMENT_CYCLE: Record<PaymentStatus, PaymentStatus> = {
@@ -209,6 +210,7 @@ export default function PurchasesPage() {
       subscribersGained: r.subscribersGained ? String(r.subscribersGained) : "",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, notes: r.notes ?? "",
+      timeSlot: r.timeSlot ?? "", bookingSlot: (r.bookingSlot ?? "") as "утро" | "обед" | "вечер" | "",
     });
     setDialogOpen(true);
   }
@@ -229,6 +231,8 @@ export default function PurchasesPage() {
       botStories: form.botStories || undefined,
       botStoriesCost: form.botStoriesCost || undefined, month: form.month,
       notes: form.notes || undefined,
+      timeSlot: form.timeSlot || undefined,
+      bookingSlot: form.bookingSlot || undefined,
     };
     if (editingId) { updateMutation.mutate({ id: editingId, ...payload }); }
     else { createMutation.mutate(payload); }

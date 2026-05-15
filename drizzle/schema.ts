@@ -78,11 +78,14 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   botStoriesCost: decimal("botStoriesCost", { precision: 12, scale: 2 }),
   /** Month label for grouping (e.g. "2026-04") */
   month: varchar("month", { length: 7 }).notNull(),
+  /** Time slot — free text (e.g. утро, 10:00, вечер) */
+  timeSlot: varchar("timeSlot", { length: 100 }),
+  /** Booking slot for schedule grid — normalized enum */
+  bookingSlot: mysqlEnum("bookingSlot", ["утро", "обед", "вечер"]),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
-
 export type PurchaseRecord = typeof purchaseRecords.$inferSelect;
 export type InsertPurchaseRecord = typeof purchaseRecords.$inferInsert;
 

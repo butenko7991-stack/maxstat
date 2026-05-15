@@ -91,3 +91,12 @@
 - [x] Показывать серый purchase badge и в занятых ячейках (сейчас только в свободных)
 - [x] Purchase badge информативен даже без admin (показывать "N закуп.")
 - [x] Loading/error state для channels.list на SchedulePage
+
+## Сетка закупов в расписании
+- [x] Добавить поле bookingSlot в purchase_records (схема + миграция)
+- [x] Мигрировать существующие purchase_records: заполнить bookingSlot по timeSlot/дате
+- [x] DB helper: getScheduleData возвращает bookingSlot для закупов
+- [x] tRPC router: purchases.create/update принимают и сохраняют bookingSlot
+- [x] PurchaseFormModal: добавить выпадающий список bookingSlot
+- [x] SchedulePage: таб-переключатель "Продажа / Закуп"
+- [x] SchedulePage: сетка закупов (аналог сетки продаж, синяя цветовая схема)
