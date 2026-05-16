@@ -46,6 +46,12 @@ const PAYMENT_COLORS: Record<string, string> = {
   unpaid: "text-red-400",
   partial: "text-amber-400",
 };
+// Cell background/border/text colors by payment status
+const CELL_COLORS: Record<string, { bg: string; border: string; hover: string; text: string; icon: string; badge: string }> = {
+  paid:    { bg: "bg-emerald-500/10", border: "border-emerald-500/30", hover: "hover:bg-emerald-500/20", text: "text-emerald-400",  icon: "text-emerald-400/60", badge: "bg-emerald-500" },
+  unpaid:  { bg: "bg-red-500/15",     border: "border-red-500/30",     hover: "hover:bg-red-500/25",     text: "text-red-400",     icon: "text-red-400/60",    badge: "bg-red-500" },
+  partial: { bg: "bg-amber-500/10",   border: "border-amber-500/30",   hover: "hover:bg-amber-500/20",   text: "text-amber-400",   icon: "text-amber-400/60",  badge: "bg-amber-500" },
+};
 
 // Helpers
 function getWeekDates(baseDate: Date): Date[] {
@@ -492,28 +498,30 @@ export default function SchedulePage() {
                           const hasPurchase = (purchaseInfo?.count ?? 0) > 0;
 
                           if (booked) {
+                            const status = records[0]?.paymentStatus ?? "unpaid";
+                            const cc = CELL_COLORS[status] ?? CELL_COLORS.unpaid;
                             return (
                               <button
                                 key={dateStr}
                                 onClick={() => openDetail(channel.id, channel.name, dateStr, slot)}
-                                className="relative rounded-lg border bg-red-500/15 border-red-500/30 hover:bg-red-500/25 transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group"
+                                className={cn("relative rounded-lg border transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group", cc.bg, cc.border, cc.hover)}
                               >
                                 <div className="flex items-start justify-between gap-1 min-w-0">
-                                  <span className="text-[10px] font-semibold text-red-400 leading-tight truncate min-w-0 block">
+                                  <span className={cn("text-[10px] font-semibold leading-tight truncate min-w-0 block", cc.text)}>
                                     {records[0]?.admin ?? "—"}
                                   </span>
-                                  <Eye className="w-3 h-3 text-red-400/60 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <Eye className={cn("w-3 h-3 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity", cc.icon)} />
                                 </div>
                                 {records[0]?.cost && (
-                                  <div className="text-[10px] text-red-300/70 mt-0.5 truncate">
+                                  <div className={cn("text-[10px] mt-0.5 truncate opacity-70", cc.text)}>
                                     {formatCost(parseFloat(records[0].cost))} ₽
                                   </div>
                                 )}
-                                <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[records[0]?.paymentStatus ?? "unpaid"])}>
-                                  {PAYMENT_LABELS[records[0]?.paymentStatus ?? "unpaid"]}
+                                <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[status])}>
+                                  {PAYMENT_LABELS[status]}
                                 </div>
                                 {records.length > 1 && (
-                                  <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">
+                                  <div className={cn("absolute top-1 right-1 w-4 h-4 rounded-full text-white text-[9px] flex items-center justify-center font-bold", cc.badge)}>
                                     {records.length}
                                   </div>
                                 )}
@@ -663,27 +671,37 @@ export default function SchedulePage() {
                                       })),
                                     });
                                   }}
-                                  className="relative rounded-lg border bg-blue-500/15 border-blue-500/30 hover:bg-blue-500/25 transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group"
+                                  className={cn("relative rounded-lg border transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group",
+                                    (() => { const pcc = CELL_COLORS[purchases[0]?.paymentStatus ?? "unpaid"] ?? CELL_COLORS.unpaid; return `${pcc.bg} ${pcc.border} ${pcc.hover}`; })()
+                                  )}
                                 >
-                                  <div className="flex items-start justify-between gap-1 min-w-0">
-                                    <span className="text-[10px] font-semibold text-blue-400 leading-tight truncate min-w-0 block">
-                                      {purchases[0]?.admin ?? "—"}
-                                    </span>
-                                    <Eye className="w-3 h-3 text-blue-400/60 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  </div>
-                                  {purchases[0]?.cost && (
-                                    <div className="text-[10px] text-blue-300/70 mt-0.5 truncate">
-                                      {formatCost(parseFloat(purchases[0].cost))} ₽
-                                    </div>
-                                  )}
-                                  <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[purchases[0]?.paymentStatus ?? "unpaid"])}>
-                                    {PAYMENT_LABELS[purchases[0]?.paymentStatus ?? "unpaid"]}
-                                  </div>
-                                  {purchases.length > 1 && (
-                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 text-white text-[9px] flex items-center justify-center font-bold">
-                                      {purchases.length}
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const pcc = CELL_COLORS[purchases[0]?.paymentStatus ?? "unpaid"] ?? CELL_COLORS.unpaid;
+                                    const pStatus = purchases[0]?.paymentStatus ?? "unpaid";
+                                    return (
+                                      <>
+                                        <div className="flex items-start justify-between gap-1 min-w-0">
+                                          <span className={cn("text-[10px] font-semibold leading-tight truncate min-w-0 block", pcc.text)}>
+                                            {purchases[0]?.admin ?? "—"}
+                                          </span>
+                                          <Eye className={cn("w-3 h-3 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity", pcc.icon)} />
+                                        </div>
+                                        {purchases[0]?.cost && (
+                                          <div className={cn("text-[10px] mt-0.5 truncate opacity-70", pcc.text)}>
+                                            {formatCost(parseFloat(purchases[0].cost))} ₽
+                                          </div>
+                                        )}
+                                        <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[pStatus])}>
+                                          {PAYMENT_LABELS[pStatus]}
+                                        </div>
+                                        {purchases.length > 1 && (
+                                          <div className={cn("absolute top-1 right-1 w-4 h-4 rounded-full text-white text-[9px] flex items-center justify-center font-bold", pcc.badge)}>
+                                            {purchases.length}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                 </button>
                               );
                             }
