@@ -12,6 +12,9 @@ import {
   Check,
   Clock,
   X,
+  CheckSquare,
+  Square,
+  Layers,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SaleFormModal, PurchaseFormModal, type PurchaseFormData } from "@/components/RecordFormModal";
@@ -96,6 +99,30 @@ export default function SchedulePage() {
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
+  // Multi-select state
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedSlots, setSelectedSlots] = useState<Array<{ channelId: number; channelName: string; dateStr: string; slot: Slot }>>([]);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkForm, setBulkForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
+
+  function toggleSlotSelection(channelId: number, channelName: string, dateStr: string, slot: Slot) {
+    setSelectedSlots((prev) => {
+      const key = `${channelId}|${dateStr}|${slot}`;
+      const exists = prev.find((s) => `${s.channelId}|${s.dateStr}|${s.slot}` === key);
+      if (exists) return prev.filter((s) => `${s.channelId}|${s.dateStr}|${s.slot}` !== key);
+      return [...prev, { channelId, channelName, dateStr, slot }];
+    });
+  }
+
+  function isSlotSelected(channelId: number, dateStr: string, slot: Slot) {
+    return selectedSlots.some((s) => s.channelId === channelId && s.dateStr === dateStr && s.slot === slot);
+  }
+
+  function exitMultiSelect() {
+    setMultiSelectMode(false);
+    setSelectedSlots([]);
+  }
+
   const [detailSlot, setDetailSlot] = useState<null | {
     channelName: string;
     date: string;
@@ -114,6 +141,17 @@ export default function SchedulePage() {
   );
 
   const utils = trpc.useUtils();
+  const bulkCreateMutation = trpc.sales.bulkCreate.useMutation({
+    onSuccess: (data) => {
+      utils.schedule.getData.invalidate();
+      utils.sales.list.invalidate();
+      setBulkDialogOpen(false);
+      exitMultiSelect();
+      toast.success(`Создано ${data.count} записей`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const createPurchaseMutation = trpc.purchases.create.useMutation({
     onSuccess: () => {
       utils.schedule.getData.invalidate();
@@ -279,6 +317,23 @@ export default function SchedulePage() {
           >
             Сегодня
           </button>
+          {activeTab === "sales" && (
+            <button
+              onClick={() => {
+                if (multiSelectMode) { exitMultiSelect(); }
+                else { setMultiSelectMode(true); }
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-colors",
+                multiSelectMode
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border hover:bg-accent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              {multiSelectMode ? "Отмена" : "Мультивыбор"}
+            </button>
+          )}
           {/* Channel filter */}
           <Select value={channelFilter} onValueChange={setChannelFilter}>
             <SelectTrigger className="h-9 text-xs w-40 bg-card border-border">
@@ -476,16 +531,31 @@ export default function SchedulePage() {
                             );
                           }
 
+                          const selected = isSlotSelected(channel.id, dateStr, slot);
                           return (
                             <button
                               key={dateStr}
-                              onClick={() => openCreate(channel.id, dateStr, slot)}
+                              onClick={() => {
+                                if (multiSelectMode) {
+                                  toggleSlotSelection(channel.id, channel.name, dateStr, slot);
+                                } else {
+                                  openCreate(channel.id, dateStr, slot);
+                                }
+                              }}
                               className={cn(
-                                "relative rounded-lg border transition-colors p-1.5 min-h-[52px] group flex flex-col items-center justify-center gap-1",
-                                "bg-emerald-500/5 border-emerald-500/15 hover:bg-emerald-500/20 hover:border-emerald-500/40"
+                                "relative rounded-lg border transition-all p-1.5 min-h-[52px] group flex flex-col items-center justify-center gap-1",
+                                selected
+                                  ? "bg-primary/20 border-primary/60 ring-1 ring-primary/40"
+                                  : "bg-emerald-500/5 border-emerald-500/15 hover:bg-emerald-500/20 hover:border-emerald-500/40"
                               )}
                             >
-                              <Plus className="w-3.5 h-3.5 text-emerald-500/40 group-hover:text-emerald-400 transition-colors" />
+                              {selected ? (
+                                <CheckSquare className="w-4 h-4 text-primary" />
+                              ) : multiSelectMode ? (
+                                <Square className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-emerald-400 transition-colors" />
+                              ) : (
+                                <Plus className="w-3.5 h-3.5 text-emerald-500/40 group-hover:text-emerald-400 transition-colors" />
+                              )}
                               {hasPurchase && purchaseInfo && (
                                 <div className="absolute bottom-0 left-0 right-0 px-1 pb-1">
                                   <div className="flex items-center gap-0.5 rounded bg-muted/40 border border-border/40 px-1 py-0.5 overflow-hidden">
@@ -708,6 +778,90 @@ export default function SchedulePage() {
               });
             }}
             isPending={createSaleMutation.isPending}
+            channels={channels}
+            suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
+          />
+        )}
+
+        {/* Multi-select bottom panel */}
+        {multiSelectMode && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 glass rounded-2xl px-5 py-3 shadow-2xl border border-primary/20">
+            <div className="text-sm text-foreground">
+              {selectedSlots.length === 0
+                ? <span className="text-muted-foreground">Тапните на свободные ячейки</span>
+                : <span className="font-semibold text-primary">Выбрано: {selectedSlots.length}</span>
+              }
+            </div>
+            {selectedSlots.length > 0 && (
+              <>
+                <div className="flex flex-wrap gap-1 max-w-xs">
+                  {selectedSlots.slice(0, 4).map((s) => (
+                    <span key={`${s.channelId}|${s.dateStr}|${s.slot}`} className="text-[10px] bg-primary/15 text-primary rounded-md px-1.5 py-0.5">
+                      {s.channelName.slice(0, 10)} • {s.dateStr.slice(5)} • {s.slot}
+                    </span>
+                  ))}
+                  {selectedSlots.length > 4 && (
+                    <span className="text-[10px] text-muted-foreground">+{selectedSlots.length - 4}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    const first = selectedSlots[0];
+                    setBulkForm({
+                      ...EMPTY_SALE_FORM,
+                      channelId: String(first.channelId),
+                      date: first.dateStr,
+                      bookingSlot: first.slot,
+                      timeSlot: first.slot,
+                      month: first.dateStr.slice(0, 7),
+                    });
+                    setBulkDialogOpen(true);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors shrink-0"
+                >
+                  Создать {selectedSlots.length} записей
+                </button>
+              </>
+            )}
+            <button onClick={exitMultiSelect} className="ml-1 p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Bulk create dialog */}
+        {bulkDialogOpen && (
+          <SaleFormModal
+            open={bulkDialogOpen}
+            onOpenChange={(v) => setBulkDialogOpen(v)}
+            title={`Новая запись — ${selectedSlots.length} слотов`}
+            form={bulkForm as any}
+            setForm={(updater: any) => setBulkForm(updater)}
+            onSubmit={(e: React.FormEvent) => {
+              e.preventDefault();
+              const f = bulkForm;
+              bulkCreateMutation.mutate({
+                slots: selectedSlots.map((s) => ({
+                  channelId: s.channelId,
+                  date: s.dateStr,
+                  bookingSlot: s.slot as "утро" | "обед" | "вечер",
+                  timeSlot: s.slot,
+                  month: s.dateStr.slice(0, 7),
+                })),
+                admin: f.admin || undefined,
+                link: f.link || undefined,
+                tariff: f.tariff || undefined,
+                platform: f.platform || undefined,
+                spm: f.spm || undefined,
+                reach: f.reach ? Number(f.reach) : undefined,
+                cost: f.cost || undefined,
+                paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
+                botStories: f.botStories || undefined,
+                botStoriesCost: f.botStoriesCost || undefined,
+                notes: f.notes || undefined,
+              });
+            }}
+            isPending={bulkCreateMutation.isPending}
             channels={channels}
             suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
           />
