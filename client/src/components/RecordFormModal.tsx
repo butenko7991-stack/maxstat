@@ -414,6 +414,8 @@ interface SaleFormModalProps {
   suggestions?: AutocompleteSuggestions;
   conflictError?: string | null;
   onClearConflict?: () => void;
+  /** When provided, hides channel/date/slot fields and shows this summary instead */
+  bulkSlotsSummary?: React.ReactNode;
 }
 
 export function SaleFormModal({
@@ -428,6 +430,7 @@ export function SaleFormModal({
   suggestions,
   conflictError,
   onClearConflict,
+  bulkSlotsSummary,
 }: SaleFormModalProps) {
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
@@ -446,70 +449,76 @@ export function SaleFormModal({
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4 pt-2">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label>Канал *</Label>
-              <Select
-                value={form.channelId}
-                onValueChange={(v) => setForm((f) => ({ ...f, channelId: v }))}
-                required
-              >
-                <SelectTrigger className="bg-input border-border">
-                  <SelectValue placeholder="Выберите канал" />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  {channels.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {bulkSlotsSummary ? (
+              <div className="col-span-2">{bulkSlotsSummary}</div>
+            ) : (
+              <>
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Канал *</Label>
+                  <Select
+                    value={form.channelId}
+                    onValueChange={(v) => setForm((f) => ({ ...f, channelId: v }))}
+                    required
+                  >
+                    <SelectTrigger className="bg-input border-border">
+                      <SelectValue placeholder="Выберите канал" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      {channels.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-1.5">
-              <Label>Дата *</Label>
-              <Input
-                type="date"
-                value={form.date}
-                onChange={(e) => {
-                  const d = e.target.value;
-                  const month = d.slice(0, 7);
-                  setForm((f) => ({ ...f, date: d, month }));
-                }}
-                required
-                className="bg-input border-border"
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <Label>Дата *</Label>
+                  <Input
+                    type="date"
+                    value={form.date}
+                    onChange={(e) => {
+                      const d = e.target.value;
+                      const month = d.slice(0, 7);
+                      setForm((f) => ({ ...f, date: d, month }));
+                    }}
+                    required
+                    className="bg-input border-border"
+                  />
+                </div>
 
-            <div className="space-y-1.5">
-              <Label>Слот бронирования</Label>
-              <Select
-                value={form.bookingSlot || "none"}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, bookingSlot: (v === "none" ? "" : v) as "утро" | "обед" | "вечер" | "" }))
-                }
-              >
-                <SelectTrigger className="bg-input border-border">
-                  <SelectValue placeholder="Выберите слот..." />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  <SelectItem value="none">Не указан</SelectItem>
-                  <SelectItem value="утро">Утро</SelectItem>
-                  <SelectItem value="обед">Обед</SelectItem>
-                  <SelectItem value="вечер">Вечер</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-1.5">
+                  <Label>Слот бронирования</Label>
+                  <Select
+                    value={form.bookingSlot || "none"}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, bookingSlot: (v === "none" ? "" : v) as "утро" | "обед" | "вечер" | "" }))
+                    }
+                  >
+                    <SelectTrigger className="bg-input border-border">
+                      <SelectValue placeholder="Выберите слот..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      <SelectItem value="none">Не указан</SelectItem>
+                      <SelectItem value="утро">Утро</SelectItem>
+                      <SelectItem value="обед">Обед</SelectItem>
+                      <SelectItem value="вечер">Вечер</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-1.5">
-              <Label>Время (свободный формат)</Label>
-              <Input
-                value={form.timeSlot}
-                onChange={(e) => setForm((f) => ({ ...f, timeSlot: e.target.value }))}
-                placeholder="утро, 10:00, вечер..."
-                className="bg-input border-border"
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <Label>Время (свободный формат)</Label>
+                  <Input
+                    value={form.timeSlot}
+                    onChange={(e) => setForm((f) => ({ ...f, timeSlot: e.target.value }))}
+                    placeholder="утро, 10:00, вечер..."
+                    className="bg-input border-border"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="space-y-1.5">
               <Label>Статус оплаты</Label>

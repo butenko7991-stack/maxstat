@@ -941,15 +941,22 @@ export default function SchedulePage() {
             </div>
             {selectedSlots.length > 0 && (
               <>
-                <div className="flex flex-wrap gap-1 max-w-xs">
-                  {selectedSlots.slice(0, 4).map((s) => (
-                    <span key={`${s.channelId}|${s.dateStr}|${s.slot}`} className="text-[10px] bg-primary/15 text-primary rounded-md px-1.5 py-0.5">
-                      {s.channelName.slice(0, 10)} • {s.dateStr.slice(5)} • {s.slot}
-                    </span>
-                  ))}
-                  {selectedSlots.length > 4 && (
-                    <span className="text-[10px] text-muted-foreground">+{selectedSlots.length - 4}</span>
-                  )}
+                <div className="flex flex-wrap gap-1 max-w-sm">
+                  {(() => {
+                    const grouped = selectedSlots.reduce((acc, s) => {
+                      if (!acc[s.channelName]) acc[s.channelName] = 0;
+                      acc[s.channelName]++;
+                      return acc;
+                    }, {} as Record<string, number>);
+                    const entries = Object.entries(grouped);
+                    return entries.slice(0, 3).map(([name, count]) => (
+                      <span key={name} className="text-[10px] bg-primary/15 text-primary rounded-md px-1.5 py-0.5">
+                        {name.slice(0, 12)}: {count} сл.
+                      </span>
+                    )).concat(
+                      entries.length > 3 ? [<span key="more" className="text-[10px] text-muted-foreground">+{entries.length - 3} кан.</span>] : []
+                    );
+                  })()}
                 </div>
                 <button
                   onClick={() => {
@@ -984,6 +991,18 @@ export default function SchedulePage() {
             title={`Новая запись — ${selectedSlots.length} слотов`}
             form={bulkForm as any}
             setForm={(updater: any) => setBulkForm(updater)}
+            bulkSlotsSummary={
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <p className="text-sm font-medium text-primary">Выбрано слотов: {selectedSlots.length}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedSlots.map((s) => (
+                    <span key={`${s.channelId}|${s.dateStr}|${s.slot}`} className="text-xs bg-primary/10 text-primary border border-primary/20 rounded-md px-2 py-0.5">
+                      {s.channelName} • {s.dateStr.slice(5)} • {s.slot}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            }
             onSubmit={(e: React.FormEvent) => {
               e.preventDefault();
               const f = bulkForm;
