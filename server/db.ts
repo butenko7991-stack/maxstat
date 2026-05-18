@@ -524,7 +524,7 @@ export async function getScheduleData(
   startDate: string,
   endDate: string
 ): Promise<{
-  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff">>;
+  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded">>;
   purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot">>;
 }> {
   const db = await getDb();
@@ -543,6 +543,7 @@ export async function getScheduleData(
         paymentStatus: saleRecords.paymentStatus,
         link: saleRecords.link,
         tariff: saleRecords.tariff,
+        postNotNeeded: saleRecords.postNotNeeded,
       })
       .from(saleRecords)
       .where(

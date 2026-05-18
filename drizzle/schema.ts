@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   decimal,
   int,
   mysqlEnum,
@@ -125,6 +126,8 @@ export const saleRecords = mysqlTable("sale_records", {
   botStoriesCost: decimal("botStoriesCost", { precision: 12, scale: 2 }),
   /** Month label for grouping (e.g. "2026-05") */
   month: varchar("month", { length: 7 }).notNull(),
+  /** Post not needed — autobot handles posting automatically */
+  postNotNeeded: boolean("postNotNeeded").default(false).notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

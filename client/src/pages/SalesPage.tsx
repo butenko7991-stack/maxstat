@@ -23,7 +23,7 @@ import * as XLSX from "xlsx";
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
-  botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
+  botStories: "", botStoriesCost: "", month: currentMonth(), postNotNeeded: false, notes: "",
 };
 
 const TIME_SLOT_COLORS: Record<string, string> = {
@@ -217,7 +217,7 @@ export default function SalesPage() {
       bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер") ?? "",
       tariff: r.tariff ?? "", platform: r.platform ?? "",      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
-      month: r.month, notes: r.notes ?? "",
+      month: r.month, postNotNeeded: r.postNotNeeded ?? false, notes: r.notes ?? "",
     });
     setDialogOpen(true);
   }
@@ -236,6 +236,7 @@ export default function SalesPage() {
       cost: form.cost || undefined,
       paymentStatus: form.paymentStatus, botStories: form.botStories || undefined,
       botStoriesCost: form.botStoriesCost || undefined, month: form.month,
+      postNotNeeded: form.postNotNeeded,
       notes: form.notes || undefined,
     };
     if (editingId) { updateMutation.mutate({ id: editingId, ...payload }); }
@@ -406,7 +407,7 @@ export default function SalesPage() {
                         {r.timeSlot}
                       </span>
                     )}
-                    {!r.link && (() => {
+                    {!r.link && !r.postNotNeeded && (() => {
                       const daysUntil = r.date ? Math.ceil((new Date(r.date).getTime() - Date.now()) / 86400000) : null;
                       const isUrgent = daysUntil !== null && daysUntil <= 2;
                       return (

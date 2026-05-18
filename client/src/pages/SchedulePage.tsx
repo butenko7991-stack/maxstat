@@ -85,10 +85,10 @@ function isToday(d: Date): boolean {
   return toIso(d) === toIso(today);
 }
 
-const EMPTY_SALE_FORM = {
+const EMPTY_SALE_FORM: SaleFormData = {
   channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
-  botStories: "", botStoriesCost: "", month: "", notes: "",
+  botStories: "", botStoriesCost: "", month: "", postNotNeeded: false, notes: "",
 };
 
 const EMPTY_PURCHASE_FORM: PurchaseFormData = {
@@ -277,6 +277,7 @@ export default function SchedulePage() {
         botStories: s.botStories ?? "",
         botStoriesCost: s.botStoriesCost ?? "",
         month: s.month ?? "",
+        postNotNeeded: s.postNotNeeded ?? false,
         notes: s.notes ?? "",
       });
       setEditSaleOpen(true);
@@ -648,7 +649,7 @@ export default function SchedulePage() {
                                 <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[status])}>
                                   {PAYMENT_LABELS[status]}
                                 </div>
-                                {records.some((rec: any) => !rec.link) && (
+                                {records.some((rec: any) => !rec.link && !rec.postNotNeeded) && (
                                   <div className={cn("text-[9px] mt-0.5 truncate font-medium",
                                     (() => {
                                       const d = records[0]?.date ? Math.ceil((new Date(records[0].date).getTime() - Date.now()) / 86400000) : null;
@@ -934,6 +935,7 @@ export default function SchedulePage() {
                 botStories: f.botStories || undefined,
                 botStoriesCost: f.botStoriesCost || undefined,
                 month: f.month,
+                postNotNeeded: f.postNotNeeded,
                 notes: f.notes || undefined,
               });
             }}
@@ -1037,6 +1039,7 @@ export default function SchedulePage() {
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
                 botStories: f.botStories || undefined,
                 botStoriesCost: f.botStoriesCost || undefined,
+                postNotNeeded: f.postNotNeeded,
                 notes: f.notes || undefined,
               });
             }}
@@ -1146,7 +1149,7 @@ export default function SchedulePage() {
               channelId: Number(f.channelId), date: f.date,
               admin: f.admin || undefined, link: f.link || undefined,
               timeSlot: f.timeSlot || undefined,
-              bookingSlot: (f.bookingSlot || undefined) as "\u0443\u0442\u0440\u043e" | "\u043e\u0431\u0435\u0434" | "\u0432\u0435\u0447\u0435\u0440" | undefined,
+              bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
               tariff: f.tariff || undefined, platform: f.platform || undefined,
               spm: f.spm || undefined,
               reach: f.reach ? Number(f.reach) : undefined,
@@ -1155,6 +1158,7 @@ export default function SchedulePage() {
               botStories: f.botStories || undefined,
               botStoriesCost: f.botStoriesCost || undefined,
               month: f.month,
+              postNotNeeded: f.postNotNeeded,
               notes: f.notes || undefined,
             });
           }}

@@ -1,0 +1,1 @@
+ALTER TABLE `sale_records` ADD `postNotNeeded` boolean DEFAULT false NOT NULL;

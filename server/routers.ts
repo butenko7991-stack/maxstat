@@ -224,6 +224,7 @@ const saleInput = z.object({
   botStoriesCost: z.string().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
   bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+  postNotNeeded: z.boolean().optional(),
   notes: z.string().optional(),
 });
 const salesRouter = router({
@@ -268,6 +269,7 @@ const salesRouter = router({
       botStories: input.botStories ?? null,
       botStoriesCost: input.botStoriesCost ?? null,
       month: input.month,
+      postNotNeeded: input.postNotNeeded ?? false,
       notes: input.notes ?? null,
     });
     return { id };
@@ -345,6 +347,7 @@ const salesRouter = router({
       paymentStatus: paymentStatusEnum.optional(),
       botStories: z.string().max(255).optional(),
       botStoriesCost: z.string().optional(),
+      postNotNeeded: z.boolean().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -380,6 +383,7 @@ const salesRouter = router({
           botStories: input.botStories ?? null,
           botStoriesCost: input.botStoriesCost ?? null,
           month: slot.month,
+          postNotNeeded: input.postNotNeeded ?? false,
           notes: input.notes ?? null,
         });
         ids.push(id);

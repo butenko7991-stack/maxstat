@@ -131,3 +131,11 @@
 - [x] Визуальный бейдж «Нет поста» на карточках продажи без ссылки (SalesPage)
 - [x] Усиленное предупреждение если дата размещения < 2 дней и ссылка отсутствует
 - [x] Индикатор «Нет поста» в занятых ячейках расписания (SchedulePage)
+
+## Чекбокс «Пост не нужен» (автобот)
+- [x] Добавить колонку post_not_needed (boolean DEFAULT false) в sale_records
+- [x] Добавить postNotNeeded в saleInput zod-схему и мутации create/update
+- [x] Добавить чекбокс «Пост не нужен (автобот)» в SaleFormModal
+- [x] Обновить EMPTY_FORM, openEdit, handleSubmit в SalesPage
+- [x] Обновить условие бейджа «Нет поста» на SalesPage: !r.link && !r.postNotNeeded
+- [x] Обновить условие индикатора «Нет поста» на SchedulePage: !rec.link && !rec.postNotNeeded

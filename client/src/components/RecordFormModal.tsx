@@ -60,6 +60,7 @@ export interface SaleFormData {
   botStories: string;
   botStoriesCost: string;
   month: string;
+  postNotNeeded: boolean;
   notes: string;
 }
 
@@ -646,6 +647,19 @@ export function SaleFormModal({
                 placeholder="0"
                 className="bg-input border-border"
               />
+            </div>
+
+            {/* Post not needed checkbox */}
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.postNotNeeded}
+                  onChange={(e) => setForm((f) => ({ ...f, postNotNeeded: e.target.checked }))}
+                  className="h-4 w-4 rounded border-border accent-primary"
+                />
+                <span className="text-sm text-muted-foreground">Пост не нужен (автобот)</span>
+              </label>
             </div>
 
             <div className="space-y-1.5 col-span-2">

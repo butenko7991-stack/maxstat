@@ -50,6 +50,13 @@
       "when": 1778809234100,
       "tag": "0006_ancient_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1779127333288,
+      "tag": "0007_confused_wendigo",
+      "breakpoints": true
     }
   ]
 }
