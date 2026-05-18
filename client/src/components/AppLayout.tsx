@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   ShoppingCart,
+  Sparkles,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/sales", label: "Продажа", icon: TrendingUp },
   { href: "/schedule", label: "Расписание", icon: CalendarDays },
   { href: "/summary", label: "Итоги", icon: BarChart3 },
+  { href: "/ai", label: "AI Аналитика", icon: Sparkles },
 ];
 
 interface AppLayoutProps {

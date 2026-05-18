@@ -27,7 +27,9 @@ import {
   getAutocompleteSuggestions,
   getScheduleData,
   checkBookingConflict,
+  getChannelProfitability,
 } from "./db";
+import { invokeLLM } from "./_core/llm";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -428,9 +430,109 @@ const scheduleRouter = router({
     .input(z.object({ startDate: z.string(), endDate: z.string() }))
     .query(({ ctx, input }) => getScheduleData(ctx.user.id, input.startDate, input.endDate)),
 });
-// ─── App router ──────────────────────────────────────────────────────────────────────────────────────
-export const appRouter = router({
-  system: systemRouter,
+// ─── AI Analytics router ────────────────────────────────────────────────────────────────────────────────
+const aiRouter = router({
+  /** Get raw profitability data per channel */
+  profitability: protectedProcedure
+    .input(z.object({ month: z.string().optional() }))
+    .query(({ ctx, input }) => getChannelProfitability(ctx.user.id, input.month)),
+
+  /** AI analysis of channel profitability with recommendations */
+  analyzeChannels: protectedProcedure
+    .input(z.object({ month: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const data = await getChannelProfitability(ctx.user.id, input.month);
+      if (data.channels.length === 0) {
+        return { analysis: "Нет данных для анализа. Добавьте записи о продажах и закупках." };
+      }
+
+      const channelsSummary = data.channels.map(c => (
+        `- ${c.channelName}: доход ${c.salesTotal}₽ (${c.salesCount} продаж), расход ${c.purchasesTotal}₽ (${c.purchasesCount} закупок), прибыль ${c.profit}₽, ROI ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%, неоплаченные продажи ${c.unpaidSalesTotal}₽, неоплаченные закупки ${c.unpaidPurchasesTotal}₽`
+      )).join('\n');
+
+      const prompt = `Ты — эксперт по экономике рекламных каналов в Телеграм/Макс. Проанализируй рентабельность каналов и дай конкретные рекомендации.
+
+Общие показатели:
+- Общий доход: ${data.totalSales}₽
+- Общий расход: ${data.totalPurchases}₽
+- Прибыль: ${data.totalProfit}₽
+- ROI: ${data.overallROI.toFixed(1)}%
+- Кол-во каналов: ${data.channelCount}
+
+По каналам:
+${channelsSummary}
+
+Ответь на русском языке. Дай:
+1. Краткую оценку общего состояния бизнеса
+2. Топ-3 самых прибыльных канала с объяснением
+3. Проблемные каналы (убыточные или с низким ROI)
+4. Конкретные рекомендации по оптимизации
+5. Риски (неоплаченные суммы, зависимость от одного канала)
+
+Формат: markdown с заголовками, короткими параграфами и эмоджи для акцентов. Максимум 500 слов.`;
+
+      const result = await invokeLLM({
+        messages: [
+          { role: "system", content: "Ты — AI-аналитик рекламного бизнеса. Отвечай конкретно, с цифрами и действиями." },
+          { role: "user", content: prompt },
+        ],
+      });
+
+      const content = result.choices?.[0]?.message?.content;
+      const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map(p => p.type === "text" ? p.text : "").join("") : "";
+      return { analysis, data };
+    }),
+
+  /** AI digest — weekly/monthly text summary */
+  generateDigest: protectedProcedure
+    .input(z.object({ month: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const data = await getChannelProfitability(ctx.user.id, input.month);
+      if (data.channels.length === 0) {
+        return { digest: "Нет данных для дайджеста." };
+      }
+
+      const channelsList = data.channels.map(c =>
+        `${c.channelName}: продажи ${c.salesTotal}₽ (${c.salesCount} шт), закупки ${c.purchasesTotal}₽ (${c.purchasesCount} шт), прибыль ${c.profit}₽`
+      ).join('\n');
+
+      const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
+
+      const prompt = `Составь краткий бизнес-дайджест ${periodLabel} для владельца рекламных каналов.
+
+Общие цифры:
+- Доход: ${data.totalSales}₽ (продаж: ${data.salesCount})
+- Расход: ${data.totalPurchases}₽ (закупок: ${data.purchasesCount})
+- Прибыль: ${data.totalProfit}₽
+- ROI: ${data.overallROI.toFixed(1)}%
+- Каналов: ${data.channelCount}
+
+По каналам:
+${channelsList}
+
+Напиши на русском языке краткую сводку (200–300 слов) в формате markdown:
+- Ключевые метрики периода
+- Что выросло / упало
+- Главные достижения
+- Точки внимания и риски
+- 2–3 приоритетных действия на следующий период
+
+Стиль: деловой, но дружелюбный. Используй эмодзи для акцентов.`;
+
+      const result = await invokeLLM({
+        messages: [
+          { role: "system", content: "Ты — бизнес-аналитик, составляющий краткие и полезные дайджесты для владельцев рекламного бизнеса." },
+          { role: "user", content: prompt },
+        ],
+      });
+
+      const content = result.choices?.[0]?.message?.content;
+      const digest = typeof content === "string" ? content : Array.isArray(content) ? content.map(p => p.type === "text" ? p.text : "").join("") : "";
+      return { digest, data };
+    }),
+});
+// ─── App router ────────────────────────────────────────────────────────────────────────────────────────────
+export const appRouter = router({system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -444,6 +546,7 @@ export const appRouter = router({
   sales: salesRouter,
   schedule: scheduleRouter,
   summary: summaryRouter,
+  ai: aiRouter,
 });
 
 export type AppRouter = typeof appRouter;

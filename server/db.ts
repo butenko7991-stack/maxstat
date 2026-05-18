@@ -607,3 +607,145 @@ export async function checkBookingConflict(
   const filtered = excludeId ? rows.filter((r) => r.id !== excludeId) : rows;
   return filtered.length > 0 ? filtered[0].id : null;
 }
+
+// ─── AI Analytics: Channel Profitability Aggregation ─────────────────────────
+export interface ChannelProfitData {
+  channelId: number;
+  channelName: string;
+  salesTotal: number;
+  salesCount: number;
+  purchasesTotal: number;
+  purchasesCount: number;
+  profit: number;
+  roi: number; // (sales - purchases) / purchases * 100, or Infinity if no purchases
+  avgSaleCost: number;
+  avgPurchaseCost: number;
+  unpaidSalesTotal: number;
+  unpaidPurchasesTotal: number;
+}
+
+export interface PeriodSummaryData {
+  totalSales: number;
+  totalPurchases: number;
+  totalProfit: number;
+  overallROI: number;
+  channelCount: number;
+  salesCount: number;
+  purchasesCount: number;
+  channels: ChannelProfitData[];
+  topChannel: string | null;
+  worstChannel: string | null;
+}
+
+export async function getChannelProfitability(
+  userId: number,
+  month?: string // e.g. "2026-05" or undefined for all-time
+): Promise<PeriodSummaryData> {
+  const db = await getDb();
+  if (!db) {
+    return {
+      totalSales: 0, totalPurchases: 0, totalProfit: 0, overallROI: 0,
+      channelCount: 0, salesCount: 0, purchasesCount: 0, channels: [],
+      topChannel: null, worstChannel: null,
+    };
+  }
+
+  // Get user channels
+  const userChannels = await db
+    .select({ id: channels.id, name: channels.name })
+    .from(channels)
+    .where(eq(channels.userId, userId));
+  const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
+
+  // Sales aggregation per channel
+  const saleConds: any[] = [eq(saleRecords.userId, userId)];
+  if (month) saleConds.push(eq(saleRecords.month, month));
+
+  const salesByChannel = await db
+    .select({
+      channelId: saleRecords.channelId,
+      total: sql<string>`COALESCE(SUM(CAST(${saleRecords.cost} AS DECIMAL(12,2))), 0)`,
+      count: sql<string>`COUNT(*)`,
+      unpaid: sql<string>`COALESCE(SUM(CASE WHEN ${saleRecords.paymentStatus} != 'paid' THEN CAST(${saleRecords.cost} AS DECIMAL(12,2)) ELSE 0 END), 0)`,
+    })
+    .from(saleRecords)
+    .where(and(...saleConds))
+    .groupBy(saleRecords.channelId);
+
+  // Purchases aggregation per channel
+  const purchaseConds: any[] = [eq(purchaseRecords.userId, userId)];
+  if (month) purchaseConds.push(eq(purchaseRecords.month, month));
+
+  const purchasesByChannel = await db
+    .select({
+      channelId: purchaseRecords.channelId,
+      total: sql<string>`COALESCE(SUM(CAST(${purchaseRecords.cost} AS DECIMAL(12,2))), 0)`,
+      count: sql<string>`COUNT(*)`,
+      unpaid: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseRecords.paymentStatus} != 'paid' THEN CAST(${purchaseRecords.cost} AS DECIMAL(12,2)) ELSE 0 END), 0)`,
+    })
+    .from(purchaseRecords)
+    .where(and(...purchaseConds))
+    .groupBy(purchaseRecords.channelId);
+
+  // Build per-channel data
+  const channelDataMap = new Map<number, ChannelProfitData>();
+
+  for (const row of salesByChannel) {
+    const cid = row.channelId;
+    const entry = channelDataMap.get(cid) ?? {
+      channelId: cid, channelName: channelMap.get(cid) ?? "—",
+      salesTotal: 0, salesCount: 0, purchasesTotal: 0, purchasesCount: 0,
+      profit: 0, roi: 0, avgSaleCost: 0, avgPurchaseCost: 0,
+      unpaidSalesTotal: 0, unpaidPurchasesTotal: 0,
+    };
+    entry.salesTotal = parseFloat(row.total);
+    entry.salesCount = parseInt(row.count);
+    entry.unpaidSalesTotal = parseFloat(row.unpaid);
+    entry.avgSaleCost = entry.salesCount > 0 ? entry.salesTotal / entry.salesCount : 0;
+    channelDataMap.set(cid, entry);
+  }
+
+  for (const row of purchasesByChannel) {
+    const cid = row.channelId;
+    const entry = channelDataMap.get(cid) ?? {
+      channelId: cid, channelName: channelMap.get(cid) ?? "—",
+      salesTotal: 0, salesCount: 0, purchasesTotal: 0, purchasesCount: 0,
+      profit: 0, roi: 0, avgSaleCost: 0, avgPurchaseCost: 0,
+      unpaidSalesTotal: 0, unpaidPurchasesTotal: 0,
+    };
+    entry.purchasesTotal = parseFloat(row.total);
+    entry.purchasesCount = parseInt(row.count);
+    entry.unpaidPurchasesTotal = parseFloat(row.unpaid);
+    entry.avgPurchaseCost = entry.purchasesCount > 0 ? entry.purchasesTotal / entry.purchasesCount : 0;
+    channelDataMap.set(cid, entry);
+  }
+
+  // Calculate profit and ROI
+  const channelsData: ChannelProfitData[] = [];
+  for (const entry of Array.from(channelDataMap.values())) {
+    entry.profit = entry.salesTotal - entry.purchasesTotal;
+    entry.roi = entry.purchasesTotal > 0
+      ? ((entry.salesTotal - entry.purchasesTotal) / entry.purchasesTotal) * 100
+      : (entry.salesTotal > 0 ? Infinity : 0);
+    channelsData.push(entry);
+  }
+
+  // Sort by profit descending
+  channelsData.sort((a, b) => b.profit - a.profit);
+
+  const totalSales = channelsData.reduce((s, c) => s + c.salesTotal, 0);
+  const totalPurchases = channelsData.reduce((s, c) => s + c.purchasesTotal, 0);
+  const totalProfit = totalSales - totalPurchases;
+  const overallROI = totalPurchases > 0 ? ((totalSales - totalPurchases) / totalPurchases) * 100 : 0;
+  const salesCount = channelsData.reduce((s, c) => s + c.salesCount, 0);
+  const purchasesCount = channelsData.reduce((s, c) => s + c.purchasesCount, 0);
+
+  const topChannel = channelsData.length > 0 ? channelsData[0].channelName : null;
+  const worstChannel = channelsData.length > 1 ? channelsData[channelsData.length - 1].channelName : null;
+
+  return {
+    totalSales, totalPurchases, totalProfit, overallROI,
+    channelCount: channelsData.length, salesCount, purchasesCount,
+    channels: channelsData, topChannel, worstChannel,
+  };
+}
