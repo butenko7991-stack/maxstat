@@ -167,7 +167,7 @@ const purchasesRouter = router({
       const newId = await createPurchaseRecord({ ...rest });
       return { id: newId };
     }),
-  exportData: protectedProcedure
+   exportData: protectedProcedure
     .input(
       z.object({
         month: z.string().optional(),
@@ -177,8 +177,14 @@ const purchasesRouter = router({
     .query(({ ctx, input }) =>
       getPurchaseRecords(ctx.user.id, { month: input.month, channelId: input.channelId })
     ),
+  getById: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const record = await getPurchaseById(input.id, ctx.user.id);
+      if (!record) throw new TRPCError({ code: "NOT_FOUND" });
+      return record;
+    }),
 });
-
 // ─── Sales router ─────────────────────────────────────────────────────────────
 
 /** Derive a bookingSlot from a free-text timeSlot string.
@@ -379,6 +385,13 @@ const salesRouter = router({
         ids.push(id);
       }
       return { ids, count: ids.length };
+    }),
+  getById: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const record = await getSaleById(input.id, ctx.user.id);
+      if (!record) throw new TRPCError({ code: "NOT_FOUND" });
+      return record;
     }),
 });
 // ─── Summary routerr ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
 import { trpc } from "@/lib/trpc";
 import { cn, formatCost } from "@/lib/utils";
@@ -15,9 +15,11 @@ import {
   CheckSquare,
   Square,
   Layers,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SaleFormModal, PurchaseFormModal, type PurchaseFormData } from "@/components/RecordFormModal";
+import { SaleFormModal, PurchaseFormModal, type PurchaseFormData, type SaleFormData } from "@/components/RecordFormModal";
 import { toast } from "sonner";
 
 const SLOTS = ["утро", "обед", "вечер"] as const;
@@ -133,8 +135,18 @@ export default function SchedulePage() {
     channelName: string;
     date: string;
     slot: Slot;
+    type: "sale" | "purchase";
     records: Array<{ id: number; admin?: string | null; cost?: string | null; paymentStatus: string; link?: string | null; tariff?: string | null }>;
   }>(null);
+  // Edit state for sales
+  const [editSaleId, setEditSaleId] = useState<number | null>(null);
+  const [editSaleForm, setEditSaleForm] = useState<SaleFormData>({ ...EMPTY_SALE_FORM });
+  const [editSaleOpen, setEditSaleOpen] = useState(false);
+  const [editSaleConflictError, setEditSaleConflictError] = useState<string | null>(null);
+  // Edit state for purchases
+  const [editPurchaseId, setEditPurchaseId] = useState<number | null>(null);
+  const [editPurchaseForm, setEditPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
+  const [editPurchaseOpen, setEditPurchaseOpen] = useState(false);
 
   const weekDates = useMemo(() => getWeekDates(baseDate), [baseDate]);
   const startDate = toIso(weekDates[0]);
@@ -182,6 +194,122 @@ export default function SchedulePage() {
       }
     },
   });
+
+  // Update sale mutation
+  const updateSaleMutation = trpc.sales.update.useMutation({
+    onSuccess: () => {
+      utils.schedule.getData.invalidate();
+      utils.sales.list.invalidate();
+      setEditSaleOpen(false);
+      setEditSaleId(null);
+      setEditSaleConflictError(null);
+      setDetailSlot(null);
+      toast.success("Запись обновлена");
+    },
+    onError: (e) => {
+      if (e.data?.code === "CONFLICT") {
+        setEditSaleConflictError(e.message);
+      } else {
+        toast.error(e.message);
+      }
+    },
+  });
+  // Delete sale mutation
+  const deleteSaleMutation = trpc.sales.delete.useMutation({
+    onSuccess: () => {
+      utils.schedule.getData.invalidate();
+      utils.sales.list.invalidate();
+      setDetailSlot(null);
+      toast.success("Запись удалена");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  // Update purchase mutation
+  const updatePurchaseMutation = trpc.purchases.update.useMutation({
+    onSuccess: () => {
+      utils.schedule.getData.invalidate();
+      utils.purchases.list.invalidate();
+      setEditPurchaseOpen(false);
+      setEditPurchaseId(null);
+      setDetailSlot(null);
+      toast.success("Запись закупа обновлена");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  // Delete purchase mutation
+  const deletePurchaseMutation = trpc.purchases.delete.useMutation({
+    onSuccess: () => {
+      utils.schedule.getData.invalidate();
+      utils.purchases.list.invalidate();
+      setDetailSlot(null);
+      toast.success("Запись закупа удалена");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  // Load sale by id for editing
+  const saleByIdQuery = trpc.sales.getById.useQuery(
+    { id: editSaleId ?? 0 },
+    { enabled: !!editSaleId, refetchOnWindowFocus: false }
+  );
+  // Load purchase by id for editing
+  const purchaseByIdQuery = trpc.purchases.getById.useQuery(
+    { id: editPurchaseId ?? 0 },
+    { enabled: !!editPurchaseId, refetchOnWindowFocus: false }
+  );
+
+  // When sale data loads, pre-fill edit form
+  useEffect(() => {
+    if (saleByIdQuery.data && editSaleId) {
+      const s = saleByIdQuery.data;
+      setEditSaleForm({
+        channelId: String(s.channelId),
+        date: s.date ? toIso(new Date(s.date)) : "",
+        admin: s.admin ?? "",
+        link: s.link ?? "",
+        timeSlot: (s.timeSlot ?? "") as any,
+        bookingSlot: (s.bookingSlot ?? "") as any,
+        tariff: s.tariff ?? "",
+        platform: s.platform ?? "",
+        spm: s.spm ?? "",
+        reach: s.reach != null ? String(s.reach) : "",
+        cost: s.cost ?? "",
+        paymentStatus: (s.paymentStatus ?? "unpaid") as any,
+        botStories: s.botStories ?? "",
+        botStoriesCost: s.botStoriesCost ?? "",
+        month: s.month ?? "",
+        notes: s.notes ?? "",
+      });
+      setEditSaleOpen(true);
+    }
+  }, [saleByIdQuery.data, editSaleId]);
+  // When purchase data loads, pre-fill edit form
+  useEffect(() => {
+    if (purchaseByIdQuery.data && editPurchaseId) {
+      const p = purchaseByIdQuery.data;
+      setEditPurchaseForm({
+        channelId: String(p.channelId),
+        date: p.date ? toIso(new Date(p.date)) : "",
+        admin: p.admin ?? "",
+        link: p.link ?? "",
+        targetChannels: p.targetChannels ?? "",
+        direction: p.direction ?? "",
+        tariff: p.tariff ?? "",
+        buyer: p.buyer ?? "",
+        spm: p.spm ?? "",
+        reach: p.reach != null ? String(p.reach) : "",
+        cost: p.cost ?? "",
+        paymentStatus: (p.paymentStatus ?? "unpaid") as any,
+        subscribersGained: p.subscribersGained != null ? String(p.subscribersGained) : "",
+        botStories: p.botStories ?? "",
+        botStoriesCost: p.botStoriesCost ?? "",
+        month: p.month ?? "",
+        notes: p.notes ?? "",
+        timeSlot: (p.timeSlot ?? "") as any,
+        bookingSlot: (p.bookingSlot ?? "") as any,
+      });
+      setEditPurchaseOpen(true);
+    }
+  }, [purchaseByIdQuery.data, editPurchaseId]);
 
   const visibleChannels = useMemo(() => {
     if (channelFilter === "all") return channels;
@@ -274,7 +402,7 @@ export default function SchedulePage() {
     const records = (saleMap[channelId]?.[dateStr]?.[slot] ?? []) as Array<{
       id: number; admin?: string | null; cost?: string | null; paymentStatus: string; link?: string | null; tariff?: string | null;
     }>;
-    setDetailSlot({ channelName, date: dateStr, slot, records });
+    setDetailSlot({ channelName, date: dateStr, slot, type: "sale", records });
   }
 
   const weekLabel = useMemo(() => {
@@ -661,6 +789,7 @@ export default function SchedulePage() {
                                       channelName: channel.name,
                                       date: dateStr,
                                       slot,
+                                      type: "purchase",
                                       records: purchases.map((p) => ({
                                         id: p.id,
                                         admin: p.admin,
@@ -923,6 +1052,35 @@ export default function SchedulePage() {
                         {r.link}
                       </a>
                     )}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          if (detailSlot.type === "sale") {
+                            setEditSaleId(r.id);
+                          } else {
+                            setEditPurchaseId(r.id);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Редактировать
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!confirm("Удалить запись?")) return;
+                          if (detailSlot.type === "sale") {
+                            deleteSaleMutation.mutate({ id: r.id });
+                          } else {
+                            deletePurchaseMutation.mutate({ id: r.id });
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs font-medium hover:bg-destructive/20 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Удалить
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -936,6 +1094,84 @@ export default function SchedulePage() {
           </div>
         )}
       </div>
+
+      {/* Edit sale modal */}
+      {editSaleOpen && (
+        <SaleFormModal
+          open={editSaleOpen}
+          onOpenChange={(v) => { setEditSaleOpen(v); if (!v) { setEditSaleId(null); setEditSaleConflictError(null); } }}
+          title="Редактирование записи"
+          form={editSaleForm as any}
+          setForm={(updater: any) => { setEditSaleConflictError(null); setEditSaleForm(updater); }}
+          conflictError={editSaleConflictError}
+          onClearConflict={() => setEditSaleConflictError(null)}
+          onSubmit={(e: React.FormEvent) => {
+            e.preventDefault();
+            if (!editSaleId || !editSaleForm.channelId || !editSaleForm.date) return;
+            const f = editSaleForm;
+            updateSaleMutation.mutate({
+              id: editSaleId,
+              channelId: Number(f.channelId), date: f.date,
+              admin: f.admin || undefined, link: f.link || undefined,
+              timeSlot: f.timeSlot || undefined,
+              bookingSlot: (f.bookingSlot || undefined) as "\u0443\u0442\u0440\u043e" | "\u043e\u0431\u0435\u0434" | "\u0432\u0435\u0447\u0435\u0440" | undefined,
+              tariff: f.tariff || undefined, platform: f.platform || undefined,
+              spm: f.spm || undefined,
+              reach: f.reach ? Number(f.reach) : undefined,
+              cost: f.cost || undefined,
+              paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
+              botStories: f.botStories || undefined,
+              botStoriesCost: f.botStoriesCost || undefined,
+              month: f.month,
+              notes: f.notes || undefined,
+            });
+          }}
+          isPending={updateSaleMutation.isPending}
+          channels={channels}
+          suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
+        />
+      )}
+
+      {/* Edit purchase modal */}
+      {editPurchaseOpen && (
+        <PurchaseFormModal
+          open={editPurchaseOpen}
+          onOpenChange={(v) => { setEditPurchaseOpen(v); if (!v) setEditPurchaseId(null); }}
+          title="Редактирование закупа"
+          form={editPurchaseForm}
+          setForm={setEditPurchaseForm}
+          onSubmit={(e: React.FormEvent) => {
+            e.preventDefault();
+            if (!editPurchaseId || !editPurchaseForm.channelId || !editPurchaseForm.date) return;
+            const f = editPurchaseForm;
+            updatePurchaseMutation.mutate({
+              id: editPurchaseId,
+              channelId: Number(f.channelId),
+              date: f.date,
+              admin: f.admin || undefined,
+              link: f.link || undefined,
+              targetChannels: f.targetChannels || undefined,
+              direction: f.direction || undefined,
+              tariff: f.tariff || undefined,
+              buyer: f.buyer || undefined,
+              spm: f.spm || undefined,
+              reach: f.reach ? Number(f.reach) : undefined,
+              cost: f.cost || undefined,
+              paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
+              subscribersGained: f.subscribersGained ? Number(f.subscribersGained) : undefined,
+              botStories: f.botStories || undefined,
+              botStoriesCost: f.botStoriesCost || undefined,
+              month: f.month,
+              notes: f.notes || undefined,
+              timeSlot: f.timeSlot || undefined,
+              bookingSlot: (f.bookingSlot || undefined) as "\u0443\u0442\u0440\u043e" | "\u043e\u0431\u0435\u0434" | "\u0432\u0435\u0447\u0435\u0440" | undefined,
+            });
+          }}
+          isPending={updatePurchaseMutation.isPending}
+          channels={channels}
+          suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
+        />
+      )}
     </AppLayout>
   );
 }
