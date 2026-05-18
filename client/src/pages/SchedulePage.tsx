@@ -648,6 +648,19 @@ export default function SchedulePage() {
                                 <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[status])}>
                                   {PAYMENT_LABELS[status]}
                                 </div>
+                                {records.some((rec: any) => !rec.link) && (
+                                  <div className={cn("text-[9px] mt-0.5 truncate font-medium",
+                                    (() => {
+                                      const d = records[0]?.date ? Math.ceil((new Date(records[0].date).getTime() - Date.now()) / 86400000) : null;
+                                      return d !== null && d <= 2 ? "text-red-400 animate-pulse" : "text-orange-400";
+                                    })()
+                                  )}>
+                                    {(() => {
+                                      const d = records[0]?.date ? Math.ceil((new Date(records[0].date).getTime() - Date.now()) / 86400000) : null;
+                                      return d !== null && d <= 2 ? "⚠ Пост!" : "Нет поста";
+                                    })()}
+                                  </div>
+                                )}
                                 {records.length > 1 && (
                                   <div className={cn("absolute top-1 right-1 w-4 h-4 rounded-full text-white text-[9px] flex items-center justify-center font-bold", cc.badge)}>
                                     {records.length}

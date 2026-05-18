@@ -406,6 +406,19 @@ export default function SalesPage() {
                         {r.timeSlot}
                       </span>
                     )}
+                    {!r.link && (() => {
+                      const daysUntil = r.date ? Math.ceil((new Date(r.date).getTime() - Date.now()) / 86400000) : null;
+                      const isUrgent = daysUntil !== null && daysUntil <= 2;
+                      return (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          isUrgent
+                            ? "bg-red-500/20 text-red-400 animate-pulse"
+                            : "bg-orange-500/15 text-orange-400"
+                        }`}>
+                          {isUrgent ? "⚠ Запроси пост!" : "Нет поста"}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm font-medium text-foreground">{r.admin || "—"}</span>
