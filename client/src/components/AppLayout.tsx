@@ -8,6 +8,7 @@ import {
   Layers,
   LogOut,
   Menu,
+  Shield,
   ShoppingCart,
   Sparkles,
   TrendingUp,
@@ -17,12 +18,13 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 
 const NAV_ITEMS = [
-  { href: "/channels", label: "Каналы", icon: Layers },
-  { href: "/purchases", label: "Закуп", icon: ShoppingCart },
-  { href: "/sales", label: "Продажа", icon: TrendingUp },
-  { href: "/schedule", label: "Расписание", icon: CalendarDays },
-  { href: "/summary", label: "Итоги", icon: BarChart3 },
-  { href: "/ai", label: "AI Аналитика", icon: Sparkles },
+  { href: "/channels", label: "Каналы", icon: Layers, roles: ["admin", "user"] as string[] },
+  { href: "/purchases", label: "Закуп", icon: ShoppingCart, roles: ["admin", "user", "buyer"] as string[] },
+  { href: "/sales", label: "Продажа", icon: TrendingUp, roles: ["admin", "user", "manager"] as string[] },
+  { href: "/schedule", label: "Расписание", icon: CalendarDays, roles: ["admin", "user", "buyer", "manager"] as string[] },
+  { href: "/summary", label: "Итоги", icon: BarChart3, roles: ["admin", "user"] as string[] },
+  { href: "/ai", label: "AI Аналитика", icon: Sparkles, roles: ["admin", "user"] as string[] },
+  { href: "/admin", label: "Админ-панель", icon: Shield, roles: ["admin"] as string[] },
 ];
 
 interface AppLayoutProps {
@@ -156,7 +158,7 @@ function SidebarContent({ location, user, logout, onNavClick }: SidebarContentPr
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.filter((item) => user?.role && item.roles.includes(user.role)).map(({ href, label, icon: Icon }) => {
           const active = location === href || (href !== "/" && location.startsWith(href));
           return (
             <Link

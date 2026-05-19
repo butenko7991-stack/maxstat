@@ -16,7 +16,7 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "buyer", "manager"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -135,3 +135,18 @@ export const saleRecords = mysqlTable("sale_records", {
 
 export type SaleRecord = typeof saleRecords.$inferSelect;
 export type InsertSaleRecord = typeof saleRecords.$inferInsert;
+
+/**
+ * Channel assignments — links team members (buyers/managers) to specific channels.
+ * Admin assigns which channels each team member can work with.
+ */
+export const channelAssignments = mysqlTable("channel_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(), // the team member
+  channelId: int("channelId").notNull(), // the assigned channel
+  assignedBy: int("assignedBy").notNull(), // admin who made the assignment
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ChannelAssignment = typeof channelAssignments.$inferSelect;
+export type InsertChannelAssignment = typeof channelAssignments.$inferInsert;

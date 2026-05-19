@@ -2,12 +2,15 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   Channel,
+  ChannelAssignment,
   InsertChannel,
+  InsertChannelAssignment,
   InsertPurchaseRecord,
   InsertSaleRecord,
   InsertUser,
   PurchaseRecord,
   SaleRecord,
+  channelAssignments,
   channels,
   purchaseRecords,
   saleRecords,
@@ -748,4 +751,125 @@ export async function getChannelProfitability(
     channelCount: channelsData.length, salesCount, purchasesCount,
     channels: channelsData, topChannel, worstChannel,
   };
+}
+
+// ─── Admin: Team Management ──────────────────────────────────────────────────
+
+/** Get all users (for admin panel) */
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: users.id,
+      openId: users.openId,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      createdAt: users.createdAt,
+      lastSignedIn: users.lastSignedIn,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt));
+}
+
+/** Update user role */
+export async function updateUserRole(userId: number, role: "user" | "admin" | "buyer" | "manager") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ role }).where(eq(users.id, userId));
+}
+
+/** Delete a user (and their assignments) */
+export async function deleteUser(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(channelAssignments).where(eq(channelAssignments.userId, userId));
+  await db.delete(users).where(eq(users.id, userId));
+}
+
+// ─── Admin: Channel Assignments ──────────────────────────────────────────────
+
+/** Get all channel assignments (with user and channel names) */
+export async function getChannelAssignments() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({
+      id: channelAssignments.id,
+      userId: channelAssignments.userId,
+      channelId: channelAssignments.channelId,
+      assignedBy: channelAssignments.assignedBy,
+      createdAt: channelAssignments.createdAt,
+      userName: users.name,
+      userRole: users.role,
+      channelName: channels.name,
+    })
+    .from(channelAssignments)
+    .innerJoin(users, eq(channelAssignments.userId, users.id))
+    .innerJoin(channels, eq(channelAssignments.channelId, channels.id))
+    .orderBy(desc(channelAssignments.createdAt));
+  return rows;
+}
+
+/** Get assignments for a specific user */
+export async function getUserAssignments(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: channelAssignments.id,
+      channelId: channelAssignments.channelId,
+      channelName: channels.name,
+    })
+    .from(channelAssignments)
+    .innerJoin(channels, eq(channelAssignments.channelId, channels.id))
+    .where(eq(channelAssignments.userId, userId));
+}
+
+/** Assign channels to a user (replaces all existing assignments) */
+export async function setUserChannelAssignments(userId: number, channelIds: number[], assignedBy: number) {
+  const db = await getDb();
+  if (!db) return;
+  // Remove existing assignments
+  await db.delete(channelAssignments).where(eq(channelAssignments.userId, userId));
+  // Insert new assignments
+  if (channelIds.length > 0) {
+    await db.insert(channelAssignments).values(
+      channelIds.map((channelId) => ({ userId, channelId, assignedBy }))
+    );
+  }
+}
+
+/** Delete a single assignment */
+export async function deleteChannelAssignment(assignmentId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(channelAssignments).where(eq(channelAssignments.id, assignmentId));
+}
+
+/** Get channel IDs assigned to a user (for filtering) */
+export async function getAssignedChannelIds(userId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ channelId: channelAssignments.channelId })
+    .from(channelAssignments)
+    .where(eq(channelAssignments.userId, userId));
+  return rows.map((r) => r.channelId);
+}
+
+/** Get all channels (admin-level, across all users) */
+export async function getAllChannels() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: channels.id,
+      userId: channels.userId,
+      name: channels.name,
+      description: channels.description,
+    })
+    .from(channels)
+    .orderBy(channels.name);
 }

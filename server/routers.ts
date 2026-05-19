@@ -28,6 +28,15 @@ import {
   getScheduleData,
   checkBookingConflict,
   getChannelProfitability,
+  getAllUsers,
+  updateUserRole,
+  deleteUser,
+  getChannelAssignments,
+  getUserAssignments,
+  setUserChannelAssignments,
+  deleteChannelAssignment,
+  getAssignedChannelIds,
+  getAllChannels,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 
@@ -531,9 +540,71 @@ ${channelsList}
       return { digest, data };
     }),
 });
-// ─── App router ────────────────────────────────────────────────────────────────────────────────────────────
-export const appRouter = router({system: systemRouter,
-  auth: router({
+// ─── Admin procedure guard ─────────────────────────────────────────────────────────────────────────────
+const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Доступ только для администраторов" });
+  }
+  return next({ ctx });
+});
+
+// ─── Admin router ──────────────────────────────────────────────────────────────────────────────────────
+const adminRouter = router({
+  /** List all users */
+  users: adminProcedure.query(() => getAllUsers()),
+
+  /** Update user role */
+  updateRole: adminProcedure
+    .input(z.object({
+      userId: z.number().int().positive(),
+      role: z.enum(["user", "admin", "buyer", "manager"]),
+    }))
+    .mutation(async ({ input }) => {
+      await updateUserRole(input.userId, input.role);
+      return { success: true };
+    }),
+
+  /** Delete a user */
+  deleteUser: adminProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      await deleteUser(input.userId);
+      return { success: true };
+    }),
+
+  /** Get all channels (across all owners) */
+  allChannels: adminProcedure.query(() => getAllChannels()),
+
+  /** Get all channel assignments */
+  assignments: adminProcedure.query(() => getChannelAssignments()),
+
+  /** Get assignments for a specific user */
+  userAssignments: adminProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(({ input }) => getUserAssignments(input.userId)),
+
+  /** Set channel assignments for a user (replaces all) */
+  setAssignments: adminProcedure
+    .input(z.object({
+      userId: z.number().int().positive(),
+      channelIds: z.array(z.number().int().positive()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await setUserChannelAssignments(input.userId, input.channelIds, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** Delete a single assignment */
+  deleteAssignment: adminProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      await deleteChannelAssignment(input.id);
+      return { success: true };
+    }),
+});
+
+// ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
+export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -547,6 +618,7 @@ export const appRouter = router({system: systemRouter,
   schedule: scheduleRouter,
   summary: summaryRouter,
   ai: aiRouter,
+  admin: adminRouter,
 });
 
 export type AppRouter = typeof appRouter;

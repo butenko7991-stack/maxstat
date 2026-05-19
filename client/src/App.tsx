@@ -12,6 +12,7 @@ import PurchasesPage from "./pages/PurchasesPage";
 import SalesPage from "./pages/SalesPage";
 import SummaryPage from "./pages/SummaryPage";
 import AIAnalyticsPage from "./pages/AIAnalyticsPage";
+import AdminPage from "./pages/AdminPage";
 
 function Router() {
   return (
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/schedule" component={SchedulePage} />
       <Route path="/summary" component={SummaryPage} />
       <Route path="/ai" component={AIAnalyticsPage} />
+      <Route path="/admin" component={AdminPage} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
