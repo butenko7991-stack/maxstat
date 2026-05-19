@@ -112,6 +112,8 @@ export default function SchedulePage() {
   const [selectedSlots, setSelectedSlots] = useState<Array<{ channelId: number; channelName: string; dateStr: string; slot: Slot }>>([]);
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkForm, setBulkForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
+  const [bulkPurchaseDialogOpen, setBulkPurchaseDialogOpen] = useState(false);
+  const [bulkPurchaseForm, setBulkPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
 
   function toggleSlotSelection(channelId: number, channelName: string, dateStr: string, slot: Slot) {
     setSelectedSlots((prev) => {
@@ -166,6 +168,16 @@ export default function SchedulePage() {
       setBulkDialogOpen(false);
       exitMultiSelect();
       toast.success(`Создано ${data.count} записей`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const bulkPurchaseCreateMutation = trpc.purchases.bulkCreate.useMutation({
+    onSuccess: (data) => {
+      utils.schedule.getData.invalidate();
+      utils.purchases.list.invalidate();
+      setBulkPurchaseDialogOpen(false);
+      exitMultiSelect();
+      toast.success(`Создано ${data.count} закупок`);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -452,23 +464,21 @@ export default function SchedulePage() {
           >
             Сегодня
           </button>
-          {activeTab === "sales" && (
-            <button
-              onClick={() => {
-                if (multiSelectMode) { exitMultiSelect(); }
-                else { setMultiSelectMode(true); }
-              }}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-colors",
-                multiSelectMode
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border hover:bg-accent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              {multiSelectMode ? "Отмена" : "Мультивыбор"}
-            </button>
-          )}
+          <button
+            onClick={() => {
+              if (multiSelectMode) { exitMultiSelect(); }
+              else { setMultiSelectMode(true); }
+            }}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-colors",
+              multiSelectMode
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border hover:bg-accent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            {multiSelectMode ? "Отмена" : "Мультивыбор"}
+          </button>
           {/* Channel filter */}
           <Select value={channelFilter} onValueChange={setChannelFilter}>
             <SelectTrigger className="h-9 text-xs w-40 bg-card border-border">
@@ -848,13 +858,31 @@ export default function SchedulePage() {
                                 </button>
                               );
                             }
+                            const selected = isSlotSelected(channel.id, dateStr, slot);
                             return (
                               <button
                                 key={dateStr}
-                                onClick={() => openPurchaseCreate(channel.id, dateStr, slot)}
-                                className="relative rounded-lg border transition-colors p-1.5 min-h-[52px] group flex flex-col items-center justify-center gap-1 bg-blue-500/5 border-blue-500/15 hover:bg-blue-500/20 hover:border-blue-500/40"
+                                onClick={() => {
+                                  if (multiSelectMode) {
+                                    toggleSlotSelection(channel.id, channel.name, dateStr, slot);
+                                  } else {
+                                    openPurchaseCreate(channel.id, dateStr, slot);
+                                  }
+                                }}
+                                className={cn(
+                                  "relative rounded-lg border transition-all p-1.5 min-h-[52px] group flex flex-col items-center justify-center gap-1",
+                                  selected
+                                    ? "bg-primary/20 border-primary/60 ring-1 ring-primary/40"
+                                    : "bg-blue-500/5 border-blue-500/15 hover:bg-blue-500/20 hover:border-blue-500/40"
+                                )}
                               >
-                                <Plus className="w-3.5 h-3.5 text-blue-500/40 group-hover:text-blue-400 transition-colors" />
+                                {selected ? (
+                                  <CheckSquare className="w-4 h-4 text-primary" />
+                                ) : multiSelectMode ? (
+                                  <Square className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-blue-400 transition-colors" />
+                                ) : (
+                                  <Plus className="w-3.5 h-3.5 text-blue-500/40 group-hover:text-blue-400 transition-colors" />
+                                )}
                               </button>
                             );
                           })}
@@ -976,19 +1004,31 @@ export default function SchedulePage() {
                 <button
                   onClick={() => {
                     const first = selectedSlots[0];
-                    setBulkForm({
-                      ...EMPTY_SALE_FORM,
-                      channelId: String(first.channelId),
-                      date: first.dateStr,
-                      bookingSlot: first.slot,
-                      timeSlot: first.slot,
-                      month: first.dateStr.slice(0, 7),
-                    });
-                    setBulkDialogOpen(true);
+                    if (activeTab === "purchases") {
+                      setBulkPurchaseForm({
+                        ...EMPTY_PURCHASE_FORM,
+                        channelId: String(first.channelId),
+                        date: first.dateStr,
+                        bookingSlot: first.slot,
+                        timeSlot: first.slot,
+                        month: first.dateStr.slice(0, 7),
+                      });
+                      setBulkPurchaseDialogOpen(true);
+                    } else {
+                      setBulkForm({
+                        ...EMPTY_SALE_FORM,
+                        channelId: String(first.channelId),
+                        date: first.dateStr,
+                        bookingSlot: first.slot,
+                        timeSlot: first.slot,
+                        month: first.dateStr.slice(0, 7),
+                      });
+                      setBulkDialogOpen(true);
+                    }
                   }}
                   className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors shrink-0"
                 >
-                  Создать {selectedSlots.length} записей
+                  Создать {selectedSlots.length} {activeTab === "purchases" ? "закупок" : "записей"}
                 </button>
               </>
             )}
@@ -1044,6 +1084,59 @@ export default function SchedulePage() {
               });
             }}
             isPending={bulkCreateMutation.isPending}
+            channels={channels}
+            suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
+          />
+        )}
+
+        {/* Bulk purchase create dialog */}
+        {bulkPurchaseDialogOpen && (
+          <PurchaseFormModal
+            open={bulkPurchaseDialogOpen}
+            onOpenChange={(v) => setBulkPurchaseDialogOpen(v)}
+            title={`Новый закуп — ${selectedSlots.length} слотов`}
+            form={bulkPurchaseForm}
+            setForm={setBulkPurchaseForm}
+            bulkSlotsSummary={
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-2">
+                <p className="text-sm font-medium text-blue-400">Выбрано слотов: {selectedSlots.length}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedSlots.map((s) => (
+                    <span key={`${s.channelId}|${s.dateStr}|${s.slot}`} className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-md px-2 py-0.5">
+                      {s.channelName} • {s.dateStr.slice(5)} • {s.slot}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            }
+            onSubmit={(e: React.FormEvent) => {
+              e.preventDefault();
+              const f = bulkPurchaseForm;
+              bulkPurchaseCreateMutation.mutate({
+                slots: selectedSlots.map((s) => ({
+                  channelId: s.channelId,
+                  date: s.dateStr,
+                  bookingSlot: s.slot as "утро" | "обед" | "вечер",
+                  timeSlot: s.slot,
+                  month: s.dateStr.slice(0, 7),
+                })),
+                admin: f.admin || undefined,
+                link: f.link || undefined,
+                targetChannels: f.targetChannels || undefined,
+                direction: f.direction || undefined,
+                tariff: f.tariff || undefined,
+                buyer: f.buyer || undefined,
+                spm: f.spm || undefined,
+                reach: f.reach ? Number(f.reach) : undefined,
+                cost: f.cost || undefined,
+                paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
+                subscribersGained: f.subscribersGained ? Number(f.subscribersGained) : undefined,
+                botStories: f.botStories || undefined,
+                botStoriesCost: f.botStoriesCost || undefined,
+                notes: f.notes || undefined,
+              });
+            }}
+            isPending={bulkPurchaseCreateMutation.isPending}
             channels={channels}
             suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
           />

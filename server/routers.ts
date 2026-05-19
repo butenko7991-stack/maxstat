@@ -188,6 +188,72 @@ const purchasesRouter = router({
     .query(({ ctx, input }) =>
       getPurchaseRecords(ctx.user.id, { month: input.month, channelId: input.channelId })
     ),
+  bulkCreate: protectedProcedure
+    .input(z.object({
+      slots: z.array(z.object({
+        channelId: z.number().int().positive(),
+        date: z.string(),
+        bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+        timeSlot: timeSlotEnum.optional(),
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+      })),
+      admin: z.string().max(255).optional(),
+      link: z.string().max(1024).optional(),
+      targetChannels: z.string().optional(),
+      direction: z.string().max(255).optional(),
+      tariff: z.string().max(100).optional(),
+      buyer: z.string().max(255).optional(),
+      spm: z.string().max(100).optional(),
+      reach: z.number().int().nonnegative().optional(),
+      cost: z.string().optional(),
+      paymentStatus: paymentStatusEnum.optional(),
+      subscribersGained: z.number().int().nonnegative().optional(),
+      botStories: z.string().max(255).optional(),
+      botStoriesCost: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const conflicts: string[] = [];
+      for (const slot of input.slots) {
+        if (slot.bookingSlot) {
+          const dateStr = slot.date.slice(0, 10);
+          const conflict = await checkBookingConflict(ctx.user.id, slot.channelId, dateStr, slot.bookingSlot);
+          if (conflict) {
+            conflicts.push(`Канал ${slot.channelId} / ${slot.date} / ${slot.bookingSlot} уже занят (#${conflict})`);
+          }
+        }
+      }
+      if (conflicts.length > 0) {
+        throw new TRPCError({ code: "CONFLICT", message: "Конфликт: " + conflicts.join("; ") });
+      }
+      const ids: number[] = [];
+      for (const slot of input.slots) {
+        const id = await createPurchaseRecord({
+          userId: ctx.user.id,
+          channelId: slot.channelId,
+          date: new Date(slot.date),
+          admin: input.admin ?? null,
+          link: input.link ?? null,
+          targetChannels: input.targetChannels ?? null,
+          direction: input.direction ?? null,
+          tariff: input.tariff ?? null,
+          buyer: input.buyer ?? null,
+          spm: input.spm ?? null,
+          reach: input.reach ?? null,
+          cost: input.cost ?? null,
+          paymentStatus: input.paymentStatus ?? "unpaid",
+          subscribersGained: input.subscribersGained ?? null,
+          botStories: input.botStories ?? null,
+          botStoriesCost: input.botStoriesCost ?? null,
+          month: slot.month,
+          notes: input.notes ?? null,
+          timeSlot: slot.timeSlot ?? null,
+          bookingSlot: slot.bookingSlot ?? deriveBookingSlot(slot.timeSlot),
+        });
+        ids.push(id);
+      }
+      return { ids, count: ids.length };
+    }),
   getById: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {

@@ -163,3 +163,9 @@
 - [x] Frontend: ограничение навигации по ролям (buyer видит только Закуп, manager — только Продажу)
 - [x] Навигация: добавить пункт «Админ-панель» (только для admin)
 - [x] Тесты: vitest для admin процедур и role guards (11 тестов)
+
+## Массовое создание закупок (несколько слотов)
+- [x] Backend: добавить процедуру purchases.bulkCreate (аналог sales.bulkCreate)
+- [x] Frontend: добавить bulkSlotsSummary prop в PurchaseFormModal для поддержки мульти-слот создания через Расписание
+- [x] Frontend SchedulePage: обновить создание закупки для поддержки нескольких слотов
+- [x] Тесты: vitest для purchases.bulkCreate (3 теста: happy path, single slot, CONFLICT)

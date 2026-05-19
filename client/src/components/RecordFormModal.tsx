@@ -100,6 +100,8 @@ interface PurchaseFormModalProps {
   onSubmit: (e: React.FormEvent) => void;
   isPending: boolean;
   suggestions?: AutocompleteSuggestions;
+  /** When provided, hides channel/date/slot fields and shows this summary instead */
+  bulkSlotsSummary?: React.ReactNode;
 }
 
 export function PurchaseFormModal({
@@ -112,6 +114,7 @@ export function PurchaseFormModal({
   onSubmit,
   isPending,
   suggestions,
+  bulkSlotsSummary,
 }: PurchaseFormModalProps) {
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
@@ -130,40 +133,46 @@ export function PurchaseFormModal({
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4 pt-2">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label>Канал *</Label>
-              <Select
-                value={form.channelId}
-                onValueChange={(v) => setForm((f) => ({ ...f, channelId: v }))}
-                required
-              >
-                <SelectTrigger className="bg-input border-border">
-                  <SelectValue placeholder="Выберите канал" />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  {channels.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {bulkSlotsSummary ? (
+              <div className="col-span-2">{bulkSlotsSummary}</div>
+            ) : (
+              <>
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Канал *</Label>
+                  <Select
+                    value={form.channelId}
+                    onValueChange={(v) => setForm((f) => ({ ...f, channelId: v }))}
+                    required
+                  >
+                    <SelectTrigger className="bg-input border-border">
+                      <SelectValue placeholder="Выберите канал" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      {channels.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-1.5">
-              <Label>Дата *</Label>
-              <Input
-                type="date"
-                value={form.date}
-                onChange={(e) => {
-                  const d = e.target.value;
-                  const month = d.slice(0, 7);
-                  setForm((f) => ({ ...f, date: d, month }));
-                }}
-                required
-                className="bg-input border-border"
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <Label>Дата *</Label>
+                  <Input
+                    type="date"
+                    value={form.date}
+                    onChange={(e) => {
+                      const d = e.target.value;
+                      const month = d.slice(0, 7);
+                      setForm((f) => ({ ...f, date: d, month }));
+                    }}
+                    required
+                    className="bg-input border-border"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="space-y-1.5">
               <Label>Статус оплаты</Label>

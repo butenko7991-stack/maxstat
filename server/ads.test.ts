@@ -50,6 +50,12 @@ vi.mock("./db", () => ({
   getAvailableMonths: vi.fn().mockResolvedValue(["2026-05", "2026-04"]),
   upsertUser: vi.fn().mockResolvedValue(undefined),
   getUserByOpenId: vi.fn().mockResolvedValue(undefined),
+  checkBookingConflict: vi.fn().mockResolvedValue(null),
+  duplicatePurchaseRecord: vi.fn().mockResolvedValue(99),
+  getPurchaseById: vi.fn().mockResolvedValue(null),
+  exportPurchaseData: vi.fn().mockResolvedValue([]),
+  quickUpdatePurchasePayment: vi.fn().mockResolvedValue(undefined),
+  getAssignedChannelIds: vi.fn().mockResolvedValue(null),
 }));
 
 // ─── Test context ─────────────────────────────────────────────────────────────
@@ -164,7 +170,57 @@ describe("sales", () => {
   });
 });
 
-// ─── Summary ──────────────────────────────────────────────────────────────────
+// ─── Purchases bulkCreate ──────────────────────────────────────────────────────────────────────────────────
+
+import * as db from "./db";
+
+describe("purchases.bulkCreate", () => {
+  beforeEach(() => {
+    vi.mocked(db.createPurchaseRecord).mockResolvedValue(10);
+    vi.mocked(db.checkBookingConflict).mockResolvedValue(null);
+  });
+
+  it("creates multiple purchase records from slots", async () => {
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.purchases.bulkCreate({
+      slots: [
+        { channelId: 1, date: "2026-05-10", bookingSlot: "утро", month: "2026-05" },
+        { channelId: 1, date: "2026-05-11", bookingSlot: "вечер", month: "2026-05" },
+      ],
+      admin: "Тест",
+      cost: "3000",
+      paymentStatus: "unpaid",
+    });
+    expect(result.count).toBe(2);
+    expect(result.ids).toHaveLength(2);
+  });
+
+  it("returns count=1 for a single slot", async () => {
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.purchases.bulkCreate({
+      slots: [
+        { channelId: 1, date: "2026-05-12", bookingSlot: "обед", month: "2026-05" },
+      ],
+      buyer: "Лизка",
+    });
+    expect(result.count).toBe(1);
+    expect(result.ids[0]).toBe(10);
+  });
+
+  it("throws CONFLICT when a slot is already booked", async () => {
+    vi.mocked(db.checkBookingConflict).mockResolvedValue(42); // existing record id
+    const caller = appRouter.createCaller(makeCtx());
+    await expect(
+      caller.purchases.bulkCreate({
+        slots: [
+          { channelId: 1, date: "2026-05-10", bookingSlot: "утро", month: "2026-05" },
+        ],
+      })
+    ).rejects.toThrow("Конфликт");
+  });
+});
+
+// ─── Summary ──────────────────────────────────────────────────────────────────────────────────
 
 describe("summary", () => {
   it("returns financial summary", async () => {
