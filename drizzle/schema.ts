@@ -150,3 +150,46 @@ export const channelAssignments = mysqlTable("channel_assignments", {
 
 export type ChannelAssignment = typeof channelAssignments.$inferSelect;
 export type InsertChannelAssignment = typeof channelAssignments.$inferInsert;
+
+/**
+ * Mutual subscription deals (Взаимки / ВП).
+ * Tracks barter ad exchanges between channels, with optional doplate for reach difference.
+ */
+export const mutualDeals = mysqlTable("mutual_deals", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  /** Our channel participating in the deal */
+  ourChannelId: int("ourChannelId").notNull(),
+  /** Partner channel name (external, free text) */
+  partnerChannelName: varchar("partnerChannelName", { length: 255 }).notNull(),
+  /** Partner contact (admin name, username, etc.) */
+  partnerContact: varchar("partnerContact", { length: 255 }),
+  /** Planned placement date */
+  dealDate: timestamp("dealDate"),
+  /** Our channel reach for this deal */
+  ourReach: bigint("ourReach", { mode: "number" }),
+  /** Partner channel reach */
+  partnerReach: bigint("partnerReach", { mode: "number" }),
+  /** Deal type: without doplate or with doplate */
+  dealType: mysqlEnum("dealType", ["без доплаты", "с доплатой"]).default("без доплаты").notNull(),
+  /** Doplate direction: who pays whom */
+  dopDirection: mysqlEnum("dopDirection", ["мы платим", "нам платят"]),
+  /** Doplate amount in rubles */
+  dopAmount: decimal("dopAmount", { precision: 12, scale: 2 }),
+  /** Doplate payment status */
+  dopPaymentStatus: mysqlEnum("dopPaymentStatus", ["paid", "unpaid", "not_applicable"]).default("not_applicable").notNull(),
+  /** Link to our post */
+  ourPostLink: varchar("ourPostLink", { length: 1024 }),
+  /** Link to partner post */
+  partnerPostLink: varchar("partnerPostLink", { length: 1024 }),
+  /** Deal lifecycle status */
+  status: mysqlEnum("status", ["предложение", "согласовано", "размещено", "завершено", "отменено"]).default("предложение").notNull(),
+  /** Month label for grouping */
+  month: varchar("month", { length: 7 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MutualDeal = typeof mutualDeals.$inferSelect;
+export type InsertMutualDeal = typeof mutualDeals.$inferInsert;

@@ -169,3 +169,13 @@
 - [x] Frontend: добавить bulkSlotsSummary prop в PurchaseFormModal для поддержки мульти-слот создания через Расписание
 - [x] Frontend SchedulePage: обновить создание закупки для поддержки нескольких слотов
 - [x] Тесты: vitest для purchases.bulkCreate (3 теста: happy path, single slot, CONFLICT)
+
+## Модуль «Взаимки» (ВП-сделки)
+- [x] DB: таблица mutual_deals (ourChannelId, partnerChannelName, partnerContact, dealDate, ourReach, partnerReach, dealType, dopDirection, dopAmount, dopPaymentStatus, ourPostLink, partnerPostLink, status, month, notes)
+- [x] Backend: tRPC router mutual (list, create, update, delete, updateStatus)
+- [x] Backend: автоматический расчёт разницы охватов и рекомендуемой доплаты (calcRecommendedDoplate + calcDoplate procedure)
+- [x] Frontend: страница «Взаимки» с воронкой статусов и карточками сделок
+- [x] Frontend: форма создания/редактирования ВП-сделки
+- [x] Frontend: аналитика — итого ВП за месяц, доплаты, воронка статусов
+- [x] Навигация: добавить пункт «Взаимки» в сайдбар
+- [x] Тесты: vitest для mutual router (9 тестов)

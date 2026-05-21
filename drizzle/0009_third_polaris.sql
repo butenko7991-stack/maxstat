@@ -1,0 +1,22 @@
+CREATE TABLE `mutual_deals` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`userId` int NOT NULL,
+	`ourChannelId` int NOT NULL,
+	`partnerChannelName` varchar(255) NOT NULL,
+	`partnerContact` varchar(255),
+	`dealDate` timestamp,
+	`ourReach` bigint,
+	`partnerReach` bigint,
+	`dealType` enum('без доплаты','с доплатой') NOT NULL DEFAULT 'без доплаты',
+	`dopDirection` enum('мы платим','нам платят'),
+	`dopAmount` decimal(12,2),
+	`dopPaymentStatus` enum('paid','unpaid','not_applicable') NOT NULL DEFAULT 'not_applicable',
+	`ourPostLink` varchar(1024),
+	`partnerPostLink` varchar(1024),
+	`status` enum('предложение','согласовано','размещено','завершено','отменено') NOT NULL DEFAULT 'предложение',
+	`month` varchar(7) NOT NULL,
+	`notes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `mutual_deals_id` PRIMARY KEY(`id`)
+);

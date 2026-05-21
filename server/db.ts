@@ -5,13 +5,16 @@ import {
   ChannelAssignment,
   InsertChannel,
   InsertChannelAssignment,
+  InsertMutualDeal,
   InsertPurchaseRecord,
   InsertSaleRecord,
   InsertUser,
+  MutualDeal,
   PurchaseRecord,
   SaleRecord,
   channelAssignments,
   channels,
+  mutualDeals,
   purchaseRecords,
   saleRecords,
   users,
@@ -872,4 +875,77 @@ export async function getAllChannels() {
     })
     .from(channels)
     .orderBy(channels.name);
+}
+
+// ─── Mutual Deals (Взаимки) ───────────────────────────────────────────────────
+
+export async function getMutualDeals(userId: number, filters: {
+  month?: string;
+  status?: string;
+  ourChannelId?: number;
+} = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(mutualDeals)
+    .where(eq(mutualDeals.userId, userId))
+    .orderBy(desc(mutualDeals.createdAt));
+
+  return rows.filter((r) => {
+    if (filters.month && r.month !== filters.month) return false;
+    if (filters.status && r.status !== filters.status) return false;
+    if (filters.ourChannelId && r.ourChannelId !== filters.ourChannelId) return false;
+    return true;
+  });
+}
+
+export async function getMutualDealById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(mutualDeals)
+    .where(and(eq(mutualDeals.id, id), eq(mutualDeals.userId, userId)));
+  return rows[0] ?? null;
+}
+
+export async function createMutualDeal(data: InsertMutualDeal): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(mutualDeals).values(data);
+  return (result[0] as any).insertId as number;
+}
+
+export async function updateMutualDeal(id: number, userId: number, data: Partial<InsertMutualDeal>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(mutualDeals)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(mutualDeals.id, id), eq(mutualDeals.userId, userId)));
+}
+
+export async function deleteMutualDeal(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(mutualDeals)
+    .where(and(eq(mutualDeals.id, id), eq(mutualDeals.userId, userId)));
+}
+
+/** Calculate recommended doplate amount based on reach difference */
+export function calcRecommendedDoplate(ourReach: number, partnerReach: number, baseSpm: number = 1000): {
+  diff: number;
+  direction: "мы платим" | "нам платят" | null;
+  recommendedAmount: number;
+} {
+  const diff = ourReach - partnerReach;
+  if (diff === 0) return { diff: 0, direction: null, recommendedAmount: 0 };
+  // direction: if our reach is bigger, partner should pay us; if smaller, we pay them
+  const direction: "мы платим" | "нам платят" = diff > 0 ? "нам платят" : "мы платим";
+  const absDiff = Math.abs(diff);
+  // recommended amount = (reach difference / 1000) * baseSpm
+  const recommendedAmount = Math.round((absDiff / 1000) * baseSpm);
+  return { diff, direction, recommendedAmount };
 }

@@ -37,6 +37,12 @@ import {
   deleteChannelAssignment,
   getAssignedChannelIds,
   getAllChannels,
+  getMutualDeals,
+  getMutualDealById,
+  createMutualDeal,
+  updateMutualDeal,
+  deleteMutualDeal,
+  calcRecommendedDoplate,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 
@@ -669,6 +675,86 @@ const adminRouter = router({
     }),
 });
 
+// ─── Mutual Deals router ─────────────────────────────────────────────────────
+const mutualInput = z.object({
+  ourChannelId: z.number().int(),
+  partnerChannelName: z.string().min(1).max(255),
+  partnerContact: z.string().max(255).optional(),
+  dealDate: z.date().optional(),
+  ourReach: z.number().int().optional(),
+  partnerReach: z.number().int().optional(),
+  dealType: z.enum(["без доплаты", "с доплатой"]).default("без доплаты"),
+  dopDirection: z.enum(["мы платим", "нам платят"]).optional(),
+  dopAmount: z.string().optional(),
+  dopPaymentStatus: z.enum(["paid", "unpaid", "not_applicable"]).default("not_applicable"),
+  ourPostLink: z.string().max(1024).optional(),
+  partnerPostLink: z.string().max(1024).optional(),
+  status: z.enum(["предложение", "согласовано", "размещено", "завершено", "отменено"]).default("предложение"),
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  notes: z.string().optional(),
+});
+
+const mutualRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      month: z.string().optional(),
+      status: z.string().optional(),
+      ourChannelId: z.number().int().optional(),
+    }))
+    .query(({ ctx, input }) => getMutualDeals(ctx.user.id, input)),
+
+  getById: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .query(({ ctx, input }) => getMutualDealById(input.id, ctx.user.id)),
+
+  create: protectedProcedure
+    .input(mutualInput)
+    .mutation(async ({ ctx, input }) => {
+      const id = await createMutualDeal({
+        userId: ctx.user.id,
+        ourChannelId: input.ourChannelId,
+        partnerChannelName: input.partnerChannelName,
+        partnerContact: input.partnerContact ?? null,
+        dealDate: input.dealDate ?? null,
+        ourReach: input.ourReach ?? null,
+        partnerReach: input.partnerReach ?? null,
+        dealType: input.dealType,
+        dopDirection: input.dopDirection ?? null,
+        dopAmount: input.dopAmount ?? null,
+        dopPaymentStatus: input.dopPaymentStatus,
+        ourPostLink: input.ourPostLink ?? null,
+        partnerPostLink: input.partnerPostLink ?? null,
+        status: input.status,
+        month: input.month,
+        notes: input.notes ?? null,
+      });
+      return { id };
+    }),
+
+  update: protectedProcedure
+    .input(z.object({ id: z.number().int() }).merge(mutualInput.partial()))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      await updateMutualDeal(id, ctx.user.id, data as any);
+      return { success: true };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteMutualDeal(input.id, ctx.user.id);
+      return { success: true };
+    }),
+
+  calcDoplate: protectedProcedure
+    .input(z.object({
+      ourReach: z.number().int(),
+      partnerReach: z.number().int(),
+      baseSpm: z.number().optional(),
+    }))
+    .query(({ input }) => calcRecommendedDoplate(input.ourReach, input.partnerReach, input.baseSpm)),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -685,6 +771,7 @@ export const appRouter = router({system: systemRouter,  auth: router({
   summary: summaryRouter,
   ai: aiRouter,
   admin: adminRouter,
+  mutual: mutualRouter,
 });
 
 export type AppRouter = typeof appRouter;
