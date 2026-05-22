@@ -532,11 +532,12 @@ export async function getScheduleData(
 ): Promise<{
   sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded">>;
   purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot">>;
+  mutuals: Array<Pick<MutualDeal, "id" | "ourChannelId" | "dealDate" | "partnerChannelName" | "dealType" | "dopDirection" | "dopAmount" | "status" | "ourPostLink">>;
 }> {
   const db = await getDb();
-  if (!db) return { sales: [], purchases: [] };
+  if (!db) return { sales: [], purchases: [], mutuals: [] };
 
-  const [sales, purchases] = await Promise.all([
+  const [sales, purchases, mutuals] = await Promise.all([
     db
       .select({
         id: saleRecords.id,
@@ -580,9 +581,30 @@ export async function getScheduleData(
         )
       )
       .orderBy(purchaseRecords.date),
+    db
+      .select({
+        id: mutualDeals.id,
+        ourChannelId: mutualDeals.ourChannelId,
+        dealDate: mutualDeals.dealDate,
+        partnerChannelName: mutualDeals.partnerChannelName,
+        dealType: mutualDeals.dealType,
+        dopDirection: mutualDeals.dopDirection,
+        dopAmount: mutualDeals.dopAmount,
+        status: mutualDeals.status,
+        ourPostLink: mutualDeals.ourPostLink,
+      })
+      .from(mutualDeals)
+      .where(
+        and(
+          eq(mutualDeals.userId, userId),
+          sql`DATE(${mutualDeals.dealDate}) >= ${startDate}`,
+          sql`DATE(${mutualDeals.dealDate}) <= ${endDate}`
+        )
+      )
+      .orderBy(mutualDeals.dealDate),
   ]);
 
-  return { sales, purchases };
+  return { sales, purchases, mutuals };
 }
 
 /** Check if a booking slot is already taken for a given channel/date/bookingSlot.

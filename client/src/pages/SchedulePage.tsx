@@ -37,6 +37,15 @@ const SLOT_BG: Record<Slot, string> = {
   вечер: "bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20",
 };
 
+// ВП (mutual deals) cell color
+const MUTUAL_CELL = {
+  bg: "bg-violet-500/15",
+  border: "border-violet-500/40",
+  hover: "hover:bg-violet-500/25",
+  text: "text-violet-300",
+  icon: "text-violet-400/60",
+};
+
 const PAYMENT_LABELS: Record<string, string> = {
   paid: "Оплачено",
   unpaid: "Не оплачено",
@@ -149,6 +158,16 @@ export default function SchedulePage() {
   const [editPurchaseId, setEditPurchaseId] = useState<number | null>(null);
   const [editPurchaseForm, setEditPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
   const [editPurchaseOpen, setEditPurchaseOpen] = useState(false);
+  // Mutual deal detail popup
+  const [mutualDetail, setMutualDetail] = useState<null | {
+    id: number;
+    partnerChannelName: string;
+    dealType: string;
+    dopDirection: string | null;
+    dopAmount: string | null;
+    status: string;
+    ourPostLink: string | null;
+  }>(null);
 
   const weekDates = useMemo(() => getWeekDates(baseDate), [baseDate]);
   const startDate = toIso(weekDates[0]);
@@ -328,6 +347,21 @@ export default function SchedulePage() {
     if (channelFilter === "all") return channels;
     return channels.filter((c) => String(c.id) === channelFilter);
   }, [channels, channelFilter]);
+
+  // Build mutual deal lookup: ourChannelId -> date -> mutuals[]
+  const mutualDateMap = useMemo(() => {
+    const map: Record<number, Record<string, NonNullable<typeof scheduleData>["mutuals"]>> = {};
+    if (!scheduleData?.mutuals) return map;
+    for (const m of scheduleData.mutuals) {
+      const cid = m.ourChannelId;
+      const dateStr = m.dealDate ? toIso(new Date(m.dealDate)) : "";
+      if (!dateStr) continue;
+      if (!map[cid]) map[cid] = {};
+      if (!map[cid][dateStr]) map[cid][dateStr] = [];
+      map[cid][dateStr].push(m);
+    }
+    return map;
+  }, [scheduleData]);
 
   // Build purchase slot lookup: channelId -> date -> slot -> purchases[]
   const purchaseSlotMap = useMemo(() => {
@@ -533,6 +567,10 @@ export default function SchedulePage() {
             <span className="w-3 h-3 rounded-sm bg-slate-500/20 border border-slate-500/30" />
             Закуп (справочно)
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-violet-500/20 border border-violet-500/40" />
+            Взаимка (ВП)
+          </span>
         </div>
 
         {/* Calendar grid — scrollable horizontally on mobile */}
@@ -613,6 +651,15 @@ export default function SchedulePage() {
                           </span>
                         ) : null;
                       })()}
+                      {/* Show mutual deal count for the week */}
+                      {(() => {
+                        const total = weekDates.reduce((s, d) => s + (mutualDateMap[channel.id]?.[toIso(d)]?.length ?? 0), 0);
+                        return total > 0 ? (
+                          <span className="ml-2 text-[10px] text-violet-400 flex-inline items-center gap-1">
+                            ⇄ {total} взаим.
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
 
                     {/* Slot rows */}
@@ -677,6 +724,17 @@ export default function SchedulePage() {
                                     {records.length}
                                   </div>
                                 )}
+                                {/* ВП badge on occupied cell */}
+                                {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                  <div
+                                    className="mt-0.5 flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden cursor-pointer"
+                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                  >
+                                    <span className="text-[9px] text-violet-300 truncate leading-tight">
+                                      ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                    </span>
+                                  </div>
+                                )}
                                 {hasPurchase && purchaseInfo && (
                                   <div className="mt-0.5 flex items-center gap-0.5 rounded bg-muted/30 border border-border/30 px-1 py-0.5 overflow-hidden">
                                     <ShoppingCart className="w-2 h-2 text-muted-foreground/50 shrink-0" />
@@ -715,6 +773,19 @@ export default function SchedulePage() {
                                 <Square className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-emerald-400 transition-colors" />
                               ) : (
                                 <Plus className="w-3.5 h-3.5 text-emerald-500/40 group-hover:text-emerald-400 transition-colors" />
+                              )}
+                              {/* ВП badge on empty cell */}
+                              {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                <div
+                                  className="absolute top-0 left-0 right-0 px-1 pt-1 z-10"
+                                  onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                >
+                                  <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
+                                    <span className="text-[9px] text-violet-300 truncate leading-tight">
+                                      ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                    </span>
+                                  </div>
+                                </div>
                               )}
                               {hasPurchase && purchaseInfo && (
                                 <div className="absolute bottom-0 left-0 right-0 px-1 pb-1">
@@ -793,6 +864,15 @@ export default function SchedulePage() {
                     <div key={channel.id} className="glass rounded-xl overflow-hidden">
                       <div className="px-3 py-2 border-b border-border/50 bg-card/50">
                         <span className="text-xs font-semibold text-foreground">{channel.name}</span>
+                        {/* Show mutual deal count for the week */}
+                        {(() => {
+                          const total = weekDates.reduce((s, d) => s + (mutualDateMap[channel.id]?.[toIso(d)]?.length ?? 0), 0);
+                          return total > 0 ? (
+                            <span className="ml-2 text-[10px] text-violet-400">
+                              ⇄ {total} взаим.
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                       {SLOTS.map((slot) => (
                         <div key={slot} className="grid gap-1 p-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
@@ -852,6 +932,17 @@ export default function SchedulePage() {
                                             {purchases.length}
                                           </div>
                                         )}
+                                        {/* ВП badge on occupied purchase cell */}
+                                        {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                          <div
+                                            className="mt-0.5 flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden cursor-pointer"
+                                            onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                          >
+                                            <span className="text-[9px] text-violet-300 truncate leading-tight">
+                                              ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                            </span>
+                                          </div>
+                                        )}
                                       </>
                                     );
                                   })()}
@@ -882,6 +973,19 @@ export default function SchedulePage() {
                                   <Square className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-blue-400 transition-colors" />
                                 ) : (
                                   <Plus className="w-3.5 h-3.5 text-blue-500/40 group-hover:text-blue-400 transition-colors" />
+                                )}
+                                {/* ВП badge on purchase empty cell */}
+                                {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                  <div
+                                    className="absolute top-0 left-0 right-0 px-1 pt-1 z-10"
+                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                  >
+                                    <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
+                                      <span className="text-[9px] text-violet-300 truncate leading-tight">
+                                        ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                      </span>
+                                    </div>
+                                  </div>
                                 )}
                               </button>
                             );
@@ -1259,6 +1363,83 @@ export default function SchedulePage() {
           channels={channels}
           suggestions={{ admins: [], platforms: [], buyers: [], directions: [] }}
         />
+      )}
+
+      {/* Mutual deal detail popup */}
+      {mutualDetail && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setMutualDetail(null)}>
+          <div
+            className="glass rounded-2xl w-full max-w-sm p-5 space-y-4 border border-violet-500/30"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-violet-500" />
+                  <h3 className="font-semibold text-foreground">Взаимная подписка</h3>
+                </div>
+                <p className="text-sm text-violet-300 font-medium">{mutualDetail.partnerChannelName}</p>
+              </div>
+              <button onClick={() => setMutualDetail(null)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
+                <span className="text-xs text-muted-foreground">Тип сделки</span>
+                <span className="text-xs font-medium text-foreground">
+                  {mutualDetail.dealType === "no_doplate" ? "Без доплаты" : "С доплатой"}
+                </span>
+              </div>
+              {mutualDetail.dealType === "with_doplate" && mutualDetail.dopAmount && (
+                <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
+                  <span className="text-xs text-muted-foreground">Доплата</span>
+                  <span className="text-xs font-medium text-foreground">
+                    {mutualDetail.dopDirection === "we_pay" ? "Мы платим" : "Нам платят"}: {parseFloat(mutualDetail.dopAmount).toLocaleString("ru-RU")} ₽
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
+                <span className="text-xs text-muted-foreground">Статус</span>
+                <span className={cn("text-xs font-medium",
+                  mutualDetail.status === "completed" ? "text-emerald-400" :
+                  mutualDetail.status === "placed" ? "text-blue-400" :
+                  mutualDetail.status === "agreed" ? "text-yellow-400" : "text-muted-foreground"
+                )}>
+                  {mutualDetail.status === "proposal" ? "Предложение" :
+                   mutualDetail.status === "agreed" ? "Согласовано" :
+                   mutualDetail.status === "placed" ? "Размещено" : "Завершено"}
+                </span>
+              </div>
+              {mutualDetail.ourPostLink && (
+                <div className="rounded-lg bg-card border border-border px-3 py-2">
+                  <span className="text-xs text-muted-foreground block mb-1">Наш пост</span>
+                  <a
+                    href={mutualDetail.ourPostLink.startsWith("http") ? mutualDetail.ourPostLink : `https://${mutualDetail.ourPostLink}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-violet-400 hover:text-violet-300 truncate block"
+                  >
+                    {mutualDetail.ourPostLink}
+                  </a>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <a
+                href={`/mutual`}
+                className="flex-1 py-2.5 rounded-xl bg-violet-500/15 text-violet-300 border border-violet-500/30 text-sm font-medium hover:bg-violet-500/25 transition-colors text-center"
+              >
+                Открыть в Взаимках
+              </a>
+              <button
+                onClick={() => setMutualDetail(null)}
+                className="flex-1 py-2.5 rounded-xl bg-card border border-border text-sm font-medium hover:bg-accent transition-colors text-foreground"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Edit purchase modal */}
