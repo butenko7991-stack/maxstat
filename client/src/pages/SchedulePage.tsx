@@ -97,7 +97,9 @@ function isToday(d: Date): boolean {
 const EMPTY_SALE_FORM: SaleFormData = {
   channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
-  botStories: "", botStoriesCost: "", month: "", postNotNeeded: false, notes: "",
+  botStories: "", botStoriesCost: "", month: "", postNotNeeded: false,
+  isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
+  notes: "",
 };
 
 const EMPTY_PURCHASE_FORM: PurchaseFormData = {
@@ -161,12 +163,9 @@ export default function SchedulePage() {
   // Mutual deal detail popup
   const [mutualDetail, setMutualDetail] = useState<null | {
     id: number;
-    partnerChannelName: string;
-    dealType: string;
+    partnerChannel: string | null;
     dopDirection: string | null;
     dopAmount: string | null;
-    status: string;
-    ourPostLink: string | null;
   }>(null);
 
   const weekDates = useMemo(() => getWeekDates(baseDate), [baseDate]);
@@ -309,6 +308,12 @@ export default function SchedulePage() {
         botStoriesCost: s.botStoriesCost ?? "",
         month: s.month ?? "",
         postNotNeeded: s.postNotNeeded ?? false,
+        isMutual: s.isMutual ?? false,
+        partnerChannel: s.partnerChannel ?? "",
+        ourReach: s.ourReach != null ? String(s.ourReach) : "",
+        partnerReach: s.partnerReach != null ? String(s.partnerReach) : "",
+        dopDirection: (s.dopDirection as "we_pay" | "they_pay" | "none") ?? "none",
+        dopAmount: s.dopAmount ?? "",
         notes: s.notes ?? "",
       });
       setEditSaleOpen(true);
@@ -348,17 +353,18 @@ export default function SchedulePage() {
     return channels.filter((c) => String(c.id) === channelFilter);
   }, [channels, channelFilter]);
 
-  // Build mutual deal lookup: ourChannelId -> date -> mutuals[]
+  // Build mutual deal lookup from sale_records.isMutual: channelId -> date -> sales[]
   const mutualDateMap = useMemo(() => {
-    const map: Record<number, Record<string, NonNullable<typeof scheduleData>["mutuals"]>> = {};
-    if (!scheduleData?.mutuals) return map;
-    for (const m of scheduleData.mutuals) {
-      const cid = m.ourChannelId;
-      const dateStr = m.dealDate ? toIso(new Date(m.dealDate)) : "";
+    const map: Record<number, Record<string, NonNullable<typeof scheduleData>["sales"]>> = {};
+    if (!scheduleData?.sales) return map;
+    for (const s of scheduleData.sales) {
+      if (!s.isMutual) continue;
+      const cid = s.channelId;
+      const dateStr = s.date ? toIso(new Date(s.date)) : "";
       if (!dateStr) continue;
       if (!map[cid]) map[cid] = {};
       if (!map[cid][dateStr]) map[cid][dateStr] = [];
-      map[cid][dateStr].push(m);
+      map[cid][dateStr].push(s);
     }
     return map;
   }, [scheduleData]);
@@ -728,10 +734,10 @@ export default function SchedulePage() {
                                 {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
                                   <div
                                     className="mt-0.5 flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                   >
                                     <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                      ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                      ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannel}
                                     </span>
                                   </div>
                                 )}
@@ -778,11 +784,11 @@ export default function SchedulePage() {
                               {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
                                 <div
                                   className="absolute top-0 left-0 right-0 px-1 pt-1 z-10"
-                                  onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                  onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                 >
                                   <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
                                     <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                      ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                      ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannel}
                                     </span>
                                   </div>
                                 </div>
@@ -936,10 +942,10 @@ export default function SchedulePage() {
                                         {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
                                           <div
                                             className="mt-0.5 flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden cursor-pointer"
-                                            onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                            onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                           >
                                             <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                              ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                              ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannel}
                                             </span>
                                           </div>
                                         )}
@@ -978,11 +984,11 @@ export default function SchedulePage() {
                                 {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
                                   <div
                                     className="absolute top-0 left-0 right-0 px-1 pt-1 z-10"
-                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannelName: m.partnerChannelName, dealType: m.dealType, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null, status: m.status, ourPostLink: m.ourPostLink ?? null }); }}
+                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                   >
                                     <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
                                       <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                        ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannelName}
+                                        ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannel}
                                       </span>
                                     </div>
                                   </div>
@@ -1068,6 +1074,12 @@ export default function SchedulePage() {
                 botStoriesCost: f.botStoriesCost || undefined,
                 month: f.month,
                 postNotNeeded: f.postNotNeeded,
+                isMutual: f.isMutual,
+                partnerChannel: f.partnerChannel || undefined,
+                ourReach: f.ourReach ? Number(f.ourReach) : undefined,
+                partnerReach: f.partnerReach ? Number(f.partnerReach) : undefined,
+                dopDirection: f.dopDirection !== "none" ? f.dopDirection : undefined,
+                dopAmount: f.dopAmount || undefined,
                 notes: f.notes || undefined,
               });
             }}
@@ -1356,6 +1368,12 @@ export default function SchedulePage() {
               botStoriesCost: f.botStoriesCost || undefined,
               month: f.month,
               postNotNeeded: f.postNotNeeded,
+              isMutual: f.isMutual,
+              partnerChannel: f.partnerChannel || undefined,
+              ourReach: f.ourReach ? Number(f.ourReach) : undefined,
+              partnerReach: f.partnerReach ? Number(f.partnerReach) : undefined,
+              dopDirection: f.dopDirection !== "none" ? f.dopDirection : undefined,
+              dopAmount: f.dopAmount || undefined,
               notes: f.notes || undefined,
             });
           }}
@@ -1378,66 +1396,33 @@ export default function SchedulePage() {
                   <span className="w-2.5 h-2.5 rounded-full bg-violet-500" />
                   <h3 className="font-semibold text-foreground">Взаимная подписка</h3>
                 </div>
-                <p className="text-sm text-violet-300 font-medium">{mutualDetail.partnerChannelName}</p>
+                <p className="text-sm text-violet-300 font-medium">{mutualDetail.partnerChannel ?? "—"}</p>
               </div>
               <button onClick={() => setMutualDetail(null)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
-                <span className="text-xs text-muted-foreground">Тип сделки</span>
-                <span className="text-xs font-medium text-foreground">
-                  {mutualDetail.dealType === "no_doplate" ? "Без доплаты" : "С доплатой"}
-                </span>
-              </div>
-              {mutualDetail.dealType === "with_doplate" && mutualDetail.dopAmount && (
+              {mutualDetail.dopAmount && mutualDetail.dopDirection && mutualDetail.dopDirection !== "none" ? (
                 <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
                   <span className="text-xs text-muted-foreground">Доплата</span>
                   <span className="text-xs font-medium text-foreground">
                     {mutualDetail.dopDirection === "we_pay" ? "Мы платим" : "Нам платят"}: {parseFloat(mutualDetail.dopAmount).toLocaleString("ru-RU")} ₽
                   </span>
                 </div>
-              )}
-              <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
-                <span className="text-xs text-muted-foreground">Статус</span>
-                <span className={cn("text-xs font-medium",
-                  mutualDetail.status === "completed" ? "text-emerald-400" :
-                  mutualDetail.status === "placed" ? "text-blue-400" :
-                  mutualDetail.status === "agreed" ? "text-yellow-400" : "text-muted-foreground"
-                )}>
-                  {mutualDetail.status === "proposal" ? "Предложение" :
-                   mutualDetail.status === "agreed" ? "Согласовано" :
-                   mutualDetail.status === "placed" ? "Размещено" : "Завершено"}
-                </span>
-              </div>
-              {mutualDetail.ourPostLink && (
-                <div className="rounded-lg bg-card border border-border px-3 py-2">
-                  <span className="text-xs text-muted-foreground block mb-1">Наш пост</span>
-                  <a
-                    href={mutualDetail.ourPostLink.startsWith("http") ? mutualDetail.ourPostLink : `https://${mutualDetail.ourPostLink}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-violet-400 hover:text-violet-300 truncate block"
-                  >
-                    {mutualDetail.ourPostLink}
-                  </a>
+              ) : (
+                <div className="flex items-center justify-between rounded-lg bg-card border border-border px-3 py-2">
+                  <span className="text-xs text-muted-foreground">Доплата</span>
+                  <span className="text-xs font-medium text-emerald-400">Без доплаты</span>
                 </div>
               )}
             </div>
-            <div className="flex gap-2">
-              <a
-                href={`/mutual`}
-                className="flex-1 py-2.5 rounded-xl bg-violet-500/15 text-violet-300 border border-violet-500/30 text-sm font-medium hover:bg-violet-500/25 transition-colors text-center"
-              >
-                Открыть в Взаимках
-              </a>
-              <button
-                onClick={() => setMutualDetail(null)}
-                className="flex-1 py-2.5 rounded-xl bg-card border border-border text-sm font-medium hover:bg-accent transition-colors text-foreground"
-              >
-                Закрыть
-              </button>
-            </div>
+            <button
+              onClick={() => setMutualDetail(null)}
+              className="w-full py-2.5 rounded-xl bg-card border border-border text-sm font-medium hover:bg-accent transition-colors text-foreground"
+            >
+              Закрыть
+            </button>
           </div>
         </div>
       )}

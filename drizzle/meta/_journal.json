@@ -71,6 +71,13 @@
       "when": 1779274532582,
       "tag": "0009_third_polaris",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1779515474952,
+      "tag": "0010_bizarre_butterfly",
+      "breakpoints": true
     }
   ]
 }

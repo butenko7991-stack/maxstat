@@ -185,3 +185,13 @@
 - [x] Frontend SchedulePage: отображать ВП-ячейки отдельным цветом (фиолетовый)
 - [x] Frontend SchedulePage: тултип/попап для ВП-ячейки с деталями сделки (партнёр, тип, доплата, статус, ссылка, кнопка перехода в Взаимки)
 - [x] Frontend SchedulePage: легенда цветов (Закуп / Продажа / ВП)
+
+## Упрощение ВП (взаимная подписка в форме Продажи)
+- [x] DB: добавить колонки в sale_records: is_mutual (bool), partner_channel (text), partner_reach (int), our_reach (int), dop_direction (enum: we_pay/they_pay/none), dop_amount (decimal)
+- [x] Backend: добавить поля ВП в saleInput zod-схему и мутации create/update
+- [x] Frontend: добавить чекбокс «Взаимная подписка (ВП)» в SaleFormModal
+- [x] Frontend: обновить SalesPage EMPTY_FORM, openEdit, handleSubmit для ВП-полей
+- [x] Frontend: обновить SchedulePage для передачи ВП-полей в мутации create/update
+- [x] Frontend: показывать ВП-бейдж на карточках продажи и в сетке расписания (фиолетовый)
+- [x] Навигация: убрать пункт «Взаимки» из сайдбара
+- [x] Маршруты: убрать /mutual маршрут из App.tsx

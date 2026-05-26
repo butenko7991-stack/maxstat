@@ -61,6 +61,13 @@ export interface SaleFormData {
   botStoriesCost: string;
   month: string;
   postNotNeeded: boolean;
+  // ВП fields
+  isMutual: boolean;
+  partnerChannel: string;
+  ourReach: string;
+  partnerReach: string;
+  dopDirection: "we_pay" | "they_pay" | "none";
+  dopAmount: string;
   notes: string;
 }
 
@@ -670,6 +677,95 @@ export function SaleFormModal({
                 <span className="text-sm text-muted-foreground">Пост не нужен (автобот)</span>
               </label>
             </div>
+
+            {/* ВП checkbox */}
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.isMutual}
+                  onChange={(e) => setForm((f) => ({ ...f, isMutual: e.target.checked }))}
+                  className="h-4 w-4 rounded border-border accent-violet-500"
+                />
+                <span className="text-sm font-medium text-violet-400">Взаимная подписка (ВП)</span>
+              </label>
+            </div>
+
+            {/* ВП conditional fields */}
+            {form.isMutual && (
+              <>
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Канал-партнёр</Label>
+                  <Input
+                    value={form.partnerChannel}
+                    onChange={(e) => setForm((f) => ({ ...f, partnerChannel: e.target.value }))}
+                    placeholder="Название канала партнёра"
+                    className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Наши охваты</Label>
+                  <Input
+                    type="number"
+                    value={form.ourReach}
+                    onChange={(e) => setForm((f) => ({ ...f, ourReach: e.target.value }))}
+                    placeholder="Например: 5000"
+                    className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Охваты партнёра</Label>
+                  <Input
+                    type="number"
+                    value={form.partnerReach}
+                    onChange={(e) => setForm((f) => ({ ...f, partnerReach: e.target.value }))}
+                    placeholder="Например: 3000"
+                    className="bg-input border-border"
+                  />
+                </div>
+                {/* Reach difference hint */}
+                {form.ourReach && form.partnerReach && (
+                  <div className="col-span-2 rounded-lg bg-violet-500/10 border border-violet-500/20 px-3 py-2">
+                    <p className="text-xs text-violet-300">
+                      Разница охватов: {Math.abs(Number(form.ourReach) - Number(form.partnerReach)).toLocaleString("ru-RU")}
+                      {Number(form.ourReach) > Number(form.partnerReach)
+                        ? " — партнёр должен доплатить"
+                        : Number(form.ourReach) < Number(form.partnerReach)
+                        ? " — мы доплачиваем"
+                        : " — охваты равны"}
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Доплата</Label>
+                  <Select
+                    value={form.dopDirection}
+                    onValueChange={(v) => setForm((f) => ({ ...f, dopDirection: v as "we_pay" | "they_pay" | "none" }))}
+                  >
+                    <SelectTrigger className="bg-input border-border">
+                      <SelectValue placeholder="Тип доплаты" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Без доплаты</SelectItem>
+                      <SelectItem value="we_pay">Мы платим</SelectItem>
+                      <SelectItem value="they_pay">Нам платят</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {form.dopDirection !== "none" && (
+                  <div className="space-y-1.5 col-span-2">
+                    <Label>Сумма доплаты (₽)</Label>
+                    <Input
+                      type="number"
+                      value={form.dopAmount}
+                      onChange={(e) => setForm((f) => ({ ...f, dopAmount: e.target.value }))}
+                      placeholder="0"
+                      className="bg-input border-border"
+                    />
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="space-y-1.5 col-span-2">
               <Label>Заметки</Label>

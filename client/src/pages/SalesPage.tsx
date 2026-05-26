@@ -23,7 +23,9 @@ import * as XLSX from "xlsx";
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
-  botStories: "", botStoriesCost: "", month: currentMonth(), postNotNeeded: false, notes: "",
+  botStories: "", botStoriesCost: "", month: currentMonth(), postNotNeeded: false,
+  isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
+  notes: "",
 };
 
 const TIME_SLOT_COLORS: Record<string, string> = {
@@ -217,7 +219,11 @@ export default function SalesPage() {
       bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер") ?? "",
       tariff: r.tariff ?? "", platform: r.platform ?? "",      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
-      month: r.month, postNotNeeded: r.postNotNeeded ?? false, notes: r.notes ?? "",
+      month: r.month, postNotNeeded: r.postNotNeeded ?? false,
+      isMutual: r.isMutual ?? false, partnerChannel: r.partnerChannel ?? "",
+      ourReach: r.ourReach ? String(r.ourReach) : "", partnerReach: r.partnerReach ? String(r.partnerReach) : "",
+      dopDirection: (r.dopDirection as "we_pay" | "they_pay" | "none") ?? "none", dopAmount: r.dopAmount ?? "",
+      notes: r.notes ?? "",
     });
     setDialogOpen(true);
   }
@@ -237,6 +243,12 @@ export default function SalesPage() {
       paymentStatus: form.paymentStatus, botStories: form.botStories || undefined,
       botStoriesCost: form.botStoriesCost || undefined, month: form.month,
       postNotNeeded: form.postNotNeeded,
+      isMutual: form.isMutual,
+      partnerChannel: form.partnerChannel || undefined,
+      ourReach: form.ourReach ? Number(form.ourReach) : undefined,
+      partnerReach: form.partnerReach ? Number(form.partnerReach) : undefined,
+      dopDirection: form.dopDirection !== "none" ? form.dopDirection : undefined,
+      dopAmount: form.dopAmount || undefined,
       notes: form.notes || undefined,
     };
     if (editingId) { updateMutation.mutate({ id: editingId, ...payload }); }
@@ -405,6 +417,11 @@ export default function SalesPage() {
                     {r.timeSlot && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TIME_SLOT_COLORS[r.timeSlot] ?? "text-muted-foreground bg-muted"}`}>
                         {r.timeSlot}
+                      </span>
+                    )}
+                    {r.isMutual && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-500/20 text-violet-400 border border-violet-500/30">
+                        ⇄ ВП{r.partnerChannel ? `: ${r.partnerChannel}` : ""}
                       </span>
                     )}
                     {!r.link && !r.postNotNeeded && (() => {

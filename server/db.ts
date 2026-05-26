@@ -530,7 +530,7 @@ export async function getScheduleData(
   startDate: string,
   endDate: string
 ): Promise<{
-  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded">>;
+  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded" | "isMutual" | "partnerChannel" | "dopDirection" | "dopAmount">>;
   purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot">>;
   mutuals: Array<Pick<MutualDeal, "id" | "ourChannelId" | "dealDate" | "partnerChannelName" | "dealType" | "dopDirection" | "dopAmount" | "status" | "ourPostLink">>;
 }> {
@@ -551,6 +551,10 @@ export async function getScheduleData(
         link: saleRecords.link,
         tariff: saleRecords.tariff,
         postNotNeeded: saleRecords.postNotNeeded,
+        isMutual: saleRecords.isMutual,
+        partnerChannel: saleRecords.partnerChannel,
+        dopDirection: saleRecords.dopDirection,
+        dopAmount: saleRecords.dopAmount,
       })
       .from(saleRecords)
       .where(

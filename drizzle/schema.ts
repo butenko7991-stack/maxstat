@@ -128,6 +128,18 @@ export const saleRecords = mysqlTable("sale_records", {
   month: varchar("month", { length: 7 }).notNull(),
   /** Post not needed — autobot handles posting automatically */
   postNotNeeded: boolean("postNotNeeded").default(false).notNull(),
+  /** Mutual subscription deal (ВП) flag */
+  isMutual: boolean("isMutual").default(false).notNull(),
+  /** Partner channel name for ВП */
+  partnerChannel: varchar("partnerChannel", { length: 255 }),
+  /** Our reach for ВП deal */
+  ourReach: bigint("ourReach", { mode: "number" }),
+  /** Partner reach for ВП deal */
+  partnerReach: bigint("partnerReach", { mode: "number" }),
+  /** Doplate direction: who pays whom */
+  dopDirection: mysqlEnum("dopDirection", ["we_pay", "they_pay", "none"]).default("none"),
+  /** Doplate amount in rubles */
+  dopAmount: decimal("dopAmount", { precision: 12, scale: 2 }),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

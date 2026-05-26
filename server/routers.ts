@@ -308,6 +308,13 @@ const saleInput = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
   bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
   postNotNeeded: z.boolean().optional(),
+  // ВП fields
+  isMutual: z.boolean().optional(),
+  partnerChannel: z.string().max(255).optional(),
+  ourReach: z.number().int().nonnegative().optional(),
+  partnerReach: z.number().int().nonnegative().optional(),
+  dopDirection: z.enum(["we_pay", "they_pay", "none"]).optional(),
+  dopAmount: z.string().optional(),
   notes: z.string().optional(),
 });
 const salesRouter = router({
@@ -353,6 +360,12 @@ const salesRouter = router({
       botStoriesCost: input.botStoriesCost ?? null,
       month: input.month,
       postNotNeeded: input.postNotNeeded ?? false,
+      isMutual: input.isMutual ?? false,
+      partnerChannel: input.partnerChannel ?? null,
+      ourReach: input.ourReach ?? null,
+      partnerReach: input.partnerReach ?? null,
+      dopDirection: input.dopDirection ?? "none",
+      dopAmount: input.dopAmount ?? null,
       notes: input.notes ?? null,
     });
     return { id };

@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `sale_records` ADD `isMutual` boolean DEFAULT false NOT NULL;\nALTER TABLE `sale_records` ADD `partnerChannel` varchar(255);\nALTER TABLE `sale_records` ADD `ourReach` bigint;\nALTER TABLE `sale_records` ADD `partnerReach` bigint;\nALTER TABLE `sale_records` ADD `dopDirection` enum('we_pay','they_pay','none') DEFAULT 'none';\nALTER TABLE `sale_records` ADD `dopAmount` decimal(12,2);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute ALTER TABLE `sale_records` ADD `isMutual` boolean DEFAULT false NOT NULL;\nALTER TABLE `sale_records` ADD `partnerChannel` varchar(255);\nALTER TABLE `sale_records` ADD `ourReach` bigint;\nALTER TABLE `sale_records` ADD `partnerReach` bigint;\nALTER TABLE `sale_records` ADD `dopDirection` enum('we_pay','they_pay','none') DEFAULT 'none';\nALTER TABLE `sale_records` ADD `dopAmount` decimal(12,2);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1315
+}
