@@ -43,6 +43,11 @@ import {
   updateMutualDeal,
   deleteMutualDeal,
   calcRecommendedDoplate,
+  listSubscriberSnapshots,
+  upsertSubscriberSnapshot,
+  deleteSubscriberSnapshot,
+  getCpfAnalytics,
+  getSourceEfficiency,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 
@@ -112,6 +117,7 @@ const purchaseInput = z.object({
   notes: z.string().optional(),
   timeSlot: timeSlotEnum.optional(),
   bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+  sourceSubscribers: z.number().int().nonnegative().optional(),
 });
 const purchasesRouter = router({
   list: protectedProcedure
@@ -151,6 +157,7 @@ const purchasesRouter = router({
       notes: input.notes ?? null,
       timeSlot: input.timeSlot ?? null,
       bookingSlot: input.bookingSlot ?? deriveBookingSlot(input.timeSlot),
+      sourceSubscribers: input.sourceSubscribers ?? null,
     });
     return { id };
   }),
@@ -216,6 +223,7 @@ const purchasesRouter = router({
       subscribersGained: z.number().int().nonnegative().optional(),
       botStories: z.string().max(255).optional(),
       botStoriesCost: z.string().optional(),
+      sourceSubscribers: z.number().int().nonnegative().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -255,6 +263,7 @@ const purchasesRouter = router({
           notes: input.notes ?? null,
           timeSlot: slot.timeSlot ?? null,
           bookingSlot: slot.bookingSlot ?? deriveBookingSlot(slot.timeSlot),
+          sourceSubscribers: input.sourceSubscribers ?? null,
         });
         ids.push(id);
       }
@@ -308,6 +317,7 @@ const saleInput = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
   bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
   postNotNeeded: z.boolean().optional(),
+  buyerSubscribers: z.number().int().nonnegative().optional(),
   // ВП fields
   isMutual: z.boolean().optional(),
   partnerChannel: z.string().max(255).optional(),
@@ -366,6 +376,7 @@ const salesRouter = router({
       partnerReach: input.partnerReach ?? null,
       dopDirection: input.dopDirection ?? "none",
       dopAmount: input.dopAmount ?? null,
+      buyerSubscribers: input.buyerSubscribers ?? null,
       notes: input.notes ?? null,
     });
     return { id };
@@ -444,6 +455,7 @@ const salesRouter = router({
       botStories: z.string().max(255).optional(),
       botStoriesCost: z.string().optional(),
       postNotNeeded: z.boolean().optional(),
+      buyerSubscribers: z.number().int().nonnegative().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -480,6 +492,7 @@ const salesRouter = router({
           botStoriesCost: input.botStoriesCost ?? null,
           month: slot.month,
           postNotNeeded: input.postNotNeeded ?? false,
+          buyerSubscribers: input.buyerSubscribers ?? null,
           notes: input.notes ?? null,
         });
         ids.push(id);
@@ -768,6 +781,49 @@ const mutualRouter = router({
     .query(({ input }) => calcRecommendedDoplate(input.ourReach, input.partnerReach, input.baseSpm)),
 });
 
+// ─── Subscriber Snapshots router ───────────────────────────────────────────────
+const snapshotsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ channelId: z.number().int().positive().optional() }))
+    .query(({ ctx, input }) => listSubscriberSnapshots(ctx.user.id, input.channelId)),
+
+  upsert: protectedProcedure
+    .input(z.object({
+      channelId: z.number().int().positive(),
+      subscriberCount: z.number().int().nonnegative(),
+      snapshotDate: z.string(), // ISO date string
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await upsertSubscriberSnapshot({
+        userId: ctx.user.id,
+        channelId: input.channelId,
+        subscriberCount: input.subscriberCount,
+        snapshotDate: new Date(input.snapshotDate),
+        notes: input.notes ?? null,
+      });
+      return { success: true };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteSubscriberSnapshot(input.id, ctx.user.id);
+      return { success: true };
+    }),
+
+  cpfAnalytics: protectedProcedure
+    .input(z.object({ channelIds: z.array(z.number().int().positive()).optional() }))
+    .query(async ({ ctx, input }) => {
+      const userChannels = await import("./db").then(m => m.getChannelsByUser(ctx.user.id));
+      const ids = input.channelIds ?? userChannels.map((c: { id: number }) => c.id);
+      return getCpfAnalytics(ctx.user.id, ids);
+    }),
+
+  sourceEfficiency: protectedProcedure
+    .query(({ ctx }) => getSourceEfficiency(ctx.user.id)),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -785,6 +841,7 @@ export const appRouter = router({system: systemRouter,  auth: router({
   ai: aiRouter,
   admin: adminRouter,
   mutual: mutualRouter,
+  snapshots: snapshotsRouter,
 });
 
 export type AppRouter = typeof appRouter;

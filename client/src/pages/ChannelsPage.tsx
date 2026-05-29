@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Layers, X, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Layers, X, Check, Users, ChevronDown, ChevronUp, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,6 +18,184 @@ interface ChannelFormData {
   description: string;
 }
 
+function formatDate(d: Date | string | null | undefined): string {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ─── Subscriber Snapshot Section ─────────────────────────────────────────────
+interface SnapshotSectionProps {
+  channelId: number;
+  channelName: string;
+}
+
+function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
+  const utils = trpc.useUtils();
+  const [expanded, setExpanded] = useState(false);
+  const [snapDate, setSnapDate] = useState(todayIso);
+  const [snapCount, setSnapCount] = useState("");
+  const [snapNotes, setSnapNotes] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  const { data: snapshots, isLoading, isError } = trpc.snapshots.list.useQuery(
+    { channelId },
+    { enabled: expanded }
+  );
+
+  const upsertMutation = trpc.snapshots.upsert.useMutation({
+    onSuccess: () => {
+      utils.snapshots.list.invalidate({ channelId });
+      toast.success("Снимок сохранён");
+      setSnapCount("");
+      setSnapNotes("");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteMutation = trpc.snapshots.delete.useMutation({
+    onSuccess: () => {
+      utils.snapshots.list.invalidate({ channelId });
+      toast.success("Снимок удалён");
+      setDeleteConfirmId(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!snapCount || !snapDate) return;
+    upsertMutation.mutate({
+      channelId,
+      subscriberCount: Number(snapCount),
+      snapshotDate: snapDate,
+      notes: snapNotes || undefined,
+    });
+  }
+
+  return (
+    <div className="mt-3 border-t border-border/40 pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <Users className="w-3.5 h-3.5" />
+        <span className="font-medium">Подписчики</span>
+        {expanded ? <ChevronUp className="w-3.5 h-3.5 ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {/* Add snapshot form */}
+          <form onSubmit={handleSave} className="flex flex-wrap gap-2 items-end">
+            <div className="space-y-1 flex-1 min-w-[120px]">
+              <Label className="text-xs">Дата</Label>
+              <Input
+                type="date"
+                value={snapDate}
+                onChange={(e) => setSnapDate(e.target.value)}
+                className="bg-input border-border h-8 text-xs"
+                required
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[100px]">
+              <Label className="text-xs">Подписчиков</Label>
+              <Input
+                type="number"
+                value={snapCount}
+                onChange={(e) => setSnapCount(e.target.value)}
+                placeholder="0"
+                className="bg-input border-border h-8 text-xs"
+                min={0}
+                required
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[120px]">
+              <Label className="text-xs">Заметка (необяз.)</Label>
+              <Input
+                value={snapNotes}
+                onChange={(e) => setSnapNotes(e.target.value)}
+                placeholder="Необязательно"
+                className="bg-input border-border h-8 text-xs"
+              />
+            </div>
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 gap-1.5 shrink-0"
+              disabled={upsertMutation.isPending || !snapCount}
+            >
+              <Save className="w-3.5 h-3.5" />
+              Сохранить
+            </Button>
+          </form>
+
+          {/* Snapshot history */}
+          {isLoading ? (
+            <div className="space-y-1.5">
+              {[1, 2].map((i) => <div key={i} className="h-8 rounded-lg bg-muted animate-pulse" />)}
+            </div>
+          ) : isError ? (
+            <p className="text-xs text-red-400 text-center py-2">Ошибка загрузки снимков. Попробуйте позже.</p>
+          ) : !snapshots?.length ? (
+            <p className="text-xs text-muted-foreground text-center py-2">Нет снимков. Добавьте первый.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {[...snapshots].sort((a, b) => new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime()).map((snap, idx, arr) => {
+                const prev = arr[idx + 1];
+                const growth = prev ? snap.subscriberCount - prev.subscriberCount : null;
+                return (
+                  <div key={snap.id} className="flex items-center gap-2 rounded-lg bg-muted/30 border border-border/40 px-3 py-1.5 group">
+                    <span className="text-xs text-muted-foreground w-20 shrink-0">{formatDate(snap.snapshotDate)}</span>
+                    <span className="text-xs font-semibold text-foreground">{snap.subscriberCount.toLocaleString("ru-RU")}</span>
+                    {growth !== null && (
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${growth >= 0 ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10"}`}>
+                        {growth >= 0 ? "+" : ""}{growth.toLocaleString("ru-RU")}
+                      </span>
+                    )}
+                    {snap.notes && <span className="text-[10px] text-muted-foreground flex-1 truncate">{snap.notes}</span>}
+                    <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                      {deleteConfirmId === snap.id ? (
+                        <>
+                          <button
+                            onClick={() => deleteMutation.mutate({ id: snap.id })}
+                            className="p-1 rounded text-destructive hover:bg-destructive/15 transition-colors"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="p-1 rounded text-muted-foreground hover:bg-accent transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirmId(snap.id)}
+                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ChannelsPage() {
   const utils = trpc.useUtils();
   const { data: channels, isLoading } = trpc.channels.list.useQuery();
@@ -114,53 +292,57 @@ export default function ChannelsPage() {
           {channels.map((ch) => (
             <div
               key={ch.id}
-              className="glass rounded-xl p-4 flex items-center gap-4 group"
+              className="glass rounded-xl p-4 group"
             >
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <span className="text-sm font-semibold text-primary">
-                  {ch.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground truncate">{ch.name}</p>
-                {ch.description && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{ch.description}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => openEdit(ch)}
-                  className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                {deleteConfirmId === ch.id ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        deleteMutation.mutate({ id: ch.id });
-                        setDeleteConfirmId(null);
-                      }}
-                      className="p-2 rounded-lg bg-destructive/15 hover:bg-destructive/25 transition-colors text-destructive"
-                    >
-                      <Check className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteConfirmId(null)}
-                      className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <span className="text-sm font-semibold text-primary">
+                    {ch.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-foreground truncate">{ch.name}</p>
+                  {ch.description && (
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{ch.description}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => setDeleteConfirmId(ch.id)}
-                    className="p-2 rounded-lg hover:bg-destructive/15 transition-colors text-muted-foreground hover:text-destructive"
+                    onClick={() => openEdit(ch)}
+                    className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Pencil className="w-4 h-4" />
                   </button>
-                )}
+                  {deleteConfirmId === ch.id ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          deleteMutation.mutate({ id: ch.id });
+                          setDeleteConfirmId(null);
+                        }}
+                        className="p-2 rounded-lg bg-destructive/15 hover:bg-destructive/25 transition-colors text-destructive"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirmId(ch.id)}
+                      className="p-2 rounded-lg hover:bg-destructive/15 transition-colors text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
+              {/* Subscriber snapshots section */}
+              <SnapshotSection channelId={ch.id} channelName={ch.name} />
             </div>
           ))}
         </div>

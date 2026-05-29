@@ -73,6 +73,8 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   paymentStatus: mysqlEnum("paymentStatus", ["paid", "unpaid", "partial"]).default("unpaid").notNull(),
   /** Actual subscribers gained from this placement */
   subscribersGained: int("subscribersGained"),
+  /** Approximate subscriber count of the source channel (for efficiency analysis) */
+  sourceSubscribers: bigint("sourceSubscribers", { mode: "number" }),
   /** Bot / stories flag */
   botStories: varchar("botStories", { length: 255 }),
   /** Bot / stories payment amount */
@@ -128,6 +130,8 @@ export const saleRecords = mysqlTable("sale_records", {
   month: varchar("month", { length: 7 }).notNull(),
   /** Post not needed — autobot handles posting automatically */
   postNotNeeded: boolean("postNotNeeded").default(false).notNull(),
+  /** Approximate subscriber count of the buyer's channel (for size analysis) */
+  buyerSubscribers: bigint("buyerSubscribers", { mode: "number" }),
   /** Mutual subscription deal (ВП) flag */
   isMutual: boolean("isMutual").default(false).notNull(),
   /** Partner channel name for ВП */
@@ -205,3 +209,23 @@ export const mutualDeals = mysqlTable("mutual_deals", {
 
 export type MutualDeal = typeof mutualDeals.$inferSelect;
 export type InsertMutualDeal = typeof mutualDeals.$inferInsert;
+
+/**
+ * Weekly subscriber snapshots for our channels.
+ * Owner inputs subscriber count once a week per channel.
+ * Used for CPF (Cost Per Follower) analytics.
+ */
+export const channelSubscriberSnapshots = mysqlTable("channel_subscriber_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  channelId: int("channelId").notNull(),
+  /** Subscriber count at the time of snapshot */
+  subscriberCount: bigint("subscriberCount", { mode: "number" }).notNull(),
+  /** Date of the snapshot (YYYY-MM-DD stored as timestamp) */
+  snapshotDate: timestamp("snapshotDate").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ChannelSubscriberSnapshot = typeof channelSubscriberSnapshots.$inferSelect;
+export type InsertChannelSubscriberSnapshot = typeof channelSubscriberSnapshots.$inferInsert;

@@ -98,6 +98,7 @@ const EMPTY_SALE_FORM: SaleFormData = {
   channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
   botStories: "", botStoriesCost: "", month: "", postNotNeeded: false,
+  buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
   notes: "",
 };
@@ -106,7 +107,7 @@ const EMPTY_PURCHASE_FORM: PurchaseFormData = {
   channelId: "", date: "", admin: "", link: "", targetChannels: "",
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "",
   paymentStatus: "unpaid", subscribersGained: "", botStories: "",
-  botStoriesCost: "", month: "", notes: "", timeSlot: "", bookingSlot: "",
+  botStoriesCost: "", month: "", notes: "", timeSlot: "", bookingSlot: "", sourceSubscribers: "",
 };
 
 export default function SchedulePage() {
@@ -314,6 +315,7 @@ export default function SchedulePage() {
         partnerReach: s.partnerReach != null ? String(s.partnerReach) : "",
         dopDirection: (s.dopDirection as "we_pay" | "they_pay" | "none") ?? "none",
         dopAmount: s.dopAmount ?? "",
+        buyerSubscribers: (s as Record<string, unknown>).buyerSubscribers != null ? String((s as Record<string, unknown>).buyerSubscribers) : "",
         notes: s.notes ?? "",
       });
       setEditSaleOpen(true);
@@ -343,6 +345,7 @@ export default function SchedulePage() {
         notes: p.notes ?? "",
         timeSlot: (p.timeSlot ?? "") as any,
         bookingSlot: (p.bookingSlot ?? "") as any,
+        sourceSubscribers: (p as Record<string, unknown>).sourceSubscribers != null ? String((p as Record<string, unknown>).sourceSubscribers) : "",
       });
       setEditPurchaseOpen(true);
     }
@@ -1459,7 +1462,8 @@ export default function SchedulePage() {
               month: f.month,
               notes: f.notes || undefined,
               timeSlot: f.timeSlot || undefined,
-              bookingSlot: (f.bookingSlot || undefined) as "\u0443\u0442\u0440\u043e" | "\u043e\u0431\u0435\u0434" | "\u0432\u0435\u0447\u0435\u0440" | undefined,
+              bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+              sourceSubscribers: f.sourceSubscribers ? Number(f.sourceSubscribers) : undefined,
             });
           }}
           isPending={updatePurchaseMutation.isPending}

@@ -24,6 +24,7 @@ const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   botStories: "", botStoriesCost: "", month: currentMonth(), postNotNeeded: false,
+  buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
   notes: "",
 };
@@ -223,6 +224,7 @@ export default function SalesPage() {
       isMutual: r.isMutual ?? false, partnerChannel: r.partnerChannel ?? "",
       ourReach: r.ourReach ? String(r.ourReach) : "", partnerReach: r.partnerReach ? String(r.partnerReach) : "",
       dopDirection: (r.dopDirection as "we_pay" | "they_pay" | "none") ?? "none", dopAmount: r.dopAmount ?? "",
+      buyerSubscribers: (r as Record<string, unknown>).buyerSubscribers ? String((r as Record<string, unknown>).buyerSubscribers) : "",
       notes: r.notes ?? "",
     });
     setDialogOpen(true);
@@ -249,6 +251,7 @@ export default function SalesPage() {
       partnerReach: form.partnerReach ? Number(form.partnerReach) : undefined,
       dopDirection: form.dopDirection !== "none" ? form.dopDirection : undefined,
       dopAmount: form.dopAmount || undefined,
+      buyerSubscribers: form.buyerSubscribers ? Number(form.buyerSubscribers) : undefined,
       notes: form.notes || undefined,
     };
     if (editingId) { updateMutation.mutate({ id: editingId, ...payload }); }

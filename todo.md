@@ -195,3 +195,21 @@
 - [x] Frontend: показывать ВП-бейдж на карточках продажи и в сетке расписания (фиолетовый)
 - [x] Навигация: убрать пункт «Взаимки» из сайдбара
 - [x] Маршруты: убрать /mutual маршрут из App.tsx
+
+## Аналитика подписчиков (CPF)
+- [x] DB: таблица channel_subscriber_snapshots (channelId, subscriberCount, snapshotDate, notes)
+- [x] DB: добавить sourceSubscribers (int, nullable) в purchase_records
+- [x] DB: добавить buyerSubscribers (int, nullable) в sale_records
+- [x] Backend: tRPC procedures snapshots.list, snapshots.upsert (по channelId + неделя)
+- [x] Backend: helper getCpfAnalytics — CPF по неделям, прирост, расходы за период
+- [x] Backend: helper getSourceEfficiency — средний CPF по размеру канала-источника
+- [x] Frontend ChannelsPage: секция «Подписчики» — ввод еженедельного снимка по каждому каналу
+- [x] Frontend RecordFormModal: поле «Подписчики канала» в форме Закупа (sourceSubscribers, опционально)
+- [x] Frontend RecordFormModal: поле «Подписчики канала» в форме Продажи (buyerSubscribers, опционально)
+- [x] Frontend AIAnalyticsPage: вкладка «Подписчики» — график роста, CPF по неделям, таблица эффективности источников
+- [x] Тесты: vitest для snapshots и getCpfAnalytics
+
+## Доработки аналитики подписчиков (gap-fix)
+- [x] ChannelsPage SnapshotSection: добавить явный error state при ошибке запроса снимков
+- [x] AIAnalyticsPage Subscribers tab: явные error states для всех трёх запросов (snapshots.list, cpfAnalytics, sourceEfficiency)
+- [x] Тесты: vitest для реальных процедур snapshots (list, upsert, delete) через router-level тесты

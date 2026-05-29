@@ -975,3 +975,258 @@ export function calcRecommendedDoplate(ourReach: number, partnerReach: number, b
   const recommendedAmount = Math.round((absDiff / 1000) * baseSpm);
   return { diff, direction, recommendedAmount };
 }
+
+// ─── Subscriber Snapshots ─────────────────────────────────────────────────────
+
+import {
+  ChannelSubscriberSnapshot,
+  InsertChannelSubscriberSnapshot,
+  channelSubscriberSnapshots,
+} from "../drizzle/schema";
+
+/** List all subscriber snapshots for a user, optionally filtered by channelId */
+export async function listSubscriberSnapshots(
+  userId: number,
+  channelId?: number
+): Promise<ChannelSubscriberSnapshot[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(channelSubscriberSnapshots.userId, userId)];
+  if (channelId !== undefined) {
+    conditions.push(eq(channelSubscriberSnapshots.channelId, channelId));
+  }
+  return db
+    .select()
+    .from(channelSubscriberSnapshots)
+    .where(and(...conditions))
+    .orderBy(channelSubscriberSnapshots.snapshotDate);
+}
+
+/** Upsert a weekly snapshot — if one exists for the same channel+week, update it */
+export async function upsertSubscriberSnapshot(
+  data: InsertChannelSubscriberSnapshot
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  // Determine week start (Monday) for the given snapshotDate
+  const d = new Date(data.snapshotDate);
+  const day = d.getDay(); // 0=Sun, 1=Mon...
+  const diff = (day === 0 ? -6 : 1 - day);
+  const weekStart = new Date(d);
+  weekStart.setDate(d.getDate() + diff);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 7);
+
+  // Check if snapshot already exists for this channel+week
+  const existing = await db
+    .select({ id: channelSubscriberSnapshots.id })
+    .from(channelSubscriberSnapshots)
+    .where(
+      and(
+        eq(channelSubscriberSnapshots.userId, data.userId),
+        eq(channelSubscriberSnapshots.channelId, data.channelId),
+        sql`${channelSubscriberSnapshots.snapshotDate} >= ${weekStart.toISOString().slice(0, 19).replace("T", " ")}`,
+        sql`${channelSubscriberSnapshots.snapshotDate} < ${weekEnd.toISOString().slice(0, 19).replace("T", " ")}`
+      )
+    );
+
+  if (existing.length > 0) {
+    await db
+      .update(channelSubscriberSnapshots)
+      .set({
+        subscriberCount: data.subscriberCount,
+        snapshotDate: data.snapshotDate,
+        notes: data.notes,
+      })
+      .where(eq(channelSubscriberSnapshots.id, existing[0].id));
+  } else {
+    await db.insert(channelSubscriberSnapshots).values(data);
+  }
+}
+
+/** Delete a subscriber snapshot by id */
+export async function deleteSubscriberSnapshot(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(channelSubscriberSnapshots)
+    .where(
+      and(
+        eq(channelSubscriberSnapshots.id, id),
+        eq(channelSubscriberSnapshots.userId, userId)
+      )
+    );
+}
+
+export type CpfWeekData = {
+  weekLabel: string; // e.g. "2026-W20"
+  weekStart: string; // ISO date
+  channelId: number;
+  channelName: string;
+  subscribersBefore: number;
+  subscribersAfter: number;
+  growth: number;
+  purchaseCost: number; // total spend on purchases that week
+  cpf: number | null; // cost per follower (null if no growth)
+};
+
+/** Calculate CPF (Cost Per Follower) analytics per channel per week */
+export async function getCpfAnalytics(
+  userId: number,
+  channelIds: number[]
+): Promise<CpfWeekData[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Get all snapshots for these channels
+  const snapshots = await db
+    .select()
+    .from(channelSubscriberSnapshots)
+    .where(
+      and(
+        eq(channelSubscriberSnapshots.userId, userId),
+        channelIds.length > 0
+          ? sql`${channelSubscriberSnapshots.channelId} IN (${sql.join(channelIds.map(id => sql`${id}`), sql`, `)})`
+          : sql`1=1`
+      )
+    )
+    .orderBy(channelSubscriberSnapshots.channelId, channelSubscriberSnapshots.snapshotDate);
+
+  // Get all purchases for these channels
+  const purchases = await db
+    .select({
+      channelId: purchaseRecords.channelId,
+      date: purchaseRecords.date,
+      cost: purchaseRecords.cost,
+    })
+    .from(purchaseRecords)
+    .where(
+      and(
+        eq(purchaseRecords.userId, userId),
+        channelIds.length > 0
+          ? sql`${purchaseRecords.channelId} IN (${sql.join(channelIds.map(id => sql`${id}`), sql`, `)})`
+          : sql`1=1`
+      )
+    );
+
+  // Get channel names
+  const channelList = await db
+    .select({ id: channels.id, name: channels.name })
+    .from(channels)
+    .where(eq(channels.userId, userId));
+  const channelNameMap = new Map(channelList.map(c => [c.id, c.name]));
+
+  const result: CpfWeekData[] = [];
+
+  // Group snapshots by channelId
+  const snapshotsByChannel = new Map<number, ChannelSubscriberSnapshot[]>();
+  for (const snap of snapshots) {
+    if (!snapshotsByChannel.has(snap.channelId)) {
+      snapshotsByChannel.set(snap.channelId, []);
+    }
+    snapshotsByChannel.get(snap.channelId)!.push(snap);
+  }
+
+  for (const [channelId, channelSnaps] of Array.from(snapshotsByChannel)) {
+    // For each consecutive pair of snapshots, calculate growth and CPF
+    for (let i = 1; i < channelSnaps.length; i++) {
+      const prev = channelSnaps[i - 1];
+      const curr = channelSnaps[i];
+      const growth = (curr.subscriberCount ?? 0) - (prev.subscriberCount ?? 0);
+
+      // Week label based on curr snapshot date
+      const d = new Date(curr.snapshotDate);
+      const weekNum = getISOWeek(d);
+      const weekLabel = `${d.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+
+      // Sum purchases between prev and curr snapshot dates
+      const weekPurchases = purchases.filter(p => {
+        if (p.channelId !== channelId) return false;
+        const pd = new Date(p.date);
+        return pd >= new Date(prev.snapshotDate) && pd < new Date(curr.snapshotDate);
+      });
+      const purchaseCost = weekPurchases.reduce((sum, p) => sum + parseFloat(p.cost ?? "0"), 0);
+
+      result.push({
+        weekLabel,
+        weekStart: new Date(curr.snapshotDate).toISOString().slice(0, 10),
+        channelId,
+        channelName: channelNameMap.get(channelId) ?? `Канал ${channelId}`,
+        subscribersBefore: prev.subscriberCount ?? 0,
+        subscribersAfter: curr.subscriberCount ?? 0,
+        growth,
+        purchaseCost,
+        cpf: growth > 0 ? Math.round((purchaseCost / growth) * 100) / 100 : null,
+      });
+    }
+  }
+
+  return result.sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+function getISOWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+export type SourceEfficiencyData = {
+  sizeCategory: string; // "micro (<10k)", "small (10k-50k)", "medium (50k-200k)", "large (200k+)"
+  avgCpf: number | null;
+  totalPurchases: number;
+  totalCost: number;
+  totalSubscribersGained: number;
+};
+
+/** Analyze purchase efficiency by source channel size */
+export async function getSourceEfficiency(userId: number): Promise<SourceEfficiencyData[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const records = await db
+    .select({
+      sourceSubscribers: purchaseRecords.sourceSubscribers,
+      cost: purchaseRecords.cost,
+      subscribersGained: purchaseRecords.subscribersGained,
+    })
+    .from(purchaseRecords)
+    .where(
+      and(
+        eq(purchaseRecords.userId, userId),
+        sql`${purchaseRecords.sourceSubscribers} IS NOT NULL`
+      )
+    );
+
+  const categories: Record<string, { costs: number[]; gained: number[]; count: number }> = {
+    "micro (<10k)": { costs: [], gained: [], count: 0 },
+    "small (10k-50k)": { costs: [], gained: [], count: 0 },
+    "medium (50k-200k)": { costs: [], gained: [], count: 0 },
+    "large (200k+)": { costs: [], gained: [], count: 0 },
+  };
+
+  for (const r of records) {
+    const subs = r.sourceSubscribers ?? 0;
+    const cat =
+      subs < 10000 ? "micro (<10k)" :
+      subs < 50000 ? "small (10k-50k)" :
+      subs < 200000 ? "medium (50k-200k)" : "large (200k+)";
+    categories[cat].costs.push(parseFloat(r.cost ?? "0"));
+    categories[cat].gained.push(r.subscribersGained ?? 0);
+    categories[cat].count++;
+  }
+
+  return Object.entries(categories).map(([sizeCategory, data]) => {
+    const totalCost = data.costs.reduce((s, v) => s + v, 0);
+    const totalGained = data.gained.reduce((s, v) => s + v, 0);
+    return {
+      sizeCategory,
+      avgCpf: totalGained > 0 ? Math.round((totalCost / totalGained) * 100) / 100 : null,
+      totalPurchases: data.count,
+      totalCost,
+      totalSubscribersGained: totalGained,
+    };
+  }).filter(d => d.totalPurchases > 0);
+}

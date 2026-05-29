@@ -42,6 +42,7 @@ export interface PurchaseFormData {
   notes: string;
   timeSlot: string;
   bookingSlot: "утро" | "обед" | "вечер" | "";
+  sourceSubscribers: string; // approx size of source channel (optional)
 }
 
 export interface SaleFormData {
@@ -61,6 +62,7 @@ export interface SaleFormData {
   botStoriesCost: string;
   month: string;
   postNotNeeded: boolean;
+  buyerSubscribers: string; // approx size of buyer channel (optional)
   // ВП fields
   isMutual: boolean;
   partnerChannel: string;
@@ -308,6 +310,19 @@ export function PurchaseFormModal({
                 className="bg-input border-border"
               />
             </div>
+            {/* Source channel size */}
+            <div className="space-y-1.5 col-span-2">
+              <Label className="text-xs text-muted-foreground">Подписчики канала-источника (приблизительно)</Label>
+              <Input
+                type="number"
+                value={form.sourceSubscribers}
+                onChange={(e) => setForm((f) => ({ ...f, sourceSubscribers: e.target.value }))}
+                placeholder="Например: 50000"
+                className="bg-input border-border"
+                min={0}
+              />
+            </div>
+
             {/* Subscribers gained */}
             <div className="col-span-2 rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-3 space-y-2">
               <div className="flex items-center gap-2 text-xs text-emerald-400/80 font-medium">
@@ -662,6 +677,19 @@ export function SaleFormModal({
                 onChange={(e) => setForm((f) => ({ ...f, botStoriesCost: e.target.value }))}
                 placeholder="0"
                 className="bg-input border-border"
+              />
+            </div>
+
+            {/* Buyer channel size */}
+            <div className="space-y-1.5 col-span-2">
+              <Label className="text-xs text-muted-foreground">Подписчики канала-покупателя (приблизительно)</Label>
+              <Input
+                type="number"
+                value={form.buyerSubscribers}
+                onChange={(e) => setForm((f) => ({ ...f, buyerSubscribers: e.target.value }))}
+                placeholder="Например: 30000"
+                className="bg-input border-border"
+                min={0}
               />
             </div>
 

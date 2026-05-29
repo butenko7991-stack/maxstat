@@ -3,8 +3,15 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Brain, FileText } from "lucide-react";
+import {
+  Sparkles, TrendingUp, TrendingDown, AlertTriangle, RefreshCw,
+  Brain, FileText, Users, BarChart2,
+} from "lucide-react";
 import { Streamdown } from "streamdown";
+import {
+  ResponsiveContainer, LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from "recharts";
 
 function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ₽`;
@@ -20,6 +27,286 @@ function roiColor(roi: number): string {
   return "text-red-400";
 }
 
+function formatK(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${n}`;
+}
+
+// ─── Subscribers Tab ──────────────────────────────────────────────────────────
+function SubscribersTab() {
+  const { data: channels } = trpc.channels.list.useQuery();
+  const [selectedChannelId, setSelectedChannelId] = useState<string>("all");
+
+  const channelIds = useMemo(() => {
+    if (!channels) return [];
+    if (selectedChannelId === "all") return channels.map((c) => c.id);
+    const id = Number(selectedChannelId);
+    return isNaN(id) ? [] : [id];
+  }, [channels, selectedChannelId]);
+
+  const { data: cpfData, isLoading: cpfLoading, isError: cpfError } = trpc.snapshots.cpfAnalytics.useQuery(
+    { channelIds },
+    { enabled: channelIds.length > 0, refetchOnWindowFocus: false }
+  );
+
+  const { data: effData, isLoading: effLoading, isError: effError } = trpc.snapshots.sourceEfficiency.useQuery(
+    undefined,
+    { refetchOnWindowFocus: false }
+  );
+
+  // Aggregate CPF chart data: group by weekLabel, sum growth and cost, compute cpf
+  const cpfChartData = useMemo(() => {
+    if (!cpfData || cpfData.length === 0) return [];
+    const map = new Map<string, { weekStart: string; growth: number; cost: number }>();
+    for (const row of cpfData) {
+      const existing = map.get(row.weekLabel);
+      if (existing) {
+        existing.growth += row.growth;
+        existing.cost += row.purchaseCost;
+      } else {
+        map.set(row.weekLabel, { weekStart: row.weekStart, growth: row.growth, cost: row.purchaseCost });
+      }
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].weekStart.localeCompare(b[1].weekStart))
+      .map(([weekLabel, d]) => ({
+        week: weekLabel.replace(/^\d{4}-/, ""), // e.g. "W20"
+        growth: d.growth,
+        cost: Math.round(d.cost),
+        cpf: d.growth > 0 ? Math.round((d.cost / d.growth) * 100) / 100 : null,
+      }));
+  }, [cpfData]);
+
+  // Subscriber growth chart: per-channel snapshots
+  const { data: allSnapshots } = trpc.snapshots.list.useQuery(
+    { channelId: selectedChannelId !== "all" ? Number(selectedChannelId) : undefined },
+    { enabled: true, refetchOnWindowFocus: false }
+  );
+
+  const growthChartData = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return [];
+    // Group by date, sum subscriber counts
+    const map = new Map<string, number>();
+    for (const snap of allSnapshots) {
+      const dateStr = new Date(snap.snapshotDate).toISOString().slice(0, 10);
+      map.set(dateStr, (map.get(dateStr) ?? 0) + snap.subscriberCount);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, count]) => ({
+        date: date.slice(5), // MM-DD
+        count,
+      }));
+  }, [allSnapshots]);
+
+  // KPI summary
+  const latestTotal = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return null;
+    // Get latest snapshot per channel
+    const latestByChannel = new Map<number, typeof allSnapshots[0]>();
+    for (const snap of allSnapshots) {
+      const existing = latestByChannel.get(snap.channelId);
+      if (!existing || new Date(snap.snapshotDate) > new Date(existing.snapshotDate)) {
+        latestByChannel.set(snap.channelId, snap);
+      }
+    }
+    return Array.from(latestByChannel.values()).reduce((s, v) => s + v.subscriberCount, 0);
+  }, [allSnapshots]);
+
+  const avgCpf = useMemo(() => {
+    if (!cpfChartData.length) return null;
+    const valid = cpfChartData.filter((d) => d.cpf !== null);
+    if (!valid.length) return null;
+    return valid.reduce((s, d) => s + (d.cpf ?? 0), 0) / valid.length;
+  }, [cpfChartData]);
+
+  const totalGrowth = useMemo(() => {
+    if (!cpfChartData.length) return 0;
+    return cpfChartData.reduce((s, d) => s + d.growth, 0);
+  }, [cpfChartData]);
+
+  const COLORS = ["#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#ec4899"];
+
+  return (
+    <div className="space-y-5">
+      {/* Channel filter */}
+      <div className="flex items-center gap-3">
+        <Select value={selectedChannelId} onValueChange={setSelectedChannelId}>
+          <SelectTrigger className="w-[200px] bg-input border-border">
+            <SelectValue placeholder="Канал" />
+          </SelectTrigger>
+          <SelectContent className="bg-popover border-border">
+            <SelectItem value="all">Все каналы</SelectItem>
+            {channels?.map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground">Аналитика роста подписчиков и стоимости привлечения</span>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Подписчиков сейчас</p>
+          <p className="text-lg font-bold text-foreground">
+            {latestTotal !== null ? formatK(latestTotal) : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">по последним снимкам</p>
+        </div>
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Прирост (период)</p>
+          <p className={`text-lg font-bold ${totalGrowth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {totalGrowth >= 0 ? "+" : ""}{formatK(totalGrowth)}
+          </p>
+          <p className="text-xs text-muted-foreground">по неделям</p>
+        </div>
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Ср. CPF</p>
+          <p className="text-lg font-bold text-violet-400">
+            {avgCpf !== null ? `${avgCpf.toFixed(2)} ₽` : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">стоимость подписчика</p>
+        </div>
+      </div>
+
+      {/* Subscriber growth chart */}
+      {growthChartData.length > 0 ? (
+        <div className="glass rounded-xl p-4 space-y-3">
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <Users className="w-4 h-4 text-violet-400" />
+            Динамика подписчиков
+          </p>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={growthChartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#888" }} />
+              <YAxis tickFormatter={formatK} tick={{ fontSize: 11, fill: "#888" }} width={48} />
+              <Tooltip
+                contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                labelStyle={{ color: "#ccc", fontSize: 12 }}
+                formatter={(v: number) => [v.toLocaleString("ru-RU"), "Подписчиков"]}
+              />
+              <Line
+                type="monotone"
+                dataKey="count"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                dot={{ r: 3, fill: "#8b5cf6" }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <div className="glass rounded-xl p-8 text-center text-muted-foreground text-sm">
+          <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p>Нет снимков подписчиков.</p>
+          <p className="text-xs mt-1">Добавьте снимки в разделе «Каналы».</p>
+        </div>
+      )}
+
+      {/* CPF per week chart */}
+      {cpfLoading ? (
+        <div className="glass rounded-xl p-8 flex items-center justify-center">
+          <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        </div>
+      ) : cpfError ? (
+        <div className="glass rounded-xl p-6 text-center text-red-400 text-sm">
+          Ошибка загрузки CPF. Попробуйте позже.
+        </div>
+      ) : cpfChartData.length > 0 ? (
+        <div className="glass rounded-xl p-4 space-y-3">
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-cyan-400" />
+            CPF по неделям (₽ / подписчик)
+          </p>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={cpfChartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#888" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#888" }} width={48} />
+              <Tooltip
+                contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                labelStyle={{ color: "#ccc", fontSize: 12 }}
+                formatter={(v: number, name: string) => {
+                  if (name === "cpf") return [`${v} ₽`, "CPF"];
+                  if (name === "growth") return [v.toLocaleString("ru-RU"), "Прирост"];
+                  if (name === "cost") return [formatCurrency(v), "Расход"];
+                  return [v, name];
+                }}
+              />
+              <Legend formatter={(v) => v === "cpf" ? "CPF (₽)" : v === "growth" ? "Прирост" : "Расход"} />
+              <Bar dataKey="cpf" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="growth" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <div className="glass rounded-xl p-6 text-center text-muted-foreground text-sm">
+          Нет данных CPF. Добавьте снимки подписчиков и записи о закупках.
+        </div>
+      )}
+
+      {/* Source efficiency table */}
+      <div className="glass rounded-xl p-4 space-y-3">
+        <p className="text-sm font-medium text-foreground flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-emerald-400" />
+          Эффективность по размеру канала-источника
+        </p>
+        {effLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map((i) => <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />)}
+          </div>
+        ) : effError ? (
+          <p className="text-xs text-red-400 text-center py-4">Ошибка загрузки данных. Попробуйте позже.</p>
+        ) : !effData || effData.every((r) => r.totalPurchases === 0) ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            Нет данных. Укажите «Подписчики канала-источника» при добавлении закупок.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border/40">
+                  <th className="text-left py-2 pr-3 font-medium">Размер канала</th>
+                  <th className="text-right py-2 px-2 font-medium">Закупок</th>
+                  <th className="text-right py-2 px-2 font-medium">Расход</th>
+                  <th className="text-right py-2 px-2 font-medium">Пришло</th>
+                  <th className="text-right py-2 pl-2 font-medium">Ср. CPF</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/20">
+                {effData.map((row, i) => (
+                  <tr key={row.sizeCategory} className="hover:bg-muted/20 transition-colors">
+                    <td className="py-2 pr-3 font-medium text-foreground">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full mr-2"
+                        style={{ background: COLORS[i % COLORS.length] }}
+                      />
+                      {row.sizeCategory}
+                    </td>
+                    <td className="text-right py-2 px-2 text-muted-foreground">{row.totalPurchases}</td>
+                    <td className="text-right py-2 px-2 text-red-400">{formatCurrency(row.totalCost)}</td>
+                    <td className="text-right py-2 px-2 text-emerald-400">
+                      {row.totalSubscribersGained > 0 ? `+${row.totalSubscribersGained.toLocaleString("ru-RU")}` : "—"}
+                    </td>
+                    <td className="text-right py-2 pl-2 font-semibold text-violet-400">
+                      {row.avgCpf !== null ? `${row.avgCpf.toFixed(2)} ₽` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AIAnalyticsPage() {
   const { data: months } = trpc.summary.months.useQuery();
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
@@ -64,21 +351,23 @@ export default function AIAnalyticsPage() {
           </div>
         </div>
 
-        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-          <SelectTrigger className="w-[160px] bg-input border-border">
-            <SelectValue placeholder="Период" />
-          </SelectTrigger>
-          <SelectContent className="bg-popover border-border">
-            <SelectItem value="all">Всё время</SelectItem>
-            {sortedMonths.map((m) => (
-              <SelectItem key={m} value={m}>{formatMonth(m)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {activeTab !== "subscribers" && (
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-[160px] bg-input border-border">
+              <SelectValue placeholder="Период" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover border-border">
+              <SelectItem value="all">Всё время</SelectItem>
+              {sortedMonths.map((m) => (
+                <SelectItem key={m} value={m}>{formatMonth(m)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
-      {/* Summary cards */}
-      {profitData && (
+      {/* Summary cards — only on profitability tab */}
+      {activeTab !== "subscribers" && profitData && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="glass rounded-xl p-4 space-y-1">
             <p className="text-xs text-muted-foreground">Доход</p>
@@ -112,6 +401,10 @@ export default function AIAnalyticsPage() {
           <TabsTrigger value="profitability" className="gap-1.5">
             <TrendingUp className="w-3.5 h-3.5" />
             Рентабельность
+          </TabsTrigger>
+          <TabsTrigger value="subscribers" className="gap-1.5">
+            <Users className="w-3.5 h-3.5" />
+            Подписчики
           </TabsTrigger>
           <TabsTrigger value="analysis" className="gap-1.5">
             <Brain className="w-3.5 h-3.5" />
@@ -188,6 +481,11 @@ export default function AIAnalyticsPage() {
               <p className="text-sm mt-1">Добавьте записи о продажах и закупках</p>
             </div>
           )}
+        </TabsContent>
+
+        {/* Subscribers Tab */}
+        <TabsContent value="subscribers" className="mt-4">
+          <SubscribersTab />
         </TabsContent>
 
         {/* AI Analysis Tab */}

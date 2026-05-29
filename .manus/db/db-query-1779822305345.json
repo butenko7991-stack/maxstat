@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `channel_subscriber_snapshots` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`channelId` int NOT NULL,\n\t`subscriberCount` bigint NOT NULL,\n\t`snapshotDate` timestamp NOT NULL,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `channel_subscriber_snapshots_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `purchase_records` ADD `sourceSubscribers` bigint;\nALTER TABLE `sale_records` ADD `buyerSubscribers` bigint;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute CREATE TABLE `channel_subscriber_snapshots` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`channelId` int NOT NULL,\n\t`subscriberCount` bigint NOT NULL,\n\t`snapshotDate` timestamp NOT NULL,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `channel_subscriber_snapshots_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `purchase_records` ADD `sourceSubscribers` bigint;\nALTER TABLE `sale_records` ADD `buyerSubscribers` bigint;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 7771
+}
