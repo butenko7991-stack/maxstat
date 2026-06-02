@@ -10,7 +10,7 @@ import {
 import { Streamdown } from "streamdown";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from "recharts";
 
 function formatCurrency(n: number): string {
@@ -155,6 +155,56 @@ function SubscribersTab() {
     return vals.length > 0 ? vals.reduce((s, v) => s + (v.views24h ?? 0), 0) : null;
   }, [allSnapshots]);
 
+  const totalViews48h = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return null;
+    const latestByChannel = new Map<number, typeof allSnapshots[0]>();
+    for (const snap of allSnapshots) {
+      const ex = latestByChannel.get(snap.channelId);
+      if (!ex || new Date(snap.snapshotDate) > new Date(ex.snapshotDate)) {
+        latestByChannel.set(snap.channelId, snap);
+      }
+    }
+    const vals = Array.from(latestByChannel.values()).filter((s) => s.views48h != null);
+    return vals.length > 0 ? vals.reduce((s, v) => s + (v.views48h ?? 0), 0) : null;
+  }, [allSnapshots]);
+
+  const totalViews72h = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return null;
+    const latestByChannel = new Map<number, typeof allSnapshots[0]>();
+    for (const snap of allSnapshots) {
+      const ex = latestByChannel.get(snap.channelId);
+      if (!ex || new Date(snap.snapshotDate) > new Date(ex.snapshotDate)) {
+        latestByChannel.set(snap.channelId, snap);
+      }
+    }
+    const vals = Array.from(latestByChannel.values()).filter((s) => s.views72h != null);
+    return vals.length > 0 ? vals.reduce((s, v) => s + (v.views72h ?? 0), 0) : null;
+  }, [allSnapshots]);
+
+  // ER24 trend data for chart
+  const er24ChartData = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return [];
+    const map = new Map<string, { total: number; count: number }>();
+    for (const snap of allSnapshots) {
+      if (snap.er24 == null) continue;
+      const dateStr = new Date(snap.snapshotDate).toISOString().slice(0, 10);
+      const existing = map.get(dateStr);
+      const er = parseFloat(String(snap.er24));
+      if (existing) {
+        existing.total += er;
+        existing.count += 1;
+      } else {
+        map.set(dateStr, { total: er, count: 1 });
+      }
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, d]) => ({
+        date: date.slice(5),
+        er24: Math.round((d.total / d.count) * 100) / 100,
+      }));
+  }, [allSnapshots]);
+
   const COLORS = ["#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#ec4899"];
 
   return (
@@ -212,6 +262,20 @@ function SubscribersTab() {
           </p>
           <p className="text-xs text-muted-foreground">последние снимки</p>
         </div>
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Охваты 48ч</p>
+          <p className="text-lg font-bold text-amber-300">
+            {totalViews48h !== null ? formatK(totalViews48h) : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">последние снимки</p>
+        </div>
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Охваты 72ч</p>
+          <p className="text-lg font-bold text-amber-200">
+            {totalViews72h !== null ? formatK(totalViews72h) : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">последние снимки</p>
+        </div>
       </div>
 
       {/* Subscriber growth chart */}
@@ -250,6 +314,36 @@ function SubscribersTab() {
         </div>
       )}
 
+      {/* ER24 trend chart */}
+      {er24ChartData.length > 0 ? (
+        <div className="glass rounded-xl p-4 space-y-3">
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-violet-400" />
+            Динамика ER24 (вовлечённость)
+          </p>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={er24ChartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#888" }} />
+              <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: "#888" }} width={44} />
+              <Tooltip
+                contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                labelStyle={{ color: "#ccc", fontSize: 12 }}
+                formatter={(v: number) => [`${v}%`, "ER24"]}
+              />
+              <Line
+                type="monotone"
+                dataKey="er24"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                dot={{ r: 3, fill: "#8b5cf6" }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="text-[10px] text-muted-foreground text-center">Хороший ER24: ≥ 15% | Средний: 8–15% | Низкий: &lt; 8%</p>
+        </div>
+      ) : null}
       {/* CPF per week chart */}
       {cpfLoading ? (
         <div className="glass rounded-xl p-8 flex items-center justify-center">

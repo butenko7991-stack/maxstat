@@ -217,20 +217,25 @@
 ## Trustat-метрики и перестройка AI-аналитики (CPF + охваты + ER)
 
 ### DB / Backend
-- [ ] DB: расширить channel_subscriber_snapshots — добавить views24h, views48h, views72h (int), er24 (decimal), weeklyGrowth (int, nullable)
-- [ ] Миграция: применить ALTER TABLE через webdev_execute_sql
-- [ ] Backend: обновить listSubscriberSnapshots, upsertSubscriberSnapshot — принимать/возвращать новые поля
-- [ ] Backend: новая процедура snapshots.channelStats — агрегация по каналу (последний снимок + тренды ER/охватов)
-- [ ] Backend: обновить getCpfAnalytics — добавить avg_er24, avg_views24h в результат
-- [ ] Backend: обновить ai.analyzeChannels — новый промпт с логикой CPF + ER + охваты + стоимость рекламы
+- [x] DB: расширить channel_subscriber_snapshots — добавить views24h, views48h, views72h (int), er24 (decimal), weeklyGrowth (int, nullable)
+- [x] Миграция: применить ALTER TABLE через webdev_execute_sql
+- [x] Backend: обновить listSubscriberSnapshots, upsertSubscriberSnapshot — принимать/возвращать новые поля
+- [x] Backend: новая процедура snapshots.channelStats — агрегация по каналу (последний снимок + тренды ER/охватов)
+- [x] Backend: обновить getCpfAnalytics — добавить avg_er24, avg_views24h в результат
+- [x] Backend: обновить ai.analyzeChannels — новый промпт с логикой CPF + ER + охваты + стоимость рекламы
 
 ### Frontend
-- [ ] ChannelsPage SnapshotSection: добавить поля views24h, views48h, views72h, er24 в форму снимка
-- [ ] ChannelsPage SnapshotSection: показывать ER24 и охваты в истории снимков
-- [ ] AIAnalyticsPage Subscribers tab: добавить карточки ER24 и охватов (24ч/48ч/72ч) в KPI
-- [ ] AIAnalyticsPage Subscribers tab: добавить график ER24 по времени
-- [ ] AIAnalyticsPage Subscribers tab: добавить таблицу сетки каналов (как в Trustat: подписчики, прирост, охваты, ER)
-- [ ] AIAnalyticsPage AI Analysis tab: перестроить промпт — анализировать CPF, ER, охваты, стоимость рекламы, рекомендации по закупу
+- [x] ChannelsPage SnapshotSection: добавить поля views24h, views48h, views72h, er24 в форму снимка
+- [x] ChannelsPage SnapshotSection: показывать ER24 и охваты в истории снимков
+- [x] AIAnalyticsPage Subscribers tab: добавить карточки ER24 и охватов (24ч/48ч/72ч) в KPI
+- [x] AIAnalyticsPage Subscribers tab: добавить график ER24 по времени
+- [x] AIAnalyticsPage Subscribers tab: добавить таблицу сетки каналов (как в Trustat: подписчики, прирост, охваты, ER)
+- [x] AIAnalyticsPage AI Analysis tab: перестроить промпт — анализировать CPF, ER, охваты, стоимость рекламы, рекомендации по закупу
 
 ### Тесты
-- [ ] Обновить snapshots.test.ts для новых полей
+- [x] Обновить snapshots.test.ts для новых полей
+
+## Gap-fix: Trustat-метрики (незакрытые пункты)
+- [x] Backend: реализовать и зарегистрировать snapshots.channelStats с агрегатами последнего снимка и трендами ER/охватов по каналу
+- [x] AIAnalyticsPage Subscribers tab: добавить KPI-карточки охватов 48ч и 72ч
+- [x] AIAnalyticsPage Subscribers tab: добавить отдельный график ER24 по времени

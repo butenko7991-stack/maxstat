@@ -881,6 +881,42 @@ const snapshotsRouter = router({
 
   sourceEfficiency: protectedProcedure
     .query(({ ctx }) => getSourceEfficiency(ctx.user.id)),
+  channelStats: protectedProcedure
+    .input(z.object({ channelId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const snaps = await listSubscriberSnapshots(ctx.user.id, input.channelId);
+      if (!snaps || snaps.length === 0) return null;
+      // Sort by date ascending
+      const sorted = [...snaps].sort(
+        (a, b) => new Date(a.snapshotDate).getTime() - new Date(b.snapshotDate).getTime()
+      );
+      const latest = sorted[sorted.length - 1];
+      const prev = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+      const growth = prev ? latest.subscriberCount - prev.subscriberCount : null;
+      // ER24 trend: last 4 snapshots with er24
+      const erTrend = sorted
+        .filter((s) => s.er24 != null)
+        .slice(-4)
+        .map((s) => ({ date: s.snapshotDate, er24: parseFloat(String(s.er24)) }));
+      // Views trend: last 4 snapshots with views24h
+      const viewsTrend = sorted
+        .filter((s) => s.views24h != null)
+        .slice(-4)
+        .map((s) => ({ date: s.snapshotDate, views24h: s.views24h, views48h: s.views48h, views72h: s.views72h }));
+      return {
+        latestSubscribers: latest.subscriberCount,
+        latestDate: latest.snapshotDate,
+        growth,
+        views24h: latest.views24h ?? null,
+        views48h: latest.views48h ?? null,
+        views72h: latest.views72h ?? null,
+        er24: latest.er24 != null ? parseFloat(String(latest.er24)) : null,
+        weeklyGrowth: latest.weeklyGrowth ?? null,
+        erTrend,
+        viewsTrend,
+        totalSnapshots: sorted.length,
+      };
+    }),
 });
 
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
