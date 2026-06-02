@@ -117,6 +117,11 @@ vi.mock("./db", async (importOriginal) => {
         growth: 500,
         purchaseCost: 10000,
         cpf: 20,
+        views24h: 753,
+        views48h: 1276,
+        views72h: 1567,
+        er24: 13.93,
+        weeklyGrowth: 445,
       },
     ]),
     getSourceEfficiency: vi.fn().mockResolvedValue([
@@ -172,6 +177,35 @@ describe("snapshots procedures (mocked DB)", () => {
     expect(result[0].cpf).toBe(20);
     expect(result[0].growth).toBe(500);
     expect(result[0].purchaseCost).toBe(10000);
+  });
+
+  it("getCpfAnalytics includes Trustat metrics (views, er24, weeklyGrowth)", async () => {
+    const result = await getCpfAnalytics(mockUserId, [10]);
+    expect(result[0].views24h).toBe(753);
+    expect(result[0].views48h).toBe(1276);
+    expect(result[0].views72h).toBe(1567);
+    expect(result[0].er24).toBe(13.93);
+    expect(result[0].weeklyGrowth).toBe(445);
+  });
+
+  it("upsertSubscriberSnapshot accepts Trustat metrics fields", async () => {
+    await upsertSubscriberSnapshot({
+      userId: mockUserId,
+      channelId: 10,
+      subscriberCount: 5405,
+      snapshotDate: new Date("2026-05-29"),
+      notes: null,
+      views24h: 753,
+      views48h: 1276,
+      views72h: 1567,
+      er24: "13.93",
+      weeklyGrowth: 445,
+    });
+    expect(upsertSubscriberSnapshot).toHaveBeenCalledOnce();
+    const call = vi.mocked(upsertSubscriberSnapshot).mock.calls[0][0];
+    expect(call.views24h).toBe(753);
+    expect(call.er24).toBe("13.93");
+    expect(call.weeklyGrowth).toBe(445);
   });
 
   it("getSourceEfficiency returns efficiency data", async () => {

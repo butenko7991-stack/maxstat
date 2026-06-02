@@ -213,3 +213,24 @@
 - [x] ChannelsPage SnapshotSection: добавить явный error state при ошибке запроса снимков
 - [x] AIAnalyticsPage Subscribers tab: явные error states для всех трёх запросов (snapshots.list, cpfAnalytics, sourceEfficiency)
 - [x] Тесты: vitest для реальных процедур snapshots (list, upsert, delete) через router-level тесты
+
+## Trustat-метрики и перестройка AI-аналитики (CPF + охваты + ER)
+
+### DB / Backend
+- [ ] DB: расширить channel_subscriber_snapshots — добавить views24h, views48h, views72h (int), er24 (decimal), weeklyGrowth (int, nullable)
+- [ ] Миграция: применить ALTER TABLE через webdev_execute_sql
+- [ ] Backend: обновить listSubscriberSnapshots, upsertSubscriberSnapshot — принимать/возвращать новые поля
+- [ ] Backend: новая процедура snapshots.channelStats — агрегация по каналу (последний снимок + тренды ER/охватов)
+- [ ] Backend: обновить getCpfAnalytics — добавить avg_er24, avg_views24h в результат
+- [ ] Backend: обновить ai.analyzeChannels — новый промпт с логикой CPF + ER + охваты + стоимость рекламы
+
+### Frontend
+- [ ] ChannelsPage SnapshotSection: добавить поля views24h, views48h, views72h, er24 в форму снимка
+- [ ] ChannelsPage SnapshotSection: показывать ER24 и охваты в истории снимков
+- [ ] AIAnalyticsPage Subscribers tab: добавить карточки ER24 и охватов (24ч/48ч/72ч) в KPI
+- [ ] AIAnalyticsPage Subscribers tab: добавить график ER24 по времени
+- [ ] AIAnalyticsPage Subscribers tab: добавить таблицу сетки каналов (как в Trustat: подписчики, прирост, охваты, ER)
+- [ ] AIAnalyticsPage AI Analysis tab: перестроить промпт — анализировать CPF, ER, охваты, стоимость рекламы, рекомендации по закупу
+
+### Тесты
+- [ ] Обновить snapshots.test.ts для новых полей

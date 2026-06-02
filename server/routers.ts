@@ -544,7 +544,7 @@ const aiRouter = router({
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getChannelProfitability(ctx.user.id, input.month)),
 
-  /** AI analysis of channel profitability with recommendations */
+  /** AI analysis of channel profitability with CPF + ER + reach business logic */
   analyzeChannels: protectedProcedure
     .input(z.object({ month: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -552,45 +552,93 @@ const aiRouter = router({
       if (data.channels.length === 0) {
         return { analysis: "Нет данных для анализа. Добавьте записи о продажах и закупках." };
       }
+      // Fetch CPF analytics and latest snapshots for ER/reach data
+      const userChannels = await getChannelsByUser(ctx.user.id);
+      const channelIds = userChannels.map((c: { id: number }) => c.id);
+      const cpfData = await getCpfAnalytics(ctx.user.id, channelIds);
+      const snapshots = await listSubscriberSnapshots(ctx.user.id, undefined);
+      // Get latest snapshot per channel for current ER/reach/subscribers
+      const latestSnap = new Map<number, typeof snapshots[0]>();
+      for (const s of snapshots) {
+        const ex = latestSnap.get(s.channelId);
+        if (!ex || new Date(s.snapshotDate) > new Date(ex.snapshotDate)) {
+          latestSnap.set(s.channelId, s);
+        }
+      }
+      // Aggregate CPF stats per channel
+      const cpfByChannel = new Map<number, { cpfs: number[]; totalGrowth: number; totalCost: number }>();
+      for (const row of cpfData) {
+        if (!cpfByChannel.has(row.channelId)) cpfByChannel.set(row.channelId, { cpfs: [], totalGrowth: 0, totalCost: 0 });
+        const entry = cpfByChannel.get(row.channelId)!;
+        if (row.cpf !== null) entry.cpfs.push(row.cpf);
+        entry.totalGrowth += row.growth;
+        entry.totalCost += row.purchaseCost;
+      }
+      const channelsSummary = data.channels.map(c => {
+        const snap = latestSnap.get(c.channelId);
+        const cpfStats = cpfByChannel.get(c.channelId);
+        const avgCpf = cpfStats && cpfStats.cpfs.length > 0
+          ? (cpfStats.cpfs.reduce((s, v) => s + v, 0) / cpfStats.cpfs.length).toFixed(2)
+          : null;
+        const er24 = snap?.er24 ? parseFloat(String(snap.er24)).toFixed(2) : null;
+        const views24h = snap?.views24h ?? null;
+        const subs = snap?.subscriberCount ?? null;
+        const growth = cpfStats?.totalGrowth ?? null;
+        return [
+          `### ${c.channelName}`,
+          `- Подписчики: ${subs !== null ? subs.toLocaleString('ru-RU') : 'нет данных'}`,
+          er24 ? `- ER24: ${er24}% | Охваты 24ч: ${views24h !== null ? views24h.toLocaleString('ru-RU') : '—'}` : '',
+          avgCpf ? `- Ср. CPF: ${avgCpf}₽ | Прирост: ${growth !== null ? (growth >= 0 ? '+' : '') + growth.toLocaleString('ru-RU') : '—'}` : '',
+          `- Доход: ${c.salesTotal}₽ (${c.salesCount} продаж) | Расход: ${c.purchasesTotal}₽ (${c.purchasesCount} закупок)`,
+          `- Прибыль: ${c.profit}₽ | ROI: ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`,
+          (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0)
+            ? `- ⚠️ Неопл.: продажи ${c.unpaidSalesTotal}₽, закупки ${c.unpaidPurchasesTotal}₽`
+            : '',
+        ].filter(Boolean).join('\n');
+      }).join('\n\n');
+      // Overall CPF stats
+      const allCpfs = cpfData.filter(r => r.cpf !== null).map(r => r.cpf as number);
+      const overallAvgCpf = allCpfs.length > 0 ? (allCpfs.reduce((s, v) => s + v, 0) / allCpfs.length).toFixed(2) : null;
+      const totalSubsGrowth = cpfData.reduce((s, r) => s + r.growth, 0);
+      const totalSubs = Array.from(latestSnap.values()).reduce((s, v) => s + (v.subscriberCount ?? 0), 0);
+      const prompt = `Ты — эксперт по экономике рекламных каналов в Макс/Телеграм.
 
-      const channelsSummary = data.channels.map(c => (
-        `- ${c.channelName}: доход ${c.salesTotal}₽ (${c.salesCount} продаж), расход ${c.purchasesTotal}₽ (${c.purchasesCount} закупок), прибыль ${c.profit}₽, ROI ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%, неоплаченные продажи ${c.unpaidSalesTotal}₽, неоплаченные закупки ${c.unpaidPurchasesTotal}₽`
-      )).join('\n');
+БИЗНЕС-МОДЕЛЬ:
+Бизнес построен на закупе подписчиков (реклама в других каналах) и продаже рекламы в своих каналах. Ключевые метрики:
+- CPF (стоимость подписчика) — сколько стоит привлечь 1 подписчика
+- ER24 (вовлечённость) — качество аудитории, влияет на цену рекламы
+- Охваты 24ч/48ч/72ч — база для расчёта СПМ (стоимость за 1000 просмотров)
+- ROI — общая рентабельность
 
-      const prompt = `Ты — эксперт по экономике рекламных каналов в Телеграм/Макс. Проанализируй рентабельность каналов и дай конкретные рекомендации.
+ОБЩИЕ ПОКАЗАТЕЛИ:
+- Общий доход: ${data.totalSales}₽ (продаж: ${data.salesCount})
+- Общий расход: ${data.totalPurchases}₽ (закупок: ${data.purchasesCount})
+- Прибыль: ${data.totalProfit}₽ | ROI: ${data.overallROI.toFixed(1)}%
+- Всего подписчиков: ${totalSubs.toLocaleString('ru-RU')}
+- Прирост подписчиков (период): ${totalSubsGrowth >= 0 ? '+' : ''}${totalSubsGrowth.toLocaleString('ru-RU')}
+${overallAvgCpf ? `- Средний CPF: ${overallAvgCpf}₽` : ''}
 
-Общие показатели:
-- Общий доход: ${data.totalSales}₽
-- Общий расход: ${data.totalPurchases}₽
-- Прибыль: ${data.totalProfit}₽
-- ROI: ${data.overallROI.toFixed(1)}%
-- Кол-во каналов: ${data.channelCount}
-
-По каналам:
+ПО КАНАЛАМ:
 ${channelsSummary}
 
-Ответь на русском языке. Дай:
-1. Краткую оценку общего состояния бизнеса
-2. Топ-3 самых прибыльных канала с объяснением
-3. Проблемные каналы (убыточные или с низким ROI)
-4. Конкретные рекомендации по оптимизации
-5. Риски (неоплаченные суммы, зависимость от одного канала)
-
-Формат: markdown с заголовками, короткими параграфами и эмоджи для акцентов. Максимум 500 слов.`;
-
+ПРОАНАЛИЗИРУЙ И ОТВЕТЬ НА РУССКОМ. Дай:
+1. Оценка состояния бизнеса: рост аудитории, CPF, ROI
+2. Анализ цены подписчика: эффективен ли закуп, стоит ли увеличивать
+3. Анализ ER24 и охватов: качество аудитории, влияние на цену рекламы
+4. Рекомендации: сколько тратить на закуп, какие каналы приоритетны для роста
+5. Риски и неоплаченные суммы
+Формат: markdown с заголовками, цифрами, эмоджи. Максимум 600 слов.`;
       const result = await invokeLLM({
         messages: [
-          { role: "system", content: "Ты — AI-аналитик рекламного бизнеса. Отвечай конкретно, с цифрами и действиями." },
+          { role: "system", content: "Ты — AI-аналитик рекламного бизнеса в Макс/Телеграм. Анализируй через призму CPF + ER + охваты + ROI. Отвечай конкретно, с цифрами и действиями." },
           { role: "user", content: prompt },
         ],
       });
-
       const content = result.choices?.[0]?.message?.content;
-      const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map(p => p.type === "text" ? p.text : "").join("") : "";
+      const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
       return { analysis, data };
     }),
-
-  /** AI digest — weekly/monthly text summary */
+    /** AI digest — weekly/monthly text summary */
   generateDigest: protectedProcedure
     .input(z.object({ month: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -793,6 +841,12 @@ const snapshotsRouter = router({
       subscriberCount: z.number().int().nonnegative(),
       snapshotDate: z.string(), // ISO date string
       notes: z.string().optional(),
+      // Trustat-style metrics (all optional)
+      views24h: z.number().int().nonnegative().optional(),
+      views48h: z.number().int().nonnegative().optional(),
+      views72h: z.number().int().nonnegative().optional(),
+      er24: z.number().min(0).max(100).optional(), // ER percentage 0-100
+      weeklyGrowth: z.number().int().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await upsertSubscriberSnapshot({
@@ -801,6 +855,11 @@ const snapshotsRouter = router({
         subscriberCount: input.subscriberCount,
         snapshotDate: new Date(input.snapshotDate),
         notes: input.notes ?? null,
+        views24h: input.views24h ?? null,
+        views48h: input.views48h ?? null,
+        views72h: input.views72h ?? null,
+        er24: input.er24 !== undefined ? String(input.er24) : null,
+        weeklyGrowth: input.weeklyGrowth ?? null,
       });
       return { success: true };
     }),

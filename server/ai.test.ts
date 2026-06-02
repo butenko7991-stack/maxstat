@@ -85,6 +85,11 @@ vi.mock("./db", () => ({
   upsertUser: vi.fn().mockResolvedValue(undefined),
   getUserByOpenId: vi.fn().mockResolvedValue(undefined),
   getChannelProfitability: vi.fn(),
+  getCpfAnalytics: vi.fn().mockResolvedValue([]),
+  listSubscriberSnapshots: vi.fn().mockResolvedValue([]),
+  upsertSubscriberSnapshot: vi.fn().mockResolvedValue(undefined),
+  deleteSubscriberSnapshot: vi.fn().mockResolvedValue(undefined),
+  getSourceEfficiency: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("./_core/llm", () => ({

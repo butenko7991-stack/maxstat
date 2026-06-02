@@ -126,6 +126,35 @@ function SubscribersTab() {
     return cpfChartData.reduce((s, d) => s + d.growth, 0);
   }, [cpfChartData]);
 
+  // ER24 and views24h from latest snapshots
+  const avgEr24 = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return null;
+    const latestByChannel = new Map<number, typeof allSnapshots[0]>();
+    for (const snap of allSnapshots) {
+      const ex = latestByChannel.get(snap.channelId);
+      if (!ex || new Date(snap.snapshotDate) > new Date(ex.snapshotDate)) {
+        latestByChannel.set(snap.channelId, snap);
+      }
+    }
+    const erValues = Array.from(latestByChannel.values())
+      .filter((s) => s.er24 != null)
+      .map((s) => parseFloat(String(s.er24)));
+    return erValues.length > 0 ? erValues.reduce((a, b) => a + b, 0) / erValues.length : null;
+  }, [allSnapshots]);
+
+  const totalViews24h = useMemo(() => {
+    if (!allSnapshots || allSnapshots.length === 0) return null;
+    const latestByChannel = new Map<number, typeof allSnapshots[0]>();
+    for (const snap of allSnapshots) {
+      const ex = latestByChannel.get(snap.channelId);
+      if (!ex || new Date(snap.snapshotDate) > new Date(ex.snapshotDate)) {
+        latestByChannel.set(snap.channelId, snap);
+      }
+    }
+    const vals = Array.from(latestByChannel.values()).filter((s) => s.views24h != null);
+    return vals.length > 0 ? vals.reduce((s, v) => s + (v.views24h ?? 0), 0) : null;
+  }, [allSnapshots]);
+
   const COLORS = ["#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#ec4899"];
 
   return (
@@ -147,7 +176,7 @@ function SubscribersTab() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="glass rounded-xl p-4 space-y-1">
           <p className="text-xs text-muted-foreground">Подписчиков сейчас</p>
           <p className="text-lg font-bold text-foreground">
@@ -168,6 +197,20 @@ function SubscribersTab() {
             {avgCpf !== null ? `${avgCpf.toFixed(2)} ₽` : "—"}
           </p>
           <p className="text-xs text-muted-foreground">стоимость подписчика</p>
+        </div>
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Ср. ER24</p>
+          <p className="text-lg font-bold text-cyan-400">
+            {avgEr24 !== null ? `${avgEr24.toFixed(2)}%` : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">вовлечённость 24ч</p>
+        </div>
+        <div className="glass rounded-xl p-4 space-y-1">
+          <p className="text-xs text-muted-foreground">Охваты 24ч</p>
+          <p className="text-lg font-bold text-amber-400">
+            {totalViews24h !== null ? formatK(totalViews24h) : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">последние снимки</p>
         </div>
       </div>
 
@@ -302,6 +345,81 @@ function SubscribersTab() {
           </div>
         )}
       </div>
+      {/* Channel grid table - Trustat style */}
+      {allSnapshots && allSnapshots.length > 0 && (
+        <div className="glass rounded-xl p-4 space-y-3">
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <Users className="w-4 h-4 text-amber-400" />
+            Сетка каналов
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border/40">
+                  <th className="text-left py-2 pr-3 font-medium">Канал</th>
+                  <th className="text-right py-2 px-2 font-medium">Подписчики</th>
+                  <th className="text-right py-2 px-2 font-medium">Прирост</th>
+                  <th className="text-right py-2 px-2 font-medium">Охваты 24ч</th>
+                  <th className="text-right py-2 px-2 font-medium">Охваты 48ч</th>
+                  <th className="text-right py-2 px-2 font-medium">Охваты 72ч</th>
+                  <th className="text-right py-2 pl-2 font-medium">ER24</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/20">
+                {(() => {
+                  const latestByChannel = new Map<number, typeof allSnapshots[0]>();
+                  for (const snap of allSnapshots) {
+                    const ex = latestByChannel.get(snap.channelId);
+                    if (!ex || new Date(snap.snapshotDate) > new Date(ex.snapshotDate)) {
+                      latestByChannel.set(snap.channelId, snap);
+                    }
+                  }
+                  const prevByChannel = new Map<number, typeof allSnapshots[0]>();
+                  for (const snap of allSnapshots) {
+                    const latest = latestByChannel.get(snap.channelId);
+                    if (!latest || snap.id === latest.id) continue;
+                    const ex = prevByChannel.get(snap.channelId);
+                    if (!ex || new Date(snap.snapshotDate) > new Date(ex.snapshotDate)) {
+                      prevByChannel.set(snap.channelId, snap);
+                    }
+                  }
+                  const rows = Array.from(latestByChannel.entries())
+                    .sort((a, b) => b[1].subscriberCount - a[1].subscriberCount);
+                  return rows.map(([chId, snap]) => {
+                    const ch = channels?.find((c) => c.id === chId);
+                    const prev = prevByChannel.get(chId);
+                    const growth = prev ? snap.subscriberCount - prev.subscriberCount : null;
+                    const er24 = snap.er24 != null ? parseFloat(String(snap.er24)) : null;
+                    return (
+                      <tr key={chId} className="hover:bg-muted/20 transition-colors">
+                        <td className="py-2 pr-3 font-medium text-foreground">{ch?.name ?? `Канал ${chId}`}</td>
+                        <td className="text-right py-2 px-2 text-foreground font-semibold">{snap.subscriberCount.toLocaleString("ru-RU")}</td>
+                        <td className="text-right py-2 px-2">
+                          {growth !== null ? (
+                            <span className={growth >= 0 ? "text-emerald-400" : "text-red-400"}>
+                              {growth >= 0 ? "+" : ""}{growth.toLocaleString("ru-RU")}
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="text-right py-2 px-2 text-cyan-400">{snap.views24h != null ? snap.views24h.toLocaleString("ru-RU") : "—"}</td>
+                        <td className="text-right py-2 px-2 text-cyan-300">{snap.views48h != null ? snap.views48h.toLocaleString("ru-RU") : "—"}</td>
+                        <td className="text-right py-2 px-2 text-cyan-200">{snap.views72h != null ? snap.views72h.toLocaleString("ru-RU") : "—"}</td>
+                        <td className="text-right py-2 pl-2 font-semibold">
+                          {er24 !== null ? (
+                            <span className={er24 >= 15 ? "text-emerald-400" : er24 >= 8 ? "text-amber-400" : "text-red-400"}>
+                              {er24.toFixed(2)}%
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

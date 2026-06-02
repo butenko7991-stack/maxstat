@@ -40,6 +40,11 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
   const [snapDate, setSnapDate] = useState(todayIso);
   const [snapCount, setSnapCount] = useState("");
   const [snapNotes, setSnapNotes] = useState("");
+  const [snapViews24h, setSnapViews24h] = useState("");
+  const [snapViews48h, setSnapViews48h] = useState("");
+  const [snapViews72h, setSnapViews72h] = useState("");
+  const [snapEr24, setSnapEr24] = useState("");
+  const [snapWeeklyGrowth, setSnapWeeklyGrowth] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const { data: snapshots, isLoading, isError } = trpc.snapshots.list.useQuery(
@@ -53,6 +58,11 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
       toast.success("Снимок сохранён");
       setSnapCount("");
       setSnapNotes("");
+      setSnapViews24h("");
+      setSnapViews48h("");
+      setSnapViews72h("");
+      setSnapEr24("");
+      setSnapWeeklyGrowth("");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -74,6 +84,11 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
       subscriberCount: Number(snapCount),
       snapshotDate: snapDate,
       notes: snapNotes || undefined,
+      views24h: snapViews24h ? Number(snapViews24h) : undefined,
+      views48h: snapViews48h ? Number(snapViews48h) : undefined,
+      views72h: snapViews72h ? Number(snapViews72h) : undefined,
+      er24: snapEr24 ? Number(snapEr24) : undefined,
+      weeklyGrowth: snapWeeklyGrowth ? Number(snapWeeklyGrowth) : undefined,
     });
   }
 
@@ -115,6 +130,62 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
                 required
               />
             </div>
+            <div className="space-y-1 flex-1 min-w-[80px]">
+              <Label className="text-xs">Охваты 24ч</Label>
+              <Input
+                type="number"
+                value={snapViews24h}
+                onChange={(e) => setSnapViews24h(e.target.value)}
+                placeholder="0"
+                className="bg-input border-border h-8 text-xs"
+                min={0}
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[80px]">
+              <Label className="text-xs">Охваты 48ч</Label>
+              <Input
+                type="number"
+                value={snapViews48h}
+                onChange={(e) => setSnapViews48h(e.target.value)}
+                placeholder="0"
+                className="bg-input border-border h-8 text-xs"
+                min={0}
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[80px]">
+              <Label className="text-xs">Охваты 72ч</Label>
+              <Input
+                type="number"
+                value={snapViews72h}
+                onChange={(e) => setSnapViews72h(e.target.value)}
+                placeholder="0"
+                className="bg-input border-border h-8 text-xs"
+                min={0}
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[70px]">
+              <Label className="text-xs">ER24 (%)</Label>
+              <Input
+                type="number"
+                value={snapEr24}
+                onChange={(e) => setSnapEr24(e.target.value)}
+                placeholder="0.00"
+                className="bg-input border-border h-8 text-xs"
+                min={0}
+                max={100}
+                step={0.01}
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[80px]">
+              <Label className="text-xs">Прирост/нед</Label>
+              <Input
+                type="number"
+                value={snapWeeklyGrowth}
+                onChange={(e) => setSnapWeeklyGrowth(e.target.value)}
+                placeholder="0"
+                className="bg-input border-border h-8 text-xs"
+              />
+            </div>
             <div className="space-y-1 flex-1 min-w-[120px]">
               <Label className="text-xs">Заметка (необяз.)</Label>
               <Input
@@ -150,12 +221,22 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
                 const prev = arr[idx + 1];
                 const growth = prev ? snap.subscriberCount - prev.subscriberCount : null;
                 return (
-                  <div key={snap.id} className="flex items-center gap-2 rounded-lg bg-muted/30 border border-border/40 px-3 py-1.5 group">
+                  <div key={snap.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/30 border border-border/40 px-3 py-1.5 group">
                     <span className="text-xs text-muted-foreground w-20 shrink-0">{formatDate(snap.snapshotDate)}</span>
                     <span className="text-xs font-semibold text-foreground">{snap.subscriberCount.toLocaleString("ru-RU")}</span>
                     {growth !== null && (
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${growth >= 0 ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10"}`}>
                         {growth >= 0 ? "+" : ""}{growth.toLocaleString("ru-RU")}
+                      </span>
+                    )}
+                    {snap.views24h != null && (
+                      <span className="text-[10px] text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded">
+                        👁 {snap.views24h.toLocaleString("ru-RU")}
+                      </span>
+                    )}
+                    {snap.er24 != null && (
+                      <span className="text-[10px] text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded">
+                        ER {parseFloat(String(snap.er24)).toFixed(2)}%
                       </span>
                     )}
                     {snap.notes && <span className="text-[10px] text-muted-foreground flex-1 truncate">{snap.notes}</span>}

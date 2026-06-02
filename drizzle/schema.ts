@@ -224,6 +224,14 @@ export const channelSubscriberSnapshots = mysqlTable("channel_subscriber_snapsho
   /** Date of the snapshot (YYYY-MM-DD stored as timestamp) */
   snapshotDate: timestamp("snapshotDate").notNull(),
   notes: text("notes"),
+  /** Trustat-style reach metrics */
+  views24h: int("views24h"),
+  views48h: int("views48h"),
+  views72h: int("views72h"),
+  /** ER24 — engagement rate over 24h (percentage, e.g. 13.93) */
+  er24: decimal("er24", { precision: 6, scale: 2 }),
+  /** Weekly subscriber growth (positive or negative) */
+  weeklyGrowth: int("weeklyGrowth"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

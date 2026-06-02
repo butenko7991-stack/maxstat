@@ -1038,6 +1038,11 @@ export async function upsertSubscriberSnapshot(
         subscriberCount: data.subscriberCount,
         snapshotDate: data.snapshotDate,
         notes: data.notes,
+        views24h: data.views24h ?? null,
+        views48h: data.views48h ?? null,
+        views72h: data.views72h ?? null,
+        er24: data.er24 ?? null,
+        weeklyGrowth: data.weeklyGrowth ?? null,
       })
       .where(eq(channelSubscriberSnapshots.id, existing[0].id));
   } else {
@@ -1069,6 +1074,12 @@ export type CpfWeekData = {
   growth: number;
   purchaseCost: number; // total spend on purchases that week
   cpf: number | null; // cost per follower (null if no growth)
+  // Trustat metrics from the "after" snapshot
+  views24h: number | null;
+  views48h: number | null;
+  views72h: number | null;
+  er24: number | null; // ER24 percentage
+  weeklyGrowth: number | null; // from snapshot field (can differ from computed growth)
 };
 
 /** Calculate CPF (Cost Per Follower) analytics per channel per week */
@@ -1158,6 +1169,11 @@ export async function getCpfAnalytics(
         growth,
         purchaseCost,
         cpf: growth > 0 ? Math.round((purchaseCost / growth) * 100) / 100 : null,
+        views24h: curr.views24h ?? null,
+        views48h: curr.views48h ?? null,
+        views72h: curr.views72h ?? null,
+        er24: curr.er24 !== null && curr.er24 !== undefined ? parseFloat(String(curr.er24)) : null,
+        weeklyGrowth: curr.weeklyGrowth ?? null,
       });
     }
   }
