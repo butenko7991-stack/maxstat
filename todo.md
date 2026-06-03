@@ -263,3 +263,11 @@
 - [x] Frontend: карточка ВП — показывать привязанные записи Продажи и Закупа с охватами
 - [x] Frontend: в Продаже и Закупе — показывать бейдж «ВП» на автосозданных записях со ссылкой на ВП-сделку
 - [x] Тесты: vitest для createMutualDeal с автосозданием записей
+
+## Удаление Бот/Сторис
+- [ ] DB: удалить botStories, botStoriesCost из purchase_records и sale_records
+- [ ] Backend: убрать botStories/botStoriesCost из purchaseInput, saleInput, createPurchaseRecord, createSaleRecord, updatePurchaseRecord, updateSaleRecord, bulkCreate, getAiContext
+- [ ] Frontend: убрать поля из RecordFormModal (Purchase + Sale)
+- [ ] Frontend: убрать поля из SchedulePage (EMPTY_PURCHASE_FORM, EMPTY_SALE_FORM, payloads)
+- [ ] Frontend: убрать из AIAnalyticsPage (если упоминается в аналитике)
+- [ ] Тесты: обновить моки и ожидания

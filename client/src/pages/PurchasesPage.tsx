@@ -22,7 +22,7 @@ import * as XLSX from "xlsx";
 const EMPTY_FORM: PurchaseFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", targetChannels: "",
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
-  subscribersGained: "", botStories: "", botStoriesCost: "", month: currentMonth(), notes: "",
+  subscribersGained: "", month: currentMonth(), notes: "",
   timeSlot: "", bookingSlot: "", sourceSubscribers: "",
 };
 
@@ -181,8 +181,6 @@ export default function PurchasesPage() {
       "Стоимость подписчика": (r.subscribersGained && r.cost && Number(r.subscribersGained) > 0)
         ? Math.round(parseFloat(r.cost) / r.subscribersGained)
         : "",
-      "Бот/Сторис": r.botStories ?? "",
-      "Стоимость бот/сторис": r.botStoriesCost ? parseFloat(r.botStoriesCost) : "",
       "Заметки": r.notes ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -208,7 +206,6 @@ export default function PurchasesPage() {
       direction: r.direction ?? "", tariff: r.tariff ?? "", buyer: r.buyer ?? "",
       spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       subscribersGained: r.subscribersGained ? String(r.subscribersGained) : "",
-      botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, notes: r.notes ?? "",
       timeSlot: r.timeSlot ?? "", bookingSlot: (r.bookingSlot ?? "") as "утро" | "обед" | "вечер" | "",
       sourceSubscribers: (r as Record<string, unknown>).sourceSubscribers ? String((r as Record<string, unknown>).sourceSubscribers) : "",
@@ -229,8 +226,7 @@ export default function PurchasesPage() {
       cost: form.cost || undefined,
       paymentStatus: form.paymentStatus,
       subscribersGained: form.subscribersGained ? Number(form.subscribersGained) : undefined,
-      botStories: form.botStories || undefined,
-      botStoriesCost: form.botStoriesCost || undefined, month: form.month,
+      month: form.month,
       notes: form.notes || undefined,
       timeSlot: form.timeSlot || undefined,
       bookingSlot: form.bookingSlot || undefined,

@@ -36,8 +36,6 @@ export interface PurchaseFormData {
   cost: string;
   paymentStatus: PaymentStatus;
   subscribersGained: string;
-  botStories: string;
-  botStoriesCost: string;
   month: string;
   notes: string;
   timeSlot: string;
@@ -58,8 +56,6 @@ export interface SaleFormData {
   reach: string;
   cost: string;
   paymentStatus: PaymentStatus;
-  botStories: string;
-  botStoriesCost: string;
   month: string;
   postNotNeeded: boolean;
   buyerSubscribers: string; // approx size of buyer channel (optional)
@@ -352,27 +348,6 @@ export function PurchaseFormModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Бот/Сторис</Label>
-              <Input
-                value={form.botStories}
-                onChange={(e) => setForm((f) => ({ ...f, botStories: e.target.value }))}
-                placeholder="Описание"
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Стоимость бот/сторис (₽)</Label>
-              <Input
-                type="number"
-                value={form.botStoriesCost}
-                onChange={(e) => setForm((f) => ({ ...f, botStoriesCost: e.target.value }))}
-                placeholder="0"
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
               <Label>Слот бронирования</Label>
               <Select
                 value={form.bookingSlot || "none"}
@@ -655,27 +630,6 @@ export function SaleFormModal({
                 onChange={(v) => setForm((f) => ({ ...f, platform: v }))}
                 suggestions={suggestions?.platforms ?? []}
                 placeholder="Сетка, MAX, TG..."
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Бот/Сторис</Label>
-              <Input
-                value={form.botStories}
-                onChange={(e) => setForm((f) => ({ ...f, botStories: e.target.value }))}
-                placeholder="Описание"
-                className="bg-input border-border"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Стоимость бот/сторис (₽)</Label>
-              <Input
-                type="number"
-                value={form.botStoriesCost}
-                onChange={(e) => setForm((f) => ({ ...f, botStoriesCost: e.target.value }))}
-                placeholder="0"
                 className="bg-input border-border"
               />
             </div>

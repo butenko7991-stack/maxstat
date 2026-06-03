@@ -115,8 +115,6 @@ const purchaseInput = z.object({
   cost: z.string().optional(), // decimal as string
   paymentStatus: paymentStatusEnum.optional(),
   subscribersGained: z.number().int().nonnegative().optional(), // actual subscribers gained
-  botStories: z.string().max(255).optional(),
-  botStoriesCost: z.string().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
   notes: z.string().optional(),
   timeSlot: timeSlotEnum.optional(),
@@ -155,8 +153,6 @@ const purchasesRouter = router({
       cost: input.cost ?? null,
       paymentStatus: input.paymentStatus ?? "unpaid",
       subscribersGained: input.subscribersGained ?? null,
-      botStories: input.botStories ?? null,
-      botStoriesCost: input.botStoriesCost ?? null,
       month: input.month,
       notes: input.notes ?? null,
       timeSlot: input.timeSlot ?? null,
@@ -225,8 +221,6 @@ const purchasesRouter = router({
       cost: z.string().optional(),
       paymentStatus: paymentStatusEnum.optional(),
       subscribersGained: z.number().int().nonnegative().optional(),
-      botStories: z.string().max(255).optional(),
-      botStoriesCost: z.string().optional(),
       sourceSubscribers: z.number().int().nonnegative().optional(),
       notes: z.string().optional(),
     }))
@@ -261,8 +255,6 @@ const purchasesRouter = router({
           cost: input.cost ?? null,
           paymentStatus: input.paymentStatus ?? "unpaid",
           subscribersGained: input.subscribersGained ?? null,
-          botStories: input.botStories ?? null,
-          botStoriesCost: input.botStoriesCost ?? null,
           month: slot.month,
           notes: input.notes ?? null,
           timeSlot: slot.timeSlot ?? null,
@@ -316,8 +308,6 @@ const saleInput = z.object({
   reach: z.number().int().nonnegative().optional(), // audience reach for SPM calculation
   cost: z.string().optional(),
   paymentStatus: paymentStatusEnum.optional(),
-  botStories: z.string().max(255).optional(),
-  botStoriesCost: z.string().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
   bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
   postNotNeeded: z.boolean().optional(),
@@ -370,8 +360,6 @@ const salesRouter = router({
       reach: input.reach ?? null,
       cost: input.cost ?? null,
       paymentStatus: input.paymentStatus ?? "unpaid",
-      botStories: input.botStories ?? null,
-      botStoriesCost: input.botStoriesCost ?? null,
       month: input.month,
       postNotNeeded: input.postNotNeeded ?? false,
       isMutual: input.isMutual ?? false,
@@ -456,8 +444,6 @@ const salesRouter = router({
       reach: z.number().int().nonnegative().optional(),
       cost: z.string().optional(),
       paymentStatus: paymentStatusEnum.optional(),
-      botStories: z.string().max(255).optional(),
-      botStoriesCost: z.string().optional(),
       postNotNeeded: z.boolean().optional(),
       buyerSubscribers: z.number().int().nonnegative().optional(),
       notes: z.string().optional(),
@@ -492,8 +478,6 @@ const salesRouter = router({
           reach: input.reach ?? null,
           cost: input.cost ?? null,
           paymentStatus: input.paymentStatus ?? "unpaid",
-          botStories: input.botStories ?? null,
-          botStoriesCost: input.botStoriesCost ?? null,
           month: slot.month,
           postNotNeeded: input.postNotNeeded ?? false,
           buyerSubscribers: input.buyerSubscribers ?? null,
@@ -583,13 +567,11 @@ const aiRouter = router({
         if (c.avgPurchaseReach !== null) lines.push(`- 👁️ Ср. охват закупа: ${c.avgPurchaseReach.toLocaleString('ru-RU')}`);
         if (c.avgSpm !== null) lines.push(`- 💲 Ср. СПМ закупа: ${c.avgSpm}₽`);
         if (c.avgSourceSubscribers !== null) lines.push(`- 📡 Ср. размер канала-источника: ${c.avgSourceSubscribers.toLocaleString('ru-RU')}`);
-        if (c.botStoriesPurchaseCost > 0) lines.push(`- 🤖 Бот/сторис (закуп): ${c.botStoriesPurchaseCost.toLocaleString('ru-RU')}₽`);
         // Sale details
         if (c.platforms.length > 0) lines.push(`- 📱 Платформы продаж: ${c.platforms.join(', ')}`);
         if (c.avgSaleReach !== null) lines.push(`- 👁️ Ср. охват продажи: ${c.avgSaleReach.toLocaleString('ru-RU')}`);
         if (c.avgBuyerSubscribers !== null) lines.push(`- 🛒 Ср. размер канала-покупателя: ${c.avgBuyerSubscribers.toLocaleString('ru-RU')}`);
         if (c.mutualSalesCount > 0) lines.push(`- 🤝 ВП-продажи: ${c.mutualSalesCount} шт. на ${c.mutualSalesRevenue.toLocaleString('ru-RU')}₽`);
-        if (c.botStoriesSaleCost > 0) lines.push(`- 🤖 Бот/сторис (продажи): ${c.botStoriesSaleCost.toLocaleString('ru-RU')}₽`);
         return lines.join('\n');
       }).join('\n\n');
 

@@ -79,10 +79,6 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   isMutual: boolean("isMutual").default(false).notNull(),
   /** Partner channel name for ВП */
   partnerChannel: varchar("partnerChannel", { length: 255 }),
-  /** Bot / stories flag */
-  botStories: varchar("botStories", { length: 255 }),
-  /** Bot / stories payment amount */
-  botStoriesCost: decimal("botStoriesCost", { precision: 12, scale: 2 }),
   /** Month label for grouping (e.g. "2026-04") */
   month: varchar("month", { length: 7 }).notNull(),
   /** Time slot — free text (e.g. утро, 10:00, вечер) */
@@ -126,10 +122,6 @@ export const saleRecords = mysqlTable("sale_records", {
   cost: decimal("cost", { precision: 12, scale: 2 }),
   /** Payment status */
   paymentStatus: mysqlEnum("paymentStatus", ["paid", "unpaid", "partial"]).default("unpaid").notNull(),
-  /** Bot / stories flag */
-  botStories: varchar("botStories", { length: 255 }),
-  /** Bot / stories payment amount */
-  botStoriesCost: decimal("botStoriesCost", { precision: 12, scale: 2 }),
   /** Month label for grouping (e.g. "2026-05") */
   month: varchar("month", { length: 7 }).notNull(),
   /** Post not needed — autobot handles posting automatically */

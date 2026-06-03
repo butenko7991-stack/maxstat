@@ -1443,14 +1443,14 @@ export interface AiChannelData {
   topTariffs: string[]; // top tariffs used
   avgPurchaseReach: number | null;
   avgSpm: number | null; // avg SPM across purchases
-  botStoriesPurchaseCost: number; // total bot/stories cost in purchases
+
   avgSourceSubscribers: number | null; // avg size of source channels
   // Sale breakdown
   platforms: string[]; // unique platforms
   avgSaleReach: number | null;
   mutualSalesCount: number; // isMutual=true sales
   mutualSalesRevenue: number;
-  botStoriesSaleCost: number;
+
   avgBuyerSubscribers: number | null;
 }
 
@@ -1558,9 +1558,9 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     currentSubscribers: null, subscribersGained: 0, avgCpf: null,
     er24: null, views24h: null, views48h: null, views72h: null, weeklyGrowth: null,
     topDirections: [], topTariffs: [], avgPurchaseReach: null, avgSpm: null,
-    botStoriesPurchaseCost: 0, avgSourceSubscribers: null,
+    avgSourceSubscribers: null,
     platforms: [], avgSaleReach: null, mutualSalesCount: 0, mutualSalesRevenue: 0,
-    botStoriesSaleCost: 0, avgBuyerSubscribers: null,
+    avgBuyerSubscribers: null,
   });
 
   // Process sales
@@ -1573,7 +1573,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     e.salesCount += 1;
     if (s.paymentStatus !== "paid") e.unpaidSalesTotal += cost;
     if (s.platform && !e.platforms.includes(s.platform)) e.platforms.push(s.platform);
-    if (s.botStoriesCost) e.botStoriesSaleCost += parseFloat(String(s.botStoriesCost));
+
     if (s.isMutual) { e.mutualSalesCount += 1; e.mutualSalesRevenue += cost; }
   }
 
@@ -1587,7 +1587,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     e.purchasesCount += 1;
     if (p.paymentStatus !== "paid") e.unpaidPurchasesTotal += cost;
     if (p.subscribersGained) e.subscribersGained += p.subscribersGained;
-    if (p.botStoriesCost) e.botStoriesPurchaseCost += parseFloat(String(p.botStoriesCost));
+
     if (p.direction) {
       const dir = p.direction.trim();
       if (dir && !e.topDirections.includes(dir)) e.topDirections.push(dir);

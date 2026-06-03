@@ -97,7 +97,7 @@ function isToday(d: Date): boolean {
 const EMPTY_SALE_FORM: SaleFormData = {
   channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
-  botStories: "", botStoriesCost: "", month: "", postNotNeeded: false,
+  month: "", postNotNeeded: false,
   buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
   notes: "",
@@ -106,8 +106,8 @@ const EMPTY_SALE_FORM: SaleFormData = {
 const EMPTY_PURCHASE_FORM: PurchaseFormData = {
   channelId: "", date: "", admin: "", link: "", targetChannels: "",
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "",
-  paymentStatus: "unpaid", subscribersGained: "", botStories: "",
-  botStoriesCost: "", month: "", notes: "", timeSlot: "", bookingSlot: "", sourceSubscribers: "",
+  paymentStatus: "unpaid", subscribersGained: "",
+  month: "", notes: "", timeSlot: "", bookingSlot: "", sourceSubscribers: "",
 };
 
 export default function SchedulePage() {
@@ -305,8 +305,6 @@ export default function SchedulePage() {
         reach: s.reach != null ? String(s.reach) : "",
         cost: s.cost ?? "",
         paymentStatus: (s.paymentStatus ?? "unpaid") as any,
-        botStories: s.botStories ?? "",
-        botStoriesCost: s.botStoriesCost ?? "",
         month: s.month ?? "",
         postNotNeeded: s.postNotNeeded ?? false,
         isMutual: s.isMutual ?? false,
@@ -339,8 +337,6 @@ export default function SchedulePage() {
         cost: p.cost ?? "",
         paymentStatus: (p.paymentStatus ?? "unpaid") as any,
         subscribersGained: p.subscribersGained != null ? String(p.subscribersGained) : "",
-        botStories: p.botStories ?? "",
-        botStoriesCost: p.botStoriesCost ?? "",
         month: p.month ?? "",
         notes: p.notes ?? "",
         timeSlot: (p.timeSlot ?? "") as any,
@@ -1035,8 +1031,6 @@ export default function SchedulePage() {
                 cost: f.cost || undefined,
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
                 subscribersGained: f.subscribersGained ? Number(f.subscribersGained) : undefined,
-                botStories: f.botStories || undefined,
-                botStoriesCost: f.botStoriesCost || undefined,
                 month: f.month,
                 notes: f.notes || undefined,
                 timeSlot: f.timeSlot || undefined,
@@ -1073,8 +1067,6 @@ export default function SchedulePage() {
                 reach: f.reach ? Number(f.reach) : undefined,
                 cost: f.cost || undefined,
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
-                botStories: f.botStories || undefined,
-                botStoriesCost: f.botStoriesCost || undefined,
                 month: f.month,
                 postNotNeeded: f.postNotNeeded,
                 isMutual: f.isMutual,
@@ -1196,8 +1188,6 @@ export default function SchedulePage() {
                 reach: f.reach ? Number(f.reach) : undefined,
                 cost: f.cost || undefined,
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
-                botStories: f.botStories || undefined,
-                botStoriesCost: f.botStoriesCost || undefined,
                 postNotNeeded: f.postNotNeeded,
                 notes: f.notes || undefined,
               });
@@ -1250,8 +1240,6 @@ export default function SchedulePage() {
                 cost: f.cost || undefined,
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
                 subscribersGained: f.subscribersGained ? Number(f.subscribersGained) : undefined,
-                botStories: f.botStories || undefined,
-                botStoriesCost: f.botStoriesCost || undefined,
                 notes: f.notes || undefined,
               });
             }}
@@ -1367,8 +1355,6 @@ export default function SchedulePage() {
               reach: f.reach ? Number(f.reach) : undefined,
               cost: f.cost || undefined,
               paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
-              botStories: f.botStories || undefined,
-              botStoriesCost: f.botStoriesCost || undefined,
               month: f.month,
               postNotNeeded: f.postNotNeeded,
               isMutual: f.isMutual,
@@ -1457,8 +1443,6 @@ export default function SchedulePage() {
               cost: f.cost || undefined,
               paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
               subscribersGained: f.subscribersGained ? Number(f.subscribersGained) : undefined,
-              botStories: f.botStories || undefined,
-              botStoriesCost: f.botStoriesCost || undefined,
               month: f.month,
               notes: f.notes || undefined,
               timeSlot: f.timeSlot || undefined,

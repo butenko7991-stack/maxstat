@@ -23,7 +23,7 @@ import * as XLSX from "xlsx";
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
-  botStories: "", botStoriesCost: "", month: currentMonth(), postNotNeeded: false,
+  month: currentMonth(), postNotNeeded: false,
   buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
   notes: "",
@@ -192,8 +192,6 @@ export default function SalesPage() {
       "СПМ": r.spm ?? "",
       "Стоимость": r.cost ? parseFloat(r.cost) : "",
       "Оплата": PAYMENT_LABELS[r.paymentStatus] ?? r.paymentStatus,
-      "Бот/Сторис": r.botStories ?? "",
-      "Стоимость бот/сторис": r.botStoriesCost ? parseFloat(r.botStoriesCost) : "",
       "Заметки": r.notes ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -219,7 +217,6 @@ export default function SalesPage() {
       admin: r.admin ?? "", link: r.link ?? "", timeSlot: (r.timeSlot as TimeSlot) ?? "",
       bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер") ?? "",
       tariff: r.tariff ?? "", platform: r.platform ?? "",      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
-      botStories: r.botStories ?? "", botStoriesCost: r.botStoriesCost ?? "",
       month: r.month, postNotNeeded: r.postNotNeeded ?? false,
       isMutual: r.isMutual ?? false, partnerChannel: r.partnerChannel ?? "",
       ourReach: r.ourReach ? String(r.ourReach) : "", partnerReach: r.partnerReach ? String(r.partnerReach) : "",
@@ -242,8 +239,7 @@ export default function SalesPage() {
       spm: form.spm || undefined,
       reach: form.reach ? Number(form.reach) : undefined,
       cost: form.cost || undefined,
-      paymentStatus: form.paymentStatus, botStories: form.botStories || undefined,
-      botStoriesCost: form.botStoriesCost || undefined, month: form.month,
+      paymentStatus: form.paymentStatus, month: form.month,
       postNotNeeded: form.postNotNeeded,
       isMutual: form.isMutual,
       partnerChannel: form.partnerChannel || undefined,
