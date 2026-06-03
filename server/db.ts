@@ -1246,3 +1246,257 @@ export async function getSourceEfficiency(userId: number): Promise<SourceEfficie
     };
   }).filter(d => d.totalPurchases > 0);
 }
+
+// ─── AI Context: full data aggregation for AI analysis ───────────────────────
+export interface AiChannelData {
+  channelId: number;
+  channelName: string;
+  // Financial
+  salesTotal: number;
+  salesCount: number;
+  purchasesTotal: number;
+  purchasesCount: number;
+  profit: number;
+  roi: number;
+  unpaidSalesTotal: number;
+  unpaidPurchasesTotal: number;
+  // Subscriber metrics
+  currentSubscribers: number | null;
+  subscribersGained: number; // total from purchase records
+  avgCpf: number | null; // cost per follower
+  er24: number | null;
+  views24h: number | null;
+  views48h: number | null;
+  views72h: number | null;
+  weeklyGrowth: number | null;
+  // Purchase breakdown
+  topDirections: string[]; // top niches
+  topTariffs: string[]; // top tariffs used
+  avgPurchaseReach: number | null;
+  avgSpm: number | null; // avg SPM across purchases
+  botStoriesPurchaseCost: number; // total bot/stories cost in purchases
+  avgSourceSubscribers: number | null; // avg size of source channels
+  // Sale breakdown
+  platforms: string[]; // unique platforms
+  avgSaleReach: number | null;
+  mutualSalesCount: number; // isMutual=true sales
+  mutualSalesRevenue: number;
+  botStoriesSaleCost: number;
+  avgBuyerSubscribers: number | null;
+}
+
+export interface AiMutualDealSummary {
+  total: number;
+  completed: number;
+  active: number; // agreed/placed
+  totalDopPaid: number; // we paid doplate
+  totalDopReceived: number; // they paid us
+  avgOurReach: number | null;
+  avgPartnerReach: number | null;
+}
+
+export interface AiContext {
+  month: string | null;
+  channels: AiChannelData[];
+  mutual: AiMutualDealSummary;
+  // Aggregated totals
+  totalSales: number;
+  totalPurchases: number;
+  totalProfit: number;
+  overallROI: number;
+  totalSubscribersGained: number;
+  totalCurrentSubscribers: number;
+  overallAvgCpf: number | null;
+}
+
+export async function getAiContext(userId: number, month?: string): Promise<AiContext> {
+  const db = await getDb();
+  const empty: AiContext = {
+    month: month ?? null,
+    channels: [],
+    mutual: { total: 0, completed: 0, active: 0, totalDopPaid: 0, totalDopReceived: 0, avgOurReach: null, avgPartnerReach: null },
+    totalSales: 0, totalPurchases: 0, totalProfit: 0, overallROI: 0,
+    totalSubscribersGained: 0, totalCurrentSubscribers: 0, overallAvgCpf: null,
+  };
+  if (!db) return empty;
+
+  // ── Channels ──────────────────────────────────────────────────────────────
+  const userChannels = await db.select({ id: channels.id, name: channels.name })
+    .from(channels).where(eq(channels.userId, userId));
+  const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
+
+  // ── Sales ─────────────────────────────────────────────────────────────────
+  const saleConds: any[] = [eq(saleRecords.userId, userId)];
+  if (month) saleConds.push(eq(saleRecords.month, month));
+  const allSales = await db.select().from(saleRecords).where(and(...saleConds));
+
+  // ── Purchases ─────────────────────────────────────────────────────────────
+  const purchaseConds: any[] = [eq(purchaseRecords.userId, userId)];
+  if (month) purchaseConds.push(eq(purchaseRecords.month, month));
+  const allPurchases = await db.select().from(purchaseRecords).where(and(...purchaseConds));
+
+  // ── Snapshots (latest per channel) ────────────────────────────────────────
+  const allSnaps = await db.select().from(channelSubscriberSnapshots)
+    .where(eq(channelSubscriberSnapshots.userId, userId));
+  const latestSnap = new Map<number, typeof allSnaps[0]>();
+  for (const s of allSnaps) {
+    const ex = latestSnap.get(s.channelId);
+    if (!ex || new Date(s.snapshotDate) > new Date(ex.snapshotDate)) {
+      latestSnap.set(s.channelId, s);
+    }
+  }
+
+  // ── CPF analytics ─────────────────────────────────────────────────────────
+  const cpfRows = await getCpfAnalytics(userId, userChannels.map(c => c.id));
+  const cpfByChannel = new Map<number, { cpfs: number[]; totalGrowth: number }>();
+  for (const row of cpfRows) {
+    if (!cpfByChannel.has(row.channelId)) cpfByChannel.set(row.channelId, { cpfs: [], totalGrowth: 0 });
+    const e = cpfByChannel.get(row.channelId)!;
+    if (row.cpf !== null) e.cpfs.push(row.cpf);
+    e.totalGrowth += row.growth;
+  }
+
+  // ── Mutual deals ──────────────────────────────────────────────────────────
+  const mutualFilters: { month?: string } = {};
+  if (month) mutualFilters.month = month;
+  const allMutual = await getMutualDeals(userId, mutualFilters);
+  const mutualSummary: AiMutualDealSummary = {
+    total: allMutual.length,
+    completed: allMutual.filter(m => m.status === "завершено").length,
+    active: allMutual.filter(m => ["согласовано", "размещено"].includes(m.status)).length,
+    totalDopPaid: allMutual
+      .filter(m => m.dopDirection === "мы платим" && m.dopAmount)
+      .reduce((s, m) => s + parseFloat(String(m.dopAmount ?? 0)), 0),
+    totalDopReceived: allMutual
+      .filter(m => m.dopDirection === "нам платят" && m.dopAmount)
+      .reduce((s, m) => s + parseFloat(String(m.dopAmount ?? 0)), 0),
+    avgOurReach: (() => {
+      const vals = allMutual.filter(m => m.ourReach != null).map(m => m.ourReach as number);
+      return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    })(),
+    avgPartnerReach: (() => {
+      const vals = allMutual.filter(m => m.partnerReach != null).map(m => m.partnerReach as number);
+      return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    })(),
+  };
+
+  // ── Build per-channel data ─────────────────────────────────────────────────
+  const channelDataMap = new Map<number, AiChannelData>();
+  const initChannel = (cid: number): AiChannelData => ({
+    channelId: cid, channelName: channelMap.get(cid) ?? "—",
+    salesTotal: 0, salesCount: 0, purchasesTotal: 0, purchasesCount: 0,
+    profit: 0, roi: 0, unpaidSalesTotal: 0, unpaidPurchasesTotal: 0,
+    currentSubscribers: null, subscribersGained: 0, avgCpf: null,
+    er24: null, views24h: null, views48h: null, views72h: null, weeklyGrowth: null,
+    topDirections: [], topTariffs: [], avgPurchaseReach: null, avgSpm: null,
+    botStoriesPurchaseCost: 0, avgSourceSubscribers: null,
+    platforms: [], avgSaleReach: null, mutualSalesCount: 0, mutualSalesRevenue: 0,
+    botStoriesSaleCost: 0, avgBuyerSubscribers: null,
+  });
+
+  // Process sales
+  for (const s of allSales) {
+    const cid = s.channelId;
+    if (!channelDataMap.has(cid)) channelDataMap.set(cid, initChannel(cid));
+    const e = channelDataMap.get(cid)!;
+    const cost = parseFloat(String(s.cost ?? 0));
+    e.salesTotal += cost;
+    e.salesCount += 1;
+    if (s.paymentStatus !== "paid") e.unpaidSalesTotal += cost;
+    if (s.platform && !e.platforms.includes(s.platform)) e.platforms.push(s.platform);
+    if (s.botStoriesCost) e.botStoriesSaleCost += parseFloat(String(s.botStoriesCost));
+    if (s.isMutual) { e.mutualSalesCount += 1; e.mutualSalesRevenue += cost; }
+  }
+
+  // Process purchases
+  for (const p of allPurchases) {
+    const cid = p.channelId;
+    if (!channelDataMap.has(cid)) channelDataMap.set(cid, initChannel(cid));
+    const e = channelDataMap.get(cid)!;
+    const cost = parseFloat(String(p.cost ?? 0));
+    e.purchasesTotal += cost;
+    e.purchasesCount += 1;
+    if (p.paymentStatus !== "paid") e.unpaidPurchasesTotal += cost;
+    if (p.subscribersGained) e.subscribersGained += p.subscribersGained;
+    if (p.botStoriesCost) e.botStoriesPurchaseCost += parseFloat(String(p.botStoriesCost));
+    if (p.direction) {
+      const dir = p.direction.trim();
+      if (dir && !e.topDirections.includes(dir)) e.topDirections.push(dir);
+    }
+    if (p.tariff) {
+      const t = p.tariff.trim();
+      if (t && !e.topTariffs.includes(t)) e.topTariffs.push(t);
+    }
+  }
+
+  // Aggregate reach/spm/sourceSubscribers/buyerSubscribers per channel
+  for (const cid of Array.from(channelDataMap.keys())) {
+    const chPurchases = allPurchases.filter(p => p.channelId === cid);
+    const reachVals = chPurchases.filter(p => p.reach != null).map(p => p.reach as number);
+    const spmVals = chPurchases.filter(p => p.spm && /^\d+/.test(p.spm)).map(p => parseFloat(p.spm!));
+    const srcSubVals = chPurchases.filter(p => p.sourceSubscribers != null).map(p => p.sourceSubscribers as number);
+    const e = channelDataMap.get(cid)!;
+    if (reachVals.length > 0) e.avgPurchaseReach = Math.round(reachVals.reduce((a, b) => a + b, 0) / reachVals.length);
+    if (spmVals.length > 0) e.avgSpm = Math.round(spmVals.reduce((a, b) => a + b, 0) / spmVals.length);
+    if (srcSubVals.length > 0) e.avgSourceSubscribers = Math.round(srcSubVals.reduce((a, b) => a + b, 0) / srcSubVals.length);
+
+    const chSales = allSales.filter(s => s.channelId === cid);
+    const saleReachVals = chSales.filter(s => s.reach != null).map(s => s.reach as number);
+    const buyerSubVals = chSales.filter(s => s.buyerSubscribers != null).map(s => s.buyerSubscribers as number);
+    if (saleReachVals.length > 0) e.avgSaleReach = Math.round(saleReachVals.reduce((a, b) => a + b, 0) / saleReachVals.length);
+    if (buyerSubVals.length > 0) e.avgBuyerSubscribers = Math.round(buyerSubVals.reduce((a, b) => a + b, 0) / buyerSubVals.length);
+  }
+
+  // Attach snapshot data
+  for (const [cid, snap] of Array.from(latestSnap.entries())) {
+    if (!channelDataMap.has(cid)) channelDataMap.set(cid, initChannel(cid));
+    const e = channelDataMap.get(cid)!;
+    e.currentSubscribers = snap.subscriberCount;
+    e.er24 = snap.er24 ? parseFloat(String(snap.er24)) : null;
+    e.views24h = snap.views24h ?? null;
+    e.views48h = snap.views48h ?? null;
+    e.views72h = snap.views72h ?? null;
+    e.weeklyGrowth = snap.weeklyGrowth ?? null;
+  }
+
+  // Attach CPF data
+  for (const [cid, cpf] of Array.from(cpfByChannel.entries())) {
+    if (!channelDataMap.has(cid)) channelDataMap.set(cid, initChannel(cid));
+    const e = channelDataMap.get(cid)!;
+    if (cpf.cpfs.length > 0) {
+      e.avgCpf = Math.round((cpf.cpfs.reduce((a, b) => a + b, 0) / cpf.cpfs.length) * 100) / 100;
+    }
+    if (e.subscribersGained === 0) e.subscribersGained = cpf.totalGrowth;
+  }
+
+  // Finalize profit/ROI
+  const channelsList: AiChannelData[] = [];
+  for (const e of Array.from(channelDataMap.values())) {
+    e.profit = e.salesTotal - e.purchasesTotal;
+    e.roi = e.purchasesTotal > 0
+      ? ((e.salesTotal - e.purchasesTotal) / e.purchasesTotal) * 100
+      : (e.salesTotal > 0 ? Infinity : 0);
+    channelsList.push(e);
+  }
+  channelsList.sort((a, b) => b.profit - a.profit);
+
+  // Totals
+  const totalSales = channelsList.reduce((s, c) => s + c.salesTotal, 0);
+  const totalPurchases = channelsList.reduce((s, c) => s + c.purchasesTotal, 0);
+  const totalProfit = totalSales - totalPurchases;
+  const overallROI = totalPurchases > 0 ? ((totalSales - totalPurchases) / totalPurchases) * 100 : 0;
+  const totalSubscribersGained = channelsList.reduce((s, c) => s + c.subscribersGained, 0);
+  const totalCurrentSubscribers = channelsList.reduce((s, c) => s + (c.currentSubscribers ?? 0), 0);
+  const allCpfs = channelsList.filter(c => c.avgCpf !== null).map(c => c.avgCpf as number);
+  const overallAvgCpf = allCpfs.length > 0
+    ? Math.round((allCpfs.reduce((a, b) => a + b, 0) / allCpfs.length) * 100) / 100
+    : null;
+
+  return {
+    month: month ?? null,
+    channels: channelsList,
+    mutual: mutualSummary,
+    totalSales, totalPurchases, totalProfit, overallROI,
+    totalSubscribersGained, totalCurrentSubscribers, overallAvgCpf,
+  };
+}

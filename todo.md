@@ -239,3 +239,11 @@
 - [x] Backend: реализовать и зарегистрировать snapshots.channelStats с агрегатами последнего снимка и трендами ER/охватов по каналу
 - [x] AIAnalyticsPage Subscribers tab: добавить KPI-карточки охватов 48ч и 72ч
 - [x] AIAnalyticsPage Subscribers tab: добавить отдельный график ER24 по времени
+
+## Полный AI-анализ (все поля из БД)
+- [ ] Backend: расширить ChannelProfitData — добавить агрегаты: totalSubscribersGained, avgSpm, topDirection, mutualCount, botStoriesTotal, avgReach, avgBuyerSubs
+- [ ] Backend: getChannelProfitability — добавить SQL-агрегаты по subscribersGained, spm, reach, direction, botStoriesCost для purchases; platform, reach, buyerSubscribers, isMutual, botStoriesCost для sales
+- [ ] Backend: analyzeChannels — включить в промпт: ниши (direction), тарифы, СПМ, охваты закупа, ботов/сторис, взаимки (mutual_deals), платформы продаж, buyerSubscribers
+- [ ] Backend: generateDigest — расширить промпт теми же данными + топ-ниши, топ-тарифы, ВП-сделки
+- [ ] Backend: новая DB-функция getAiContext(userId, month) — единый агрегат всех данных для AI
+- [ ] Frontend: AI Analysis tab — показывать структурированные секции: «Закуп по нишам», «Эффективность тарифов», «Взаимки», «Платформы продаж»

@@ -48,6 +48,7 @@ import {
   deleteSubscriberSnapshot,
   getCpfAnalytics,
   getSourceEfficiency,
+  getAiContext,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 
@@ -548,142 +549,165 @@ const aiRouter = router({
   analyzeChannels: protectedProcedure
     .input(z.object({ month: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const data = await getChannelProfitability(ctx.user.id, input.month);
-      if (data.channels.length === 0) {
-        return { analysis: "Нет данных для анализа. Добавьте записи о продажах и закупках." };
+      const ctx_data = await getAiContext(ctx.user.id, input.month);
+      if (ctx_data.channels.length === 0) {
+        return { analysis: "Нет данных для анализа. Добавьте записи о закупах и продажах.", data: null };
       }
-      // Fetch CPF analytics and latest snapshots for ER/reach data
-      const userChannels = await getChannelsByUser(ctx.user.id);
-      const channelIds = userChannels.map((c: { id: number }) => c.id);
-      const cpfData = await getCpfAnalytics(ctx.user.id, channelIds);
-      const snapshots = await listSubscriberSnapshots(ctx.user.id, undefined);
-      // Get latest snapshot per channel for current ER/reach/subscribers
-      const latestSnap = new Map<number, typeof snapshots[0]>();
-      for (const s of snapshots) {
-        const ex = latestSnap.get(s.channelId);
-        if (!ex || new Date(s.snapshotDate) > new Date(ex.snapshotDate)) {
-          latestSnap.set(s.channelId, s);
+
+      const channelsSummary = ctx_data.channels.map(c => {
+        const lines: string[] = [`### ${c.channelName}`];
+        // Subscribers & reach
+        if (c.currentSubscribers !== null) {
+          lines.push(`- 👥 Подписчики: ${c.currentSubscribers.toLocaleString('ru-RU')}${c.weeklyGrowth != null ? ` (нед. прирост: ${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth})` : ''}`);
         }
-      }
-      // Aggregate CPF stats per channel
-      const cpfByChannel = new Map<number, { cpfs: number[]; totalGrowth: number; totalCost: number }>();
-      for (const row of cpfData) {
-        if (!cpfByChannel.has(row.channelId)) cpfByChannel.set(row.channelId, { cpfs: [], totalGrowth: 0, totalCost: 0 });
-        const entry = cpfByChannel.get(row.channelId)!;
-        if (row.cpf !== null) entry.cpfs.push(row.cpf);
-        entry.totalGrowth += row.growth;
-        entry.totalCost += row.purchaseCost;
-      }
-      const channelsSummary = data.channels.map(c => {
-        const snap = latestSnap.get(c.channelId);
-        const cpfStats = cpfByChannel.get(c.channelId);
-        const avgCpf = cpfStats && cpfStats.cpfs.length > 0
-          ? (cpfStats.cpfs.reduce((s, v) => s + v, 0) / cpfStats.cpfs.length).toFixed(2)
-          : null;
-        const er24 = snap?.er24 ? parseFloat(String(snap.er24)).toFixed(2) : null;
-        const views24h = snap?.views24h ?? null;
-        const subs = snap?.subscriberCount ?? null;
-        const growth = cpfStats?.totalGrowth ?? null;
-        return [
-          `### ${c.channelName}`,
-          `- Подписчики: ${subs !== null ? subs.toLocaleString('ru-RU') : 'нет данных'}`,
-          er24 ? `- ER24: ${er24}% | Охваты 24ч: ${views24h !== null ? views24h.toLocaleString('ru-RU') : '—'}` : '',
-          avgCpf ? `- Ср. CPF: ${avgCpf}₽ | Прирост: ${growth !== null ? (growth >= 0 ? '+' : '') + growth.toLocaleString('ru-RU') : '—'}` : '',
-          `- Доход: ${c.salesTotal}₽ (${c.salesCount} продаж) | Расход: ${c.purchasesTotal}₽ (${c.purchasesCount} закупок)`,
-          `- Прибыль: ${c.profit}₽ | ROI: ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`,
-          (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0)
-            ? `- ⚠️ Неопл.: продажи ${c.unpaidSalesTotal}₽, закупки ${c.unpaidPurchasesTotal}₽`
-            : '',
-        ].filter(Boolean).join('\n');
+        if (c.er24 !== null) {
+          lines.push(`- 📊 ER24: ${c.er24.toFixed(2)}% | Охваты: 24ч=${c.views24h ?? '—'}, 48ч=${c.views48h ?? '—'}, 72ч=${c.views72h ?? '—'}`);
+        }
+        // CPF & subscriber acquisition
+        if (c.avgCpf !== null || c.subscribersGained > 0) {
+          lines.push(`- 🎯 Привлечено подписчиков: ${c.subscribersGained > 0 ? '+' + c.subscribersGained.toLocaleString('ru-RU') : '—'} | Ср. CPF: ${c.avgCpf !== null ? c.avgCpf + '₽' : '—'}`);
+        }
+        // Financial
+        lines.push(`- 💰 Доход: ${c.salesTotal.toLocaleString('ru-RU')}₽ (${c.salesCount} продаж) | Расход: ${c.purchasesTotal.toLocaleString('ru-RU')}₽ (${c.purchasesCount} закупок)`);
+        lines.push(`- 📈 Прибыль: ${c.profit.toLocaleString('ru-RU')}₽ | ROI: ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`);
+        // Unpaid
+        if (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) {
+          lines.push(`- ⚠️ Неоплачено: продажи ${c.unpaidSalesTotal.toLocaleString('ru-RU')}₽, закупки ${c.unpaidPurchasesTotal.toLocaleString('ru-RU')}₽`);
+        }
+        // Purchase details
+        if (c.topDirections.length > 0) lines.push(`- 🏷️ Ниши закупа: ${c.topDirections.slice(0, 5).join(', ')}`);
+        if (c.topTariffs.length > 0) lines.push(`- ⏱️ Тарифы: ${c.topTariffs.slice(0, 4).join(', ')}`);
+        if (c.avgPurchaseReach !== null) lines.push(`- 👁️ Ср. охват закупа: ${c.avgPurchaseReach.toLocaleString('ru-RU')}`);
+        if (c.avgSpm !== null) lines.push(`- 💲 Ср. СПМ закупа: ${c.avgSpm}₽`);
+        if (c.avgSourceSubscribers !== null) lines.push(`- 📡 Ср. размер канала-источника: ${c.avgSourceSubscribers.toLocaleString('ru-RU')}`);
+        if (c.botStoriesPurchaseCost > 0) lines.push(`- 🤖 Бот/сторис (закуп): ${c.botStoriesPurchaseCost.toLocaleString('ru-RU')}₽`);
+        // Sale details
+        if (c.platforms.length > 0) lines.push(`- 📱 Платформы продаж: ${c.platforms.join(', ')}`);
+        if (c.avgSaleReach !== null) lines.push(`- 👁️ Ср. охват продажи: ${c.avgSaleReach.toLocaleString('ru-RU')}`);
+        if (c.avgBuyerSubscribers !== null) lines.push(`- 🛒 Ср. размер канала-покупателя: ${c.avgBuyerSubscribers.toLocaleString('ru-RU')}`);
+        if (c.mutualSalesCount > 0) lines.push(`- 🤝 ВП-продажи: ${c.mutualSalesCount} шт. на ${c.mutualSalesRevenue.toLocaleString('ru-RU')}₽`);
+        if (c.botStoriesSaleCost > 0) lines.push(`- 🤖 Бот/сторис (продажи): ${c.botStoriesSaleCost.toLocaleString('ru-RU')}₽`);
+        return lines.join('\n');
       }).join('\n\n');
-      // Overall CPF stats
-      const allCpfs = cpfData.filter(r => r.cpf !== null).map(r => r.cpf as number);
-      const overallAvgCpf = allCpfs.length > 0 ? (allCpfs.reduce((s, v) => s + v, 0) / allCpfs.length).toFixed(2) : null;
-      const totalSubsGrowth = cpfData.reduce((s, r) => s + r.growth, 0);
-      const totalSubs = Array.from(latestSnap.values()).reduce((s, v) => s + (v.subscriberCount ?? 0), 0);
-      const prompt = `Ты — эксперт по экономике рекламных каналов в Макс/Телеграм.
+
+      const mutualBlock = ctx_data.mutual.total > 0 ? `
+ВЗАИМКИ (ВП):
+- Всего сделок: ${ctx_data.mutual.total} (завершено: ${ctx_data.mutual.completed}, активных: ${ctx_data.mutual.active})
+- Доплатили партнёрам: ${ctx_data.mutual.totalDopPaid.toLocaleString('ru-RU')}₽
+- Получили доплату: ${ctx_data.mutual.totalDopReceived.toLocaleString('ru-RU')}₽
+${ctx_data.mutual.avgOurReach !== null ? `- Ср. наш охват в ВП: ${ctx_data.mutual.avgOurReach.toLocaleString('ru-RU')}` : ''}
+${ctx_data.mutual.avgPartnerReach !== null ? `- Ср. охват партнёра: ${ctx_data.mutual.avgPartnerReach.toLocaleString('ru-RU')}` : ''}` : '';
+
+      const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
+      const prompt = `Ты — эксперт по экономике рекламных каналов в Макс/Телеграм. Анализируй ${periodLabel}.
 
 БИЗНЕС-МОДЕЛЬ:
-Бизнес построен на закупе подписчиков (реклама в других каналах) и продаже рекламы в своих каналах. Ключевые метрики:
-- CPF (стоимость подписчика) — сколько стоит привлечь 1 подписчика
-- ER24 (вовлечённость) — качество аудитории, влияет на цену рекламы
-- Охваты 24ч/48ч/72ч — база для расчёта СПМ (стоимость за 1000 просмотров)
-- ROI — общая рентабельность
+Бизнес построен на закупе подписчиков (реклама в других каналах) и продаже рекламы в своих каналах.
+Ключевые метрики эффективности:
+- CPF (стоимость подписчика) — сколько стоит привлечь 1 подписчика. Хороший CPF: < 5₽, средний: 5–15₽, плохой: > 15₽
+- ER24 (вовлечённость за 24ч) — качество аудитории. Хороший: ≥ 15%, средний: 8–15%, низкий: < 8%
+- Охваты 24ч/48ч/72ч — база для расчёта СПМ (цена за 1000 просмотров)
+- ROI — рентабельность. Хороший: > 50%, средний: 20–50%, плохой: < 20%
+- ВП (взаимки) — бесплатный обмен аудиторией, снижает CPF
 
-ОБЩИЕ ПОКАЗАТЕЛИ:
-- Общий доход: ${data.totalSales}₽ (продаж: ${data.salesCount})
-- Общий расход: ${data.totalPurchases}₽ (закупок: ${data.purchasesCount})
-- Прибыль: ${data.totalProfit}₽ | ROI: ${data.overallROI.toFixed(1)}%
-- Всего подписчиков: ${totalSubs.toLocaleString('ru-RU')}
-- Прирост подписчиков (период): ${totalSubsGrowth >= 0 ? '+' : ''}${totalSubsGrowth.toLocaleString('ru-RU')}
-${overallAvgCpf ? `- Средний CPF: ${overallAvgCpf}₽` : ''}
+ОБЩИЕ ПОКАЗАТЕЛИ (${periodLabel}):
+- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.salesCount, 0)} продаж)
+- Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.purchasesCount, 0)} закупок)
+- Прибыль: ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
+- Подписчиков сейчас: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')}
+- Привлечено за период: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}
+${ctx_data.overallAvgCpf !== null ? `- Средний CPF: ${ctx_data.overallAvgCpf}₽` : ''}
+${mutualBlock}
 
 ПО КАНАЛАМ:
 ${channelsSummary}
 
-ПРОАНАЛИЗИРУЙ И ОТВЕТЬ НА РУССКОМ. Дай:
-1. Оценка состояния бизнеса: рост аудитории, CPF, ROI
-2. Анализ цены подписчика: эффективен ли закуп, стоит ли увеличивать
-3. Анализ ER24 и охватов: качество аудитории, влияние на цену рекламы
-4. Рекомендации: сколько тратить на закуп, какие каналы приоритетны для роста
-5. Риски и неоплаченные суммы
-Формат: markdown с заголовками, цифрами, эмоджи. Максимум 600 слов.`;
+ЗАДАНИЕ: Дай глубокий анализ на русском языке в формате markdown.
+Структура ответа:
+## 📊 Общая оценка бизнеса
+(ROI, прибыль, тренд роста)
+
+## 👥 Анализ закупа подписчиков
+(CPF по каналам, эффективность ниш, тарифов, размеров источников, рекомендации по бюджету)
+
+## 📈 Качество аудитории (ER и охваты)
+(ER24 по каналам, связь с ценой рекламы, рекомендации)
+
+## 💰 Анализ продаж
+(платформы, охваты, ВП-сделки, доходность)
+
+## ⚠️ Риски и задолженности
+(неоплаченные суммы, слабые каналы)
+
+## 🎯 Приоритетные действия (топ-3)
+(конкретные, с цифрами)
+
+Максимум 700 слов. Используй эмодзи для акцентов. Будь конкретен — называй каналы, цифры, ниши.`;
+
       const result = await invokeLLM({
         messages: [
-          { role: "system", content: "Ты — AI-аналитик рекламного бизнеса в Макс/Телеграм. Анализируй через призму CPF + ER + охваты + ROI. Отвечай конкретно, с цифрами и действиями." },
+          { role: "system", content: "Ты — AI-аналитик рекламного бизнеса в Макс/Телеграм. Анализируй через призму CPF + ER + охваты + ROI + взаимки. Отвечай конкретно, с цифрами и действиями. Используй все предоставленные данные." },
           { role: "user", content: prompt },
         ],
       });
       const content = result.choices?.[0]?.message?.content;
       const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
-      return { analysis, data };
+      return { analysis, data: ctx_data };
     }),
     /** AI digest — weekly/monthly text summary */
   generateDigest: protectedProcedure
     .input(z.object({ month: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const data = await getChannelProfitability(ctx.user.id, input.month);
-      if (data.channels.length === 0) {
+      const ctx_data = await getAiContext(ctx.user.id, input.month);
+      if (ctx_data.channels.length === 0) {
         return { digest: "Нет данных для дайджеста." };
       }
 
-      const channelsList = data.channels.map(c =>
-        `${c.channelName}: продажи ${c.salesTotal}₽ (${c.salesCount} шт), закупки ${c.purchasesTotal}₽ (${c.purchasesCount} шт), прибыль ${c.profit}₽`
-      ).join('\n');
+      const channelsList = ctx_data.channels.map(c => {
+        const parts = [
+          `**${c.channelName}**: доход ${c.salesTotal.toLocaleString('ru-RU')}₽ / расход ${c.purchasesTotal.toLocaleString('ru-RU')}₽ / прибыль ${c.profit.toLocaleString('ru-RU')}₽ / ROI ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`,
+        ];
+        if (c.currentSubscribers !== null) parts.push(`подписчики: ${c.currentSubscribers.toLocaleString('ru-RU')}${c.weeklyGrowth != null ? ` (${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth} нед.)` : ''}`);
+        if (c.avgCpf !== null) parts.push(`CPF: ${c.avgCpf}₽`);
+        if (c.er24 !== null) parts.push(`ER24: ${c.er24.toFixed(1)}%`);
+        if (c.topDirections.length > 0) parts.push(`ниши: ${c.topDirections.slice(0, 3).join(', ')}`);
+        if (c.mutualSalesCount > 0) parts.push(`ВП: ${c.mutualSalesCount} шт.`);
+        if (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) parts.push(`⚠️ неопл.: ${(c.unpaidSalesTotal + c.unpaidPurchasesTotal).toLocaleString('ru-RU')}₽`);
+        return parts.join(' | ');
+      }).join('\n');
+
+      const mutualLine = ctx_data.mutual.total > 0
+        ? `\nВзаимки: ${ctx_data.mutual.total} сделок (завершено: ${ctx_data.mutual.completed}), доплата нам: ${ctx_data.mutual.totalDopReceived.toLocaleString('ru-RU')}₽`
+        : '';
 
       const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
+      const prompt = `Составь краткий бизнес-дайджест ${periodLabel} для владельца рекламных каналов в Макс/Телеграм.
 
-      const prompt = `Составь краткий бизнес-дайджест ${periodLabel} для владельца рекламных каналов.
-
-Общие цифры:
-- Доход: ${data.totalSales}₽ (продаж: ${data.salesCount})
-- Расход: ${data.totalPurchases}₽ (закупок: ${data.purchasesCount})
-- Прибыль: ${data.totalProfit}₽
-- ROI: ${data.overallROI.toFixed(1)}%
-- Каналов: ${data.channelCount}
+ДАННЫЕ:
+- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
+- Подписчиков: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')} | Привлечено: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}${ctx_data.overallAvgCpf !== null ? ` | Ср. CPF: ${ctx_data.overallAvgCpf}₽` : ''}${mutualLine}
 
 По каналам:
 ${channelsList}
 
 Напиши на русском языке краткую сводку (200–300 слов) в формате markdown:
-- Ключевые метрики периода
-- Что выросло / упало
-- Главные достижения
-- Точки внимания и риски
-- 2–3 приоритетных действия на следующий период
+- 🔑 Ключевые метрики периода (с цифрами)
+- 📈 Что выросло / упало
+- 🏆 Главные достижения
+- ⚠️ Точки внимания и риски
+- 🎯 2–3 приоритетных действия на следующий период
 
-Стиль: деловой, но дружелюбный. Используй эмодзи для акцентов.`;
+Стиль: деловой, конкретный, с цифрами. Используй эмодзи для акцентов.`;
 
       const result = await invokeLLM({
         messages: [
-          { role: "system", content: "Ты — бизнес-аналитик, составляющий краткие и полезные дайджесты для владельцев рекламного бизнеса." },
+          { role: "system", content: "Ты — бизнес-аналитик, составляющий краткие и полезные дайджесты для владельцев рекламного бизнеса в Макс/Телеграм." },
           { role: "user", content: prompt },
         ],
       });
-
       const content = result.choices?.[0]?.message?.content;
-      const digest = typeof content === "string" ? content : Array.isArray(content) ? content.map(p => p.type === "text" ? p.text : "").join("") : "";
-      return { digest, data };
+      const digest = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
+      return { digest, data: ctx_data };
     }),
 });
 // ─── Admin procedure guard ─────────────────────────────────────────────────────────────────────────────

@@ -700,9 +700,9 @@ export default function AIAnalyticsPage() {
           <SubscribersTab />
         </TabsContent>
 
-        {/* AI Analysis Tab */}
+          {/* AI Analysis Tab */}
         <TabsContent value="analysis" className="mt-4 space-y-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={() => analyzeMutation.mutate({ month: monthParam })}
               disabled={analyzeMutation.isPending}
@@ -716,16 +716,168 @@ export default function AIAnalyticsPage() {
               {analyzeMutation.isPending ? "Анализирую..." : "Запустить AI анализ"}
             </Button>
             <span className="text-xs text-muted-foreground">
-              AI проанализирует рентабельность каналов и даст рекомендации
+              Анализ CPF, ER24, охватов, ниш, тарифов, взаимок и платформ
             </span>
           </div>
+
+          {/* Structured data preview */}
+          {analyzeMutation.data?.data && (() => {
+            const ctx = analyzeMutation.data.data as any;
+            const chans: any[] = ctx.channels ?? [];
+            const mutual = ctx.mutual;
+            const allDirections = chans.flatMap((c: any) => c.topDirections ?? []);
+            const dirCount = allDirections.reduce((acc: Record<string,number>, d: string) => { acc[d] = (acc[d] ?? 0) + 1; return acc; }, {} as Record<string,number>);
+            const topDirs = Object.entries(dirCount).sort((a: any, b: any) => b[1] - a[1]).slice(0, 6);
+            const allTariffs = chans.flatMap((c: any) => c.topTariffs ?? []);
+            const tariffCount = allTariffs.reduce((acc: Record<string,number>, t: string) => { acc[t] = (acc[t] ?? 0) + 1; return acc; }, {} as Record<string,number>);
+            const topTariffs = Object.entries(tariffCount).sort((a: any, b: any) => b[1] - a[1]).slice(0, 6);
+            const allPlatforms = chans.flatMap((c: any) => c.platforms ?? []);
+            const platformCount = allPlatforms.reduce((acc: Record<string,number>, p: string) => { acc[p] = (acc[p] ?? 0) + 1; return acc; }, {} as Record<string,number>);
+            return (
+              <div className="space-y-3">
+                {chans.map((c: any) => (
+                  <div key={c.channelId} className="glass rounded-xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-foreground">{c.channelName}</span>
+                      <span className={`text-sm font-bold ${roiColor(c.roi)}`}>
+                        ROI: {c.roi === Infinity ? "∞" : `${(c.roi as number).toFixed(0)}%`}
+                      </span>
+                    </div>
+                    {(c.currentSubscribers !== null || c.er24 !== null) && (
+                      <div className="flex flex-wrap gap-3 text-xs">
+                        {c.currentSubscribers !== null && (
+                          <span className="text-muted-foreground">
+                            👥 <span className="text-foreground font-medium">{(c.currentSubscribers as number).toLocaleString('ru-RU')}</span> подп.
+                            {c.weeklyGrowth != null && (
+                              <span className={c.weeklyGrowth >= 0 ? " text-emerald-400" : " text-red-400"}>
+                                {" "}{c.weeklyGrowth >= 0 ? "+" : ""}{c.weeklyGrowth}/нед.
+                              </span>
+                            )}
+                          </span>
+                        )}
+                        {c.er24 !== null && (
+                          <span className={`font-medium ${(c.er24 as number) >= 15 ? "text-emerald-400" : (c.er24 as number) >= 8 ? "text-yellow-400" : "text-red-400"}`}>
+                            ER24: {(c.er24 as number).toFixed(1)}%
+                          </span>
+                        )}
+                        {c.views24h !== null && (
+                          <span className="text-muted-foreground">
+                            👁️ 24ч: <span className="text-foreground">{(c.views24h as number).toLocaleString('ru-RU')}</span>
+                            {c.views48h !== null && <> / 48ч: <span className="text-foreground">{(c.views48h as number).toLocaleString('ru-RU')}</span></>}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {(c.avgCpf !== null || c.subscribersGained > 0) && (
+                      <div className="flex flex-wrap gap-3 text-xs">
+                        {c.subscribersGained > 0 && (
+                          <span className="text-muted-foreground">🎯 Привлечено: <span className="text-emerald-400 font-medium">+{(c.subscribersGained as number).toLocaleString('ru-RU')}</span></span>
+                        )}
+                        {c.avgCpf !== null && (
+                          <span className="text-muted-foreground">CPF: <span className={`font-medium ${(c.avgCpf as number) <= 5 ? "text-emerald-400" : (c.avgCpf as number) <= 15 ? "text-yellow-400" : "text-red-400"}`}>{c.avgCpf}₽</span></span>
+                        )}
+                        {c.avgPurchaseReach !== null && (
+                          <span className="text-muted-foreground">Ср. охват закупа: <span className="text-foreground">{(c.avgPurchaseReach as number).toLocaleString('ru-RU')}</span></span>
+                        )}
+                        {c.avgSpm !== null && (
+                          <span className="text-muted-foreground">Ср. СПМ: <span className="text-foreground">{c.avgSpm}₽</span></span>
+                        )}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-lg bg-emerald-500/10 p-1.5">
+                        <p className="text-[10px] text-muted-foreground">Доход</p>
+                        <p className="text-xs font-semibold text-emerald-400">{formatCurrency(c.salesTotal)}</p>
+                        <p className="text-[10px] text-muted-foreground">{c.salesCount} прод.</p>
+                      </div>
+                      <div className="rounded-lg bg-red-500/10 p-1.5">
+                        <p className="text-[10px] text-muted-foreground">Расход</p>
+                        <p className="text-xs font-semibold text-red-400">{formatCurrency(c.purchasesTotal)}</p>
+                        <p className="text-[10px] text-muted-foreground">{c.purchasesCount} закуп.</p>
+                      </div>
+                      <div className={`rounded-lg p-1.5 ${c.profit >= 0 ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
+                        <p className="text-[10px] text-muted-foreground">Прибыль</p>
+                        <p className={`text-xs font-semibold ${c.profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatCurrency(c.profit)}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(c.topDirections as string[]).slice(0, 4).map((d: string) => (
+                        <span key={d} className="text-[10px] bg-violet-500/15 text-violet-300 rounded-full px-2 py-0.5">{d}</span>
+                      ))}
+                      {(c.topTariffs as string[]).slice(0, 3).map((t: string) => (
+                        <span key={t} className="text-[10px] bg-cyan-500/15 text-cyan-300 rounded-full px-2 py-0.5">{t}</span>
+                      ))}
+                      {(c.platforms as string[]).slice(0, 3).map((p: string) => (
+                        <span key={p} className="text-[10px] bg-amber-500/15 text-amber-300 rounded-full px-2 py-0.5">{p}</span>
+                      ))}
+                      {c.mutualSalesCount > 0 && (
+                        <span className="text-[10px] bg-pink-500/15 text-pink-300 rounded-full px-2 py-0.5">🤝 ВП: {c.mutualSalesCount}</span>
+                      )}
+                    </div>
+                    {(c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) && (
+                      <div className="flex items-center gap-2 text-xs text-orange-400 bg-orange-500/10 rounded-lg px-3 py-1.5">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>
+                          {c.unpaidSalesTotal > 0 && `Неоплач. продажи: ${formatCurrency(c.unpaidSalesTotal)}`}
+                          {c.unpaidSalesTotal > 0 && c.unpaidPurchasesTotal > 0 && " · "}
+                          {c.unpaidPurchasesTotal > 0 && `Неоплач. закупки: ${formatCurrency(c.unpaidPurchasesTotal)}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {topDirs.length > 0 && (
+                    <div className="glass rounded-xl p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">🏷️ Топ ниши закупа</p>
+                      <div className="flex flex-wrap gap-1">
+                        {topDirs.map(([d, n]) => (
+                          <span key={d} className="text-[10px] bg-violet-500/15 text-violet-300 rounded-full px-2 py-0.5">{d} ×{n as number}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {topTariffs.length > 0 && (
+                    <div className="glass rounded-xl p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">⏱️ Топ тарифы</p>
+                      <div className="flex flex-wrap gap-1">
+                        {topTariffs.map(([t, n]) => (
+                          <span key={t} className="text-[10px] bg-cyan-500/15 text-cyan-300 rounded-full px-2 py-0.5">{t} ×{n as number}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {mutual && mutual.total > 0 && (
+                    <div className="glass rounded-xl p-3 space-y-1.5">
+                      <p className="text-xs font-medium text-foreground">🤝 Взаимки (ВП)</p>
+                      <div className="space-y-0.5 text-xs text-muted-foreground">
+                        <p>Всего: <span className="text-foreground">{mutual.total}</span> · Завершено: <span className="text-foreground">{mutual.completed}</span></p>
+                        {mutual.totalDopReceived > 0 && <p>Получили: <span className="text-emerald-400">{formatCurrency(mutual.totalDopReceived)}</span></p>}
+                        {mutual.totalDopPaid > 0 && <p>Заплатили: <span className="text-red-400">{formatCurrency(mutual.totalDopPaid)}</span></p>}
+                        {mutual.avgOurReach !== null && <p>Ср. охват: <span className="text-foreground">{(mutual.avgOurReach as number).toLocaleString('ru-RU')}</span></p>}
+                      </div>
+                    </div>
+                  )}
+                  {Object.keys(platformCount).length > 0 && (
+                    <div className="glass rounded-xl p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">📱 Платформы продаж</p>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(platformCount).map(([p, n]) => (
+                          <span key={p} className="text-[10px] bg-amber-500/15 text-amber-300 rounded-full px-2 py-0.5">{p} ×{n as number}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {analyzeMutation.data?.analysis && (
             <div className="glass rounded-xl p-5 prose prose-invert prose-sm max-w-none">
               <Streamdown>{analyzeMutation.data.analysis}</Streamdown>
             </div>
           )}
-
           {analyzeMutation.isError && (
             <div className="glass rounded-xl p-4 border border-red-500/30 text-red-400 text-sm">
               Ошибка анализа: {analyzeMutation.error.message}
