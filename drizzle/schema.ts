@@ -75,6 +75,10 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   subscribersGained: int("subscribersGained"),
   /** Approximate subscriber count of the source channel (for efficiency analysis) */
   sourceSubscribers: bigint("sourceSubscribers", { mode: "number" }),
+  /** Mutual subscription deal (ВП) flag */
+  isMutual: boolean("isMutual").default(false).notNull(),
+  /** Partner channel name for ВП */
+  partnerChannel: varchar("partnerChannel", { length: 255 }),
   /** Bot / stories flag */
   botStories: varchar("botStories", { length: 255 }),
   /** Bot / stories payment amount */
@@ -180,12 +184,20 @@ export const mutualDeals = mysqlTable("mutual_deals", {
   partnerChannelName: varchar("partnerChannelName", { length: 255 }).notNull(),
   /** Partner contact (admin name, username, etc.) */
   partnerContact: varchar("partnerContact", { length: 255 }),
-  /** Planned placement date */
+  /** Planned placement date (legacy, kept for compatibility) */
   dealDate: timestamp("dealDate"),
+  /** Date our post was placed */
+  ourPostDate: timestamp("ourPostDate"),
+  /** Date partner post was placed */
+  partnerPostDate: timestamp("partnerPostDate"),
   /** Our channel reach for this deal */
   ourReach: bigint("ourReach", { mode: "number" }),
   /** Partner channel reach */
   partnerReach: bigint("partnerReach", { mode: "number" }),
+  /** Auto-created sale record ID (our post placed in our channel) */
+  saleRecordId: int("saleRecordId"),
+  /** Auto-created purchase record ID (partner post placed in our channel) */
+  purchaseRecordId: int("purchaseRecordId"),
   /** Deal type: without doplate or with doplate */
   dealType: mysqlEnum("dealType", ["без доплаты", "с доплатой"]).default("без доплаты").notNull(),
   /** Doplate direction: who pays whom */

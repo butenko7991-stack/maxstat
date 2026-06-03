@@ -417,6 +417,11 @@ export default function PurchasesPage() {
                     {r.direction && <span className="text-xs text-muted-foreground">{r.direction}</span>}
                     {r.tariff && <span className="text-xs text-muted-foreground">{r.tariff}</span>}
                     {r.spm && <span className="text-xs text-muted-foreground">СПМ: {r.spm}</span>}
+                    {!!(r as Record<string, unknown>).isMutual && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-500/20 text-violet-400 border border-violet-500/30">
+                        ⇄ ВП{(r as Record<string, unknown>).partnerChannel ? `: ${String((r as Record<string, unknown>).partnerChannel)}` : ""}
+                      </span>
+                    )}
                   </div>
                   {r.link && (
                     <a

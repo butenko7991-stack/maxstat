@@ -241,9 +241,25 @@
 - [x] AIAnalyticsPage Subscribers tab: добавить отдельный график ER24 по времени
 
 ## Полный AI-анализ (все поля из БД)
-- [ ] Backend: расширить ChannelProfitData — добавить агрегаты: totalSubscribersGained, avgSpm, topDirection, mutualCount, botStoriesTotal, avgReach, avgBuyerSubs
-- [ ] Backend: getChannelProfitability — добавить SQL-агрегаты по subscribersGained, spm, reach, direction, botStoriesCost для purchases; platform, reach, buyerSubscribers, isMutual, botStoriesCost для sales
-- [ ] Backend: analyzeChannels — включить в промпт: ниши (direction), тарифы, СПМ, охваты закупа, ботов/сторис, взаимки (mutual_deals), платформы продаж, buyerSubscribers
-- [ ] Backend: generateDigest — расширить промпт теми же данными + топ-ниши, топ-тарифы, ВП-сделки
-- [ ] Backend: новая DB-функция getAiContext(userId, month) — единый агрегат всех данных для AI
-- [ ] Frontend: AI Analysis tab — показывать структурированные секции: «Закуп по нишам», «Эффективность тарифов», «Взаимки», «Платформы продаж»
+- [x] Backend: расширить ChannelProfitData — добавить агрегаты: totalSubscribersGained, avgSpm, topDirection, mutualCount, botStoriesTotal, avgReach, avgBuyerSubs
+- [x] Backend: getChannelProfitability — добавить SQL-агрегаты по subscribersGained, spm, reach, direction, botStoriesCost для purchases; platform, reach, buyerSubscribers, isMutual, botStoriesCost для sales
+- [x] Backend: analyzeChannels — включить в промпт: ниши (direction), тарифы, СПМ, охваты закупа, ботов/сторис, взаимки (mutual_deals), платформы продаж, buyerSubscribers
+- [x] Backend: generateDigest — расширить промпт теми же данными + топ-ниши, топ-тарифы, ВП-сделки
+- [x] Backend: новая DB-функция getAiContext(userId, month) — единый агрегат всех данных для AI
+- [x] Frontend: AI Analysis tab — показывать структурированные секции: «Закуп по нишам», «Эффективность тарифов», «Взаимки», «Платформы продаж»
+
+## Примечание по архитектуре AI-анализа
+- [x] Уточнение: `getChannelProfitability` / `ChannelProfitData` используется только для вкладки «Рентабельность» (простые финансовые итоги). Для AI-анализа (`analyzeChannels`, `generateDigest`) создана отдельная функция `getAiContext` с полным набором данных (CPF, ER24, охваты, ниши, тарифы, взаимки, бот/сторис, платформы). Это намеренное разделение — `getChannelProfitability` не нуждается в расширении.
+
+## ВП Вариант 2 — «Зонтик» с автосозданием записей
+- [x] DB: добавить в mutual_deals поля saleRecordId (FK → sale_records), purchaseRecordId (FK → purchase_records), ourPostDate (timestamp), partnerPostDate (timestamp)
+- [x] DB: миграция — применить ALTER TABLE
+- [x] Backend: createMutualDeal — автоматически создаёт sale_record (наш пост у нас, стоимость = 0 или доплата) и purchase_record (пост партнёра у нас, стоимость = 0 или доплата), сохраняет их ID в mutual_deals
+- [x] Backend: updateMutualDeal — обновляет связанные sale/purchase записи при изменении охватов, дат, доплаты
+- [x] Backend: deleteMutualDeal — удаляет связанные sale/purchase записи каскадно
+- [x] Backend: getMutualDeals — возвращает данные вместе со связанными записями (join)
+- [x] Backend: getAiContext — корректно учитывает ВП-записи (не дублировать стоимость)
+- [x] Frontend: форма создания ВП — два блока «Наш пост» (дата, охват, ссылка) и «Пост партнёра» (дата, охват, ссылка), доплата с направлением
+- [x] Frontend: карточка ВП — показывать привязанные записи Продажи и Закупа с охватами
+- [x] Frontend: в Продаже и Закупе — показывать бейдж «ВП» на автосозданных записях со ссылкой на ВП-сделку
+- [x] Тесты: vitest для createMutualDeal с автосозданием записей

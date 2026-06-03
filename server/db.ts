@@ -960,6 +960,175 @@ export async function deleteMutualDeal(id: number, userId: number): Promise<void
     .where(and(eq(mutualDeals.id, id), eq(mutualDeals.userId, userId)));
 }
 
+// ─── Mutual Deal "Umbrella" helpers ───────────────────────────────────────────
+/**
+ * Input for creating a ВП deal with auto-linked sale/purchase records.
+ * - "Our post" = we place partner's ad in our channel → sale_record (revenue = doplate if they_pay, else 0)
+ * - "Partner post" = partner places our ad in their channel → purchase_record (cost = doplate if we_pay, else 0)
+ */
+export interface CreateMutualDealInput {
+  userId: number;
+  ourChannelId: number;
+  partnerChannelName: string;
+  partnerContact?: string | null;
+  month: string;
+  notes?: string | null;
+  ourPostDate?: Date | null;
+  ourReach?: number | null;
+  ourPostLink?: string | null;
+  partnerPostDate?: Date | null;
+  partnerReach?: number | null;
+  partnerPostLink?: string | null;
+  dealType: "без доплаты" | "с доплатой";
+  dopDirection?: "мы платим" | "нам платят" | null;
+  dopAmount?: string | null;
+  dopPaymentStatus: "paid" | "unpaid" | "not_applicable";
+  status: "предложение" | "согласовано" | "размещено" | "завершено" | "отменено";
+}
+
+export async function createMutualDealWithRecords(input: CreateMutualDealInput): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  const dopAmountNum = input.dopAmount ? parseFloat(input.dopAmount) : 0;
+  const saleRevenue = (input.dealType === "с доплатой" && input.dopDirection === "нам платят")
+    ? String(dopAmountNum) : "0";
+  const purchaseCost = (input.dealType === "с доплатой" && input.dopDirection === "мы платим")
+    ? String(dopAmountNum) : "0";
+  const salePaymentStatus: "paid" | "unpaid" =
+    input.dealType === "с доплатой" && input.dopDirection === "нам платят"
+      ? (input.dopPaymentStatus as "paid" | "unpaid") : "paid";
+  const purchasePaymentStatus: "paid" | "unpaid" =
+    input.dealType === "с доплатой" && input.dopDirection === "мы платим"
+      ? (input.dopPaymentStatus as "paid" | "unpaid") : "paid";
+
+  const saleId = await createSaleRecord({
+    userId: input.userId,
+    channelId: input.ourChannelId,
+    date: input.ourPostDate ?? new Date(),
+    admin: input.partnerChannelName,
+    link: input.ourPostLink ?? null,
+    month: input.month,
+    reach: input.ourReach ?? null,
+    cost: saleRevenue,
+    paymentStatus: salePaymentStatus,
+    isMutual: true,
+    partnerChannel: input.partnerChannelName,
+    ourReach: input.ourReach ?? null,
+    partnerReach: input.partnerReach ?? null,
+    notes: input.notes ?? null,
+  });
+
+  const purchaseId = await createPurchaseRecord({
+    userId: input.userId,
+    channelId: input.ourChannelId,
+    date: input.partnerPostDate ?? new Date(),
+    admin: input.partnerChannelName,
+    link: input.partnerPostLink ?? null,
+    month: input.month,
+    reach: input.partnerReach ?? null,
+    cost: purchaseCost,
+    paymentStatus: purchasePaymentStatus,
+    isMutual: true,
+    partnerChannel: input.partnerChannelName,
+    notes: input.notes ?? null,
+  });
+
+  const dealResult = await db.insert(mutualDeals).values({
+    userId: input.userId,
+    ourChannelId: input.ourChannelId,
+    partnerChannelName: input.partnerChannelName,
+    partnerContact: input.partnerContact ?? null,
+    ourPostDate: input.ourPostDate ?? null,
+    partnerPostDate: input.partnerPostDate ?? null,
+    ourReach: input.ourReach ?? null,
+    partnerReach: input.partnerReach ?? null,
+    dealType: input.dealType,
+    dopDirection: input.dopDirection ?? null,
+    dopAmount: input.dopAmount ?? null,
+    dopPaymentStatus: input.dopPaymentStatus,
+    ourPostLink: input.ourPostLink ?? null,
+    partnerPostLink: input.partnerPostLink ?? null,
+    status: input.status,
+    month: input.month,
+    notes: input.notes ?? null,
+    saleRecordId: saleId,
+    purchaseRecordId: purchaseId,
+  });
+  return (dealResult[0] as any).insertId as number;
+}
+
+export async function updateMutualDealWithRecords(
+  id: number,
+  userId: number,
+  input: Partial<CreateMutualDealInput>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getMutualDealById(id, userId);
+  if (!existing) return;
+
+  const dopAmountNum = input.dopAmount ? parseFloat(input.dopAmount) : 0;
+  const dealType = input.dealType ?? existing.dealType;
+  const dopDirection = input.dopDirection !== undefined ? input.dopDirection : existing.dopDirection;
+  const dopPaymentStatus = input.dopPaymentStatus ?? existing.dopPaymentStatus;
+
+  const saleRevenue = (dealType === "с доплатой" && dopDirection === "нам платят") ? String(dopAmountNum) : "0";
+  const purchaseCost = (dealType === "с доплатой" && dopDirection === "мы платим") ? String(dopAmountNum) : "0";
+  const salePaymentStatus: "paid" | "unpaid" =
+    dealType === "с доплатой" && dopDirection === "нам платят" ? (dopPaymentStatus as "paid" | "unpaid") : "paid";
+  const purchasePaymentStatus: "paid" | "unpaid" =
+    dealType === "с доплатой" && dopDirection === "мы платим" ? (dopPaymentStatus as "paid" | "unpaid") : "paid";
+
+  if (existing.saleRecordId) {
+    const saleUpdate: Record<string, unknown> = { cost: saleRevenue, paymentStatus: salePaymentStatus };
+    if (input.ourPostDate !== undefined) saleUpdate.date = input.ourPostDate;
+    if (input.ourReach !== undefined) { saleUpdate.reach = input.ourReach; saleUpdate.ourReach = input.ourReach; }
+    if (input.partnerReach !== undefined) saleUpdate.partnerReach = input.partnerReach;
+    if (input.ourPostLink !== undefined) saleUpdate.link = input.ourPostLink;
+    if (input.partnerChannelName !== undefined) saleUpdate.admin = input.partnerChannelName;
+    if (input.notes !== undefined) saleUpdate.notes = input.notes;
+    await updateSaleRecord(existing.saleRecordId, userId, saleUpdate as any);
+  }
+
+  if (existing.purchaseRecordId) {
+    const purchaseUpdate: Record<string, unknown> = { cost: purchaseCost, paymentStatus: purchasePaymentStatus };
+    if (input.partnerPostDate !== undefined) purchaseUpdate.date = input.partnerPostDate;
+    if (input.partnerReach !== undefined) purchaseUpdate.reach = input.partnerReach;
+    if (input.partnerPostLink !== undefined) purchaseUpdate.link = input.partnerPostLink;
+    if (input.partnerChannelName !== undefined) purchaseUpdate.admin = input.partnerChannelName;
+    if (input.notes !== undefined) purchaseUpdate.notes = input.notes;
+    await updatePurchaseRecord(existing.purchaseRecordId, userId, purchaseUpdate as any);
+  }
+
+  const dealUpdate: Partial<InsertMutualDeal> = {};
+  if (input.partnerChannelName !== undefined) dealUpdate.partnerChannelName = input.partnerChannelName;
+  if (input.partnerContact !== undefined) dealUpdate.partnerContact = input.partnerContact ?? null;
+  if (input.ourPostDate !== undefined) dealUpdate.ourPostDate = input.ourPostDate ?? null;
+  if (input.partnerPostDate !== undefined) dealUpdate.partnerPostDate = input.partnerPostDate ?? null;
+  if (input.ourReach !== undefined) dealUpdate.ourReach = input.ourReach ?? null;
+  if (input.partnerReach !== undefined) dealUpdate.partnerReach = input.partnerReach ?? null;
+  if (input.dealType !== undefined) dealUpdate.dealType = input.dealType;
+  if (input.dopDirection !== undefined) dealUpdate.dopDirection = input.dopDirection ?? null;
+  if (input.dopAmount !== undefined) dealUpdate.dopAmount = input.dopAmount ?? null;
+  if (input.dopPaymentStatus !== undefined) dealUpdate.dopPaymentStatus = input.dopPaymentStatus;
+  if (input.ourPostLink !== undefined) dealUpdate.ourPostLink = input.ourPostLink ?? null;
+  if (input.partnerPostLink !== undefined) dealUpdate.partnerPostLink = input.partnerPostLink ?? null;
+  if (input.status !== undefined) dealUpdate.status = input.status;
+  if (input.notes !== undefined) dealUpdate.notes = input.notes ?? null;
+  await updateMutualDeal(id, userId, dealUpdate);
+}
+
+export async function deleteMutualDealWithRecords(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getMutualDealById(id, userId);
+  if (!existing) return;
+  if (existing.saleRecordId) await deleteSaleRecord(existing.saleRecordId, userId);
+  if (existing.purchaseRecordId) await deletePurchaseRecord(existing.purchaseRecordId, userId);
+  await deleteMutualDeal(id, userId);
+}
+
 /** Calculate recommended doplate amount based on reach difference */
 export function calcRecommendedDoplate(ourReach: number, partnerReach: number, baseSpm: number = 1000): {
   diff: number;

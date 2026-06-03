@@ -42,6 +42,9 @@ import {
   createMutualDeal,
   updateMutualDeal,
   deleteMutualDeal,
+  createMutualDealWithRecords,
+  updateMutualDealWithRecords,
+  deleteMutualDealWithRecords,
   calcRecommendedDoplate,
   listSubscriberSnapshots,
   upsertSubscriberSnapshot,
@@ -778,15 +781,17 @@ const mutualInput = z.object({
   ourChannelId: z.number().int(),
   partnerChannelName: z.string().min(1).max(255),
   partnerContact: z.string().max(255).optional(),
-  dealDate: z.date().optional(),
+  // Per-side dates (replaces single dealDate)
+  ourPostDate: z.date().optional(),
+  partnerPostDate: z.date().optional(),
   ourReach: z.number().int().optional(),
   partnerReach: z.number().int().optional(),
+  ourPostLink: z.string().max(1024).optional(),
+  partnerPostLink: z.string().max(1024).optional(),
   dealType: z.enum(["без доплаты", "с доплатой"]).default("без доплаты"),
   dopDirection: z.enum(["мы платим", "нам платят"]).optional(),
   dopAmount: z.string().optional(),
   dopPaymentStatus: z.enum(["paid", "unpaid", "not_applicable"]).default("not_applicable"),
-  ourPostLink: z.string().max(1024).optional(),
-  partnerPostLink: z.string().max(1024).optional(),
   status: z.enum(["предложение", "согласовано", "размещено", "завершено", "отменено"]).default("предложение"),
   month: z.string().regex(/^\d{4}-\d{2}$/),
   notes: z.string().optional(),
@@ -805,42 +810,41 @@ const mutualRouter = router({
     .input(z.object({ id: z.number().int() }))
     .query(({ ctx, input }) => getMutualDealById(input.id, ctx.user.id)),
 
-  create: protectedProcedure
+   create: protectedProcedure
     .input(mutualInput)
     .mutation(async ({ ctx, input }) => {
-      const id = await createMutualDeal({
+      const id = await createMutualDealWithRecords({
         userId: ctx.user.id,
         ourChannelId: input.ourChannelId,
         partnerChannelName: input.partnerChannelName,
         partnerContact: input.partnerContact ?? null,
-        dealDate: input.dealDate ?? null,
+        ourPostDate: input.ourPostDate ?? null,
+        partnerPostDate: input.partnerPostDate ?? null,
         ourReach: input.ourReach ?? null,
         partnerReach: input.partnerReach ?? null,
+        ourPostLink: input.ourPostLink ?? null,
+        partnerPostLink: input.partnerPostLink ?? null,
         dealType: input.dealType,
         dopDirection: input.dopDirection ?? null,
         dopAmount: input.dopAmount ?? null,
         dopPaymentStatus: input.dopPaymentStatus,
-        ourPostLink: input.ourPostLink ?? null,
-        partnerPostLink: input.partnerPostLink ?? null,
         status: input.status,
         month: input.month,
         notes: input.notes ?? null,
       });
       return { id };
     }),
-
   update: protectedProcedure
     .input(z.object({ id: z.number().int() }).merge(mutualInput.partial()))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      await updateMutualDeal(id, ctx.user.id, data as any);
+      await updateMutualDealWithRecords(id, ctx.user.id, data as any);
       return { success: true };
     }),
-
   delete: protectedProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
-      await deleteMutualDeal(input.id, ctx.user.id);
+      await deleteMutualDealWithRecords(input.id, ctx.user.id);;
       return { success: true };
     }),
 
