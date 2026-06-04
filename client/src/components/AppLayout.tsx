@@ -1,5 +1,4 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
 import { cn } from "@/lib/utils";
 import {
   BarChart3,
@@ -60,12 +59,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
               Управление закупом и продажей рекламы в мессенджере Макс
             </p>
           </div>
-          <a
-            href={getLoginUrl()}
-            className="block w-full py-3 px-6 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:opacity-90 transition-opacity"
+          <Link
+            href="/login"
+            className="block w-full py-3 px-6 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:opacity-90 transition-opacity text-center"
           >
-            Войти через Manus
-          </a>
+            Войти
+          </Link>
         </div>
       </div>
     );

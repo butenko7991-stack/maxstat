@@ -79,6 +79,39 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createLocalUser(data: {
+  openId: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role?: "user" | "admin" | "buyer" | "manager";
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(users).values({
+    openId: data.openId,
+    name: data.name,
+    email: data.email,
+    passwordHash: data.passwordHash,
+    loginMethod: "local",
+    role: data.role ?? "user",
+    lastSignedIn: new Date(),
+  });
+}
+
+export async function updateUserPasswordHash(openId: string, passwordHash: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ passwordHash }).where(eq(users.openId, openId));
+}
+
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
 export async function getChannelsByUser(userId: number): Promise<Channel[]> {

@@ -265,9 +265,9 @@
 - [x] Тесты: vitest для createMutualDeal с автосозданием записей
 
 ## Удаление Бот/Сторис
-- [ ] DB: удалить botStories, botStoriesCost из purchase_records и sale_records
-- [ ] Backend: убрать botStories/botStoriesCost из purchaseInput, saleInput, createPurchaseRecord, createSaleRecord, updatePurchaseRecord, updateSaleRecord, bulkCreate, getAiContext
-- [ ] Frontend: убрать поля из RecordFormModal (Purchase + Sale)
-- [ ] Frontend: убрать поля из SchedulePage (EMPTY_PURCHASE_FORM, EMPTY_SALE_FORM, payloads)
-- [ ] Frontend: убрать из AIAnalyticsPage (если упоминается в аналитике)
-- [ ] Тесты: обновить моки и ожидания
+- [x] DB: удалить botStories, botStoriesCost из purchase_records и sale_records
+- [x] Backend: убрать botStories/botStoriesCost из purchaseInput, saleInput, createPurchaseRecord, createSaleRecord, updatePurchaseRecord, updateSaleRecord, bulkCreate, getAiContext
+- [x] Frontend: убрать поля из RecordFormModal (Purchase + Sale)
+- [x] Frontend: убрать поля из SchedulePage (EMPTY_PURCHASE_FORM, EMPTY_SALE_FORM, payloads)
+- [x] Frontend: убрать из AIAnalyticsPage (если упоминается в аналитике)
+- [x] Тесты: обновить моки и ожидания
