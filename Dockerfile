@@ -13,8 +13,9 @@ COPY patches/ ./patches/
 # Install all deps (including devDeps needed for build)
 RUN pnpm install --frozen-lockfile
 
-# Copy source
+# Copy source — ARG after COPY forces cache invalidation when bumped
 COPY . .
+ARG CACHE_BUST=1
 
 # Build frontend (dist/public) + backend (dist/index.js)
 RUN pnpm run build
