@@ -20,8 +20,31 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // Fall through to index.html for client-side routing
+  // Fall through to index.html for client-side routing.
+  // Inject a <script> that exposes runtime env vars as window.__ENV__ so the
+  // frontend can read them even though they weren't available at Vite build time.
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    const indexPath = path.resolve(distPath, "index.html");
+    fs.readFile(indexPath, "utf-8", (err, html) => {
+      if (err) {
+        res.status(500).send("Could not load index.html");
+        return;
+      }
+
+      const env = {
+        VITE_OAUTH_PORTAL_URL: process.env.VITE_OAUTH_PORTAL_URL ?? "",
+        VITE_APP_ID: process.env.VITE_APP_ID ?? "",
+        VITE_FRONTEND_FORGE_API_URL:
+          process.env.VITE_FRONTEND_FORGE_API_URL ?? "",
+        VITE_FRONTEND_FORGE_API_KEY:
+          process.env.VITE_FRONTEND_FORGE_API_KEY ?? "",
+      };
+
+      const injectedScript = `<script>window.__ENV__ = ${JSON.stringify(env)};</script>`;
+      const injectedHtml = html.replace("</head>", `${injectedScript}\n</head>`);
+
+      res.setHeader("Content-Type", "text/html");
+      res.send(injectedHtml);
+    });
   });
 }
