@@ -19,18 +19,27 @@ import RegisterPage from "./pages/RegisterPage";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
-      <Route path="/channels" component={ChannelsPage} />
-      <Route path="/purchases" component={PurchasesPage} />
-      <Route path="/sales" component={SalesPage} />
-      <Route path="/schedule" component={SchedulePage} />
-      <Route path="/summary" component={SummaryPage} />
-      <Route path="/ai" component={AIAnalyticsPage} />
-      <Route path="/admin" component={AdminPage} />
+      {/* Public auth pages — rendered WITHOUT AppLayout so unauthenticated users can access them */}
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
-      <Route path="/404" component={NotFound} />
-      <Route component={NotFound} />
+
+      {/* All other routes are wrapped in AppLayout which handles auth guard */}
+      <Route>
+        <AppLayout>
+          <Switch>
+            <Route path="/" component={Home} />
+            <Route path="/channels" component={ChannelsPage} />
+            <Route path="/purchases" component={PurchasesPage} />
+            <Route path="/sales" component={SalesPage} />
+            <Route path="/schedule" component={SchedulePage} />
+            <Route path="/summary" component={SummaryPage} />
+            <Route path="/ai" component={AIAnalyticsPage} />
+            <Route path="/admin" component={AdminPage} />
+            <Route path="/404" component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </AppLayout>
+      </Route>
     </Switch>
   );
 }
@@ -41,9 +50,7 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
-          <AppLayout>
-            <Router />
-          </AppLayout>
+          <Router />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
