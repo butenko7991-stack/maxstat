@@ -929,6 +929,101 @@ const snapshotsRouter = router({
     }),
 });
 
+// ─── OCR / Screenshot recognition router ────────────────────────────────────────────────────────────────────────────
+const ocrRouter = router({
+  /**
+   * Accepts a base64-encoded image (PNG/JPEG/WEBP) and returns structured
+   * purchase data extracted by the vision LLM.
+   */
+  recognizePurchaseScreenshot: protectedProcedure
+    .input(z.object({
+      /** base64-encoded image WITHOUT the data:... prefix */
+      imageBase64: z.string().min(100),
+      /** MIME type of the image */
+      mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]).default("image/jpeg"),
+    }))
+    .mutation(async ({ input }) => {
+      const dataUrl = `data:${input.mimeType};base64,${input.imageBase64}`;
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: "system",
+            content: `Ты — ассистент для распознавания скриншотов статистики рекламных закупов в мессенджере MAX (ВКонтакте).
+Извлеки данные из скриншота и верни их в виде JSON. Если поле не найдено — верни null.
+Поля для извлечения:
+- channelName: название канала-источника (откуда пришли подписчики), строка или null
+- date: дата закупа в формате YYYY-MM-DD или null
+- subscribersGained: количество подписавшихся (число) или null
+- subscribersLeft: количество отписавшихся (число) или null
+- reach: просмотры/охваты (число) или null
+- cost: стоимость размещения в рублях (число) или null
+- cpm: CPM/СПМ в рублях (число) или null
+- pricePerSubscriber: цена ПДП/цена подписчика в рублях (число) или null
+- creative: название/тип креатива (строка) или null
+- timeSlot: время выхода поста (строка, например "22:09") или null
+
+Верни ТОЛЬКО валидный JSON объект без markdown-блоков.`,
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Извлеки данные из этого скриншота статистики закупа:" },
+              { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+            ],
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "purchase_screenshot_data",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                channelName: { type: ["string", "null"] },
+                date: { type: ["string", "null"] },
+                subscribersGained: { type: ["number", "null"] },
+                subscribersLeft: { type: ["number", "null"] },
+                reach: { type: ["number", "null"] },
+                cost: { type: ["number", "null"] },
+                cpm: { type: ["number", "null"] },
+                pricePerSubscriber: { type: ["number", "null"] },
+                creative: { type: ["string", "null"] },
+                timeSlot: { type: ["string", "null"] },
+              },
+              required: ["channelName", "date", "subscribersGained", "subscribersLeft", "reach", "cost", "cpm", "pricePerSubscriber", "creative", "timeSlot"],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+
+      const raw = result.choices[0]?.message?.content;
+      if (!raw || typeof raw !== "string") {
+        throw new Error("LLM вернул пустой ответ");
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as {
+          channelName: string | null;
+          date: string | null;
+          subscribersGained: number | null;
+          subscribersLeft: number | null;
+          reach: number | null;
+          cost: number | null;
+          cpm: number | null;
+          pricePerSubscriber: number | null;
+          creative: string | null;
+          timeSlot: string | null;
+        };
+        return { success: true as const, data: parsed };
+      } catch {
+        return { success: false as const, error: "Не удалось разобрать ответ AI", raw };
+      }
+    }),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -947,6 +1042,7 @@ export const appRouter = router({system: systemRouter,  auth: router({
   admin: adminRouter,
   mutual: mutualRouter,
   snapshots: snapshotsRouter,
+  ocr: ocrRouter,
 });
 
 export type AppRouter = typeof appRouter;

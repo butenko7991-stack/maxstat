@@ -15,9 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useEffect } from "react";
-import { AlertCircle, Calculator } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2 } from "lucide-react";
 import { AutocompleteInput } from "./AutocompleteInput";
+import { trpc } from "@/lib/trpc";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
 export type TimeSlot = string;
@@ -121,6 +122,48 @@ export function PurchaseFormModal({
   suggestions,
   bulkSlotsSummary,
 }: PurchaseFormModalProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [ocrStatus, setOcrStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [ocrPreview, setOcrPreview] = useState<string | null>(null);
+  const recognizeMutation = trpc.ocr.recognizePurchaseScreenshot.useMutation();
+
+  const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrStatus("loading");
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const imageBase64 = (ev.target?.result as string).split(",")[1];
+      const mimeType = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+      setOcrPreview(ev.target?.result as string);
+      try {
+        const response = await recognizeMutation.mutateAsync({ imageBase64, mimeType });
+        if (!response.success) { setOcrStatus("error"); return; }
+        const d = response.data;
+        setForm((f) => ({
+          ...f,
+          ...(d.date ? { date: d.date, month: d.date.slice(0, 7) } : {}),
+          ...(d.subscribersGained != null ? { subscribersGained: String(d.subscribersGained) } : {}),
+          ...(d.reach != null ? { reach: String(d.reach) } : {}),
+          ...(d.cost != null ? { cost: String(d.cost) } : {}),
+          ...(d.cpm != null ? { spm: String(d.cpm) } : {}),
+          ...(d.timeSlot ? { timeSlot: d.timeSlot } : {}),
+          ...(d.channelName && channels.length > 0 ? (() => {
+            const name = d.channelName!.toLowerCase();
+            const match = channels.find(c =>
+              c.name.toLowerCase().includes(name) || name.includes(c.name.toLowerCase())
+            );
+            return match ? { channelId: String(match.id) } : {};
+          })() : {}),
+        }));
+        setOcrStatus("done");
+      } catch {
+        setOcrStatus("error");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
     if (!form.reach || !form.spm) return;
@@ -137,6 +180,50 @@ export function PurchaseFormModal({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4 pt-2">
+          {/* ── Screenshot OCR block ── */}
+          <div className="rounded-xl border border-blue-800/40 bg-blue-950/20 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-blue-400/80 font-medium">
+                <Camera className="w-3.5 h-3.5" />
+                Загрузить скрин статистики
+              </div>
+              {ocrStatus === "done" && (
+                <div className="flex items-center gap-1 text-xs text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Распознано
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={handleScreenshotUpload}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs border-blue-700/50 text-blue-300 hover:bg-blue-900/30"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={ocrStatus === "loading"}
+              >
+                {ocrStatus === "loading" ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Распознаю...</>
+                ) : (
+                  <><Camera className="w-3.5 h-3.5 mr-1.5" /> Выбрать скрин</>
+                )}
+              </Button>
+              {ocrPreview && (
+                <img src={ocrPreview} alt="preview" className="h-10 w-auto rounded border border-border object-cover" />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              AI автоматически заполнит поля: дата, подписчики, охваты, стоимость, CPM, время
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             {bulkSlotsSummary ? (
               <div className="col-span-2">{bulkSlotsSummary}</div>

@@ -1,0 +1,34 @@
+{
+  "query": "SHOW TABLES;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute SHOW TABLES;",
+  "rows": [
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "__drizzle_migrations"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "channel_assignments"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "channel_subscriber_snapshots"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "channels"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "mutual_deals"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "purchase_records"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "sale_records"
+    },
+    {
+      "Tables_in_m7risP4w4X9EeRX7Kf6EPq": "users"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_m7risP4w4X9EeRX7Kf6EPq\n__drizzle_migrations\nchannel_assignments\nchannel_subscriber_snapshots\nchannels\nmutual_deals\npurchase_records\nsale_records\nusers\n",
+  "stderr": "",
+  "execution_time_ms": 3277
+}
