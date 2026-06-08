@@ -932,6 +932,86 @@ const snapshotsRouter = router({
 // ─── OCR / Screenshot recognition router ────────────────────────────────────────────────────────────────────────────
 const ocrRouter = router({
   /**
+   * Accepts a base64-encoded Trustat screenshot and returns structured
+   * channel statistics extracted by the vision LLM.
+   */
+  recognizeTrustatScreenshot: protectedProcedure
+    .input(z.object({
+      imageBase64: z.string().min(100),
+      mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]).default("image/jpeg"),
+    }))
+    .mutation(async ({ input }) => {
+      const dataUrl = `data:${input.mimeType};base64,${input.imageBase64}`;
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: "system",
+            content: `Ты — ассистент для распознавания скриншотов статистики каналов из сервиса Trustat (аналитика MAX/ВКонтакте).
+Извлеки данные из скриншота и верни их в виде JSON. Если поле не найдено — верни null.
+Поля для извлечения:
+- channelName: название канала (строка) или null
+- subscriberCount: количество подписчиков (число) или null
+- views24h: просмотры/охваты за 24 часа (число) или null
+- views48h: просмотры/охваты за 48 часов (число) или null
+- views72h: просмотры/охваты за 72 часа (число) или null
+- er24: ER за 24 часа в процентах (число, например 13.93) или null
+- weeklyGrowth: прирост подписчиков за неделю (число) или null
+- snapshotDate: дата актуальности данных в формате YYYY-MM-DD или null
+Верни ТОЛЬКО валидный JSON объект без markdown-блоков.`,
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Извлеки статистику канала из этого скриншота Trustat:" },
+              { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+            ],
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "trustat_screenshot_data",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                channelName: { type: ["string", "null"] },
+                subscriberCount: { type: ["number", "null"] },
+                views24h: { type: ["number", "null"] },
+                views48h: { type: ["number", "null"] },
+                views72h: { type: ["number", "null"] },
+                er24: { type: ["number", "null"] },
+                weeklyGrowth: { type: ["number", "null"] },
+                snapshotDate: { type: ["string", "null"] },
+              },
+              required: ["channelName", "subscriberCount", "views24h", "views48h", "views72h", "er24", "weeklyGrowth", "snapshotDate"],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+      const raw = result.choices[0]?.message?.content;
+      if (!raw || typeof raw !== "string") {
+        throw new Error("LLM вернул пустой ответ");
+      }
+      try {
+        const parsed = JSON.parse(raw) as {
+          channelName: string | null;
+          subscriberCount: number | null;
+          views24h: number | null;
+          views48h: number | null;
+          views72h: number | null;
+          er24: number | null;
+          weeklyGrowth: number | null;
+          snapshotDate: string | null;
+        };
+        return { success: true as const, data: parsed };
+      } catch {
+        return { success: false as const, error: "Не удалось разобрать ответ AI", raw };
+      }
+    }),
+
+  /**
    * Accepts a base64-encoded image (PNG/JPEG/WEBP) and returns structured
    * purchase data extracted by the vision LLM.
    */

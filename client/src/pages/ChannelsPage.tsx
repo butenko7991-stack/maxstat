@@ -1,7 +1,7 @@
-import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Layers, X, Check, Users, ChevronDown, ChevronUp, Save } from "lucide-react";
+import { Plus, Pencil, Trash2, Layers, X, Check, Users, ChevronDown, ChevronUp, Save, Camera, Loader2, CheckCircle2 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,6 +46,47 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
   const [snapEr24, setSnapEr24] = useState("");
   const [snapWeeklyGrowth, setSnapWeeklyGrowth] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  // OCR state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [ocrStatus, setOcrStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [ocrPreview, setOcrPreview] = useState<string | null>(null);
+  const recognizeTrustatMutation = trpc.ocr.recognizeTrustatScreenshot.useMutation();
+
+  const handleTrustatUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrStatus("loading");
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string;
+      const imageBase64 = dataUrl.split(",")[1];
+      const mimeType = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+      setOcrPreview(dataUrl);
+      try {
+        const response = await recognizeTrustatMutation.mutateAsync({ imageBase64, mimeType });
+        if (!response.success) {
+          setOcrStatus("error");
+          toast.error("AI не смог распознать скрин Trustat");
+          return;
+        }
+        const d = response.data;
+        if (d.subscriberCount != null) setSnapCount(String(d.subscriberCount));
+        if (d.views24h != null) setSnapViews24h(String(d.views24h));
+        if (d.views48h != null) setSnapViews48h(String(d.views48h));
+        if (d.views72h != null) setSnapViews72h(String(d.views72h));
+        if (d.er24 != null) setSnapEr24(String(d.er24));
+        if (d.weeklyGrowth != null) setSnapWeeklyGrowth(String(d.weeklyGrowth));
+        if (d.snapshotDate) setSnapDate(d.snapshotDate);
+        setOcrStatus("done");
+        toast.success("Данные Trustat распознаны — проверьте и сохраните");
+      } catch {
+        setOcrStatus("error");
+        toast.error("Ошибка распознавания скрина");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const { data: snapshots, isLoading, isError } = trpc.snapshots.list.useQuery(
     { channelId },
@@ -106,6 +147,53 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
 
       {expanded && (
         <div className="mt-3 space-y-3">
+          {/* Trustat OCR block */}
+          <div className="rounded-xl border border-violet-800/40 bg-violet-950/20 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-violet-400/80 font-medium">
+                <Camera className="w-3.5 h-3.5" />
+                Загрузить скрин Trustat
+              </div>
+              {ocrStatus === "done" && (
+                <div className="flex items-center gap-1 text-xs text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Распознано
+                </div>
+              )}
+              {ocrStatus === "error" && (
+                <div className="text-xs text-red-400">Ошибка распознавания</div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={handleTrustatUpload}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs border-violet-700/50 text-violet-300 hover:bg-violet-900/30 h-8"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={ocrStatus === "loading"}
+              >
+                {ocrStatus === "loading" ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Распознаю...</>
+                ) : (
+                  <><Camera className="w-3.5 h-3.5 mr-1.5" /> Выбрать скрин</>
+                )}
+              </Button>
+              {ocrPreview && (
+                <img src={ocrPreview} alt="preview" className="h-10 w-auto rounded border border-border object-cover" />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              AI заполнит: подписчики, охваты 24/48/72ч, ER24, прирост, дата
+            </p>
+          </div>
+
           {/* Add snapshot form */}
           <form onSubmit={handleSave} className="flex flex-wrap gap-2 items-end">
             <div className="space-y-1 flex-1 min-w-[120px]">
