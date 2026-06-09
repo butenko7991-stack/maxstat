@@ -56,12 +56,20 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
   const handleTrustatUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
     setOcrStatus("loading");
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const dataUrl = ev.target?.result as string;
       const imageBase64 = dataUrl.split(",")[1];
-      const mimeType = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+      // Normalise MIME type – mobile browsers sometimes return empty string or non-standard types
+      const rawMime = file.type || "";
+      const allowedMimes = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+      type AllowedMime = typeof allowedMimes[number];
+      const mimeType: AllowedMime = (allowedMimes as readonly string[]).includes(rawMime)
+        ? (rawMime as AllowedMime)
+        : "image/jpeg";
       setOcrPreview(dataUrl);
       try {
         const response = await recognizeTrustatMutation.mutateAsync({ imageBase64, mimeType });
@@ -80,10 +88,16 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
         if (d.snapshotDate) setSnapDate(d.snapshotDate);
         setOcrStatus("done");
         toast.success("Данные Trustat распознаны — проверьте и сохраните");
-      } catch {
+      } catch (err) {
+        console.error("[OCR] recognizeTrustatScreenshot error:", err);
         setOcrStatus("error");
-        toast.error("Ошибка распознавания скрина");
+        const msg = err instanceof Error ? err.message : "Неизвестная ошибка";
+        toast.error(`Ошибка распознавания: ${msg}`);
       }
+    };
+    reader.onerror = () => {
+      setOcrStatus("error");
+      toast.error("Не удалось прочитать файл");
     };
     reader.readAsDataURL(file);
   };
