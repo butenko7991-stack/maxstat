@@ -564,7 +564,7 @@ export async function getScheduleData(
   endDate: string
 ): Promise<{
   sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded" | "isMutual" | "partnerChannel" | "dopDirection" | "dopAmount">>;
-  purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot">>;
+  purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot" | "isMutual">>;
   mutuals: Array<Pick<MutualDeal, "id" | "ourChannelId" | "dealDate" | "partnerChannelName" | "dealType" | "dopDirection" | "dopAmount" | "status" | "ourPostLink">>;
 }> {
   const db = await getDb();
@@ -608,6 +608,7 @@ export async function getScheduleData(
         paymentStatus: purchaseRecords.paymentStatus,
         bookingSlot: purchaseRecords.bookingSlot,
         timeSlot: purchaseRecords.timeSlot,
+        isMutual: purchaseRecords.isMutual,
       })
       .from(purchaseRecords)
       .where(
@@ -1007,9 +1008,11 @@ export interface CreateMutualDealInput {
   month: string;
   notes?: string | null;
   ourPostDate?: Date | null;
+  ourBookingSlot?: "утро" | "обед" | "вечер" | null;
   ourReach?: number | null;
   ourPostLink?: string | null;
   partnerPostDate?: Date | null;
+  partnerBookingSlot?: "утро" | "обед" | "вечер" | null;
   partnerReach?: number | null;
   partnerPostLink?: string | null;
   dealType: "без доплаты" | "с доплатой";
@@ -1050,6 +1053,9 @@ export async function createMutualDealWithRecords(input: CreateMutualDealInput):
     ourReach: input.ourReach ?? null,
     partnerReach: input.partnerReach ?? null,
     notes: input.notes ?? null,
+    // Slot for schedule grid
+    bookingSlot: input.ourBookingSlot ?? undefined,
+    timeSlot: input.ourBookingSlot ?? undefined,
   });
 
   const purchaseId = await createPurchaseRecord({
@@ -1065,6 +1071,9 @@ export async function createMutualDealWithRecords(input: CreateMutualDealInput):
     isMutual: true,
     partnerChannel: input.partnerChannelName,
     notes: input.notes ?? null,
+    // Slot for schedule grid
+    bookingSlot: input.partnerBookingSlot ?? undefined,
+    timeSlot: input.partnerBookingSlot ?? undefined,
   });
 
   const dealResult = await db.insert(mutualDeals).values({

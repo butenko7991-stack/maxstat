@@ -271,3 +271,10 @@
 - [x] Frontend: убрать поля из SchedulePage (EMPTY_PURCHASE_FORM, EMPTY_SALE_FORM, payloads)
 - [x] Frontend: убрать из AIAnalyticsPage (если упоминается в аналитике)
 - [x] Тесты: обновить моки и ожидания
+
+## Исправления ВП в расписании
+- [ ] Add ourBookingSlot and partnerBookingSlot fields to mutualInput schema and MutualPage form
+- [ ] Pass bookingSlot to createSaleRecord and createPurchaseRecord in createMutualDealWithRecords
+- [ ] Fix mutualDateMap in SchedulePage to be slot-aware (channelId -> date -> slot -> deals[])
+- [ ] Fix purchase grid to show ВП badge per-slot and block that slot
+- [ ] Fix sales grid to show ВП badge only on the correct slot

@@ -352,18 +352,40 @@ export default function SchedulePage() {
     return channels.filter((c) => String(c.id) === channelFilter);
   }, [channels, channelFilter]);
 
-  // Build mutual deal lookup from sale_records.isMutual: channelId -> date -> sales[]
+  // Build mutual deal lookup from sale_records.isMutual: channelId -> date -> slot -> sales[]
+  // Slot-aware so ВП badge only appears on the correct time slot
   const mutualDateMap = useMemo(() => {
-    const map: Record<number, Record<string, NonNullable<typeof scheduleData>["sales"]>> = {};
+    const map: Record<number, Record<string, Record<string, NonNullable<typeof scheduleData>["sales"]>>> = {};
     if (!scheduleData?.sales) return map;
     for (const s of scheduleData.sales) {
       if (!s.isMutual) continue;
       const cid = s.channelId;
       const dateStr = s.date ? toIso(new Date(s.date)) : "";
       if (!dateStr) continue;
+      // Use bookingSlot/timeSlot; if missing fall back to "__any__" so it shows in all slots
+      const slot = ((s.bookingSlot ?? (s as any).timeSlot) ?? "").toLowerCase() || "__any__";
       if (!map[cid]) map[cid] = {};
-      if (!map[cid][dateStr]) map[cid][dateStr] = [];
-      map[cid][dateStr].push(s);
+      if (!map[cid][dateStr]) map[cid][dateStr] = {};
+      if (!map[cid][dateStr][slot]) map[cid][dateStr][slot] = [];
+      map[cid][dateStr][slot].push(s);
+    }
+    return map;
+  }, [scheduleData]);
+
+  // Build mutual purchase lookup: channelId -> date -> slot -> purchases[] (isMutual=true)
+  const mutualPurchaseMap = useMemo(() => {
+    const map: Record<number, Record<string, Record<string, NonNullable<typeof scheduleData>["purchases"]>>> = {};
+    if (!scheduleData?.purchases) return map;
+    for (const p of scheduleData.purchases) {
+      if (!p.isMutual) continue;
+      const cid = p.channelId;
+      const dateStr = p.date ? toIso(new Date(p.date)) : "";
+      if (!dateStr) continue;
+      const slot = ((p.bookingSlot ?? p.timeSlot) ?? "").toLowerCase() || "__any__";
+      if (!map[cid]) map[cid] = {};
+      if (!map[cid][dateStr]) map[cid][dateStr] = {};
+      if (!map[cid][dateStr][slot]) map[cid][dateStr][slot] = [];
+      map[cid][dateStr][slot].push(p);
     }
     return map;
   }, [scheduleData]);
@@ -658,7 +680,7 @@ export default function SchedulePage() {
                       })()}
                       {/* Show mutual deal count for the week */}
                       {(() => {
-                        const total = weekDates.reduce((s, d) => s + (mutualDateMap[channel.id]?.[toIso(d)]?.length ?? 0), 0);
+                        const total = weekDates.reduce((s, d) => s + (Object.values(mutualDateMap[channel.id]?.[toIso(d)] ?? {}).reduce((a, b) => a + b.length, 0)), 0);
                         return total > 0 ? (
                           <span className="ml-2 text-[10px] text-violet-400 flex-inline items-center gap-1">
                             ⇄ {total} взаим.
@@ -730,13 +752,13 @@ export default function SchedulePage() {
                                   </div>
                                 )}
                                 {/* ВП badge on occupied cell */}
-                                {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                {(((mutualDateMap[channel.id]?.[dateStr]?.[slot] ?? mutualDateMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0 && (
                                   <div
                                     className="mt-0.5 flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
+                                    onClick={(e) => { e.stopPropagation(); const m = (mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                   >
                                     <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                      ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannel}
+                                      ⇄ ВП: {(mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0].partnerChannel}
                                     </span>
                                   </div>
                                 )}
@@ -780,14 +802,14 @@ export default function SchedulePage() {
                                 <Plus className="w-3.5 h-3.5 text-emerald-500/40 group-hover:text-emerald-400 transition-colors" />
                               )}
                               {/* ВП badge on empty cell */}
-                              {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                              {(((mutualDateMap[channel.id]?.[dateStr]?.[slot] ?? mutualDateMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0 && (
                                 <div
                                   className="absolute top-0 left-0 right-0 px-1 pt-1 z-10"
-                                  onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
+                                  onClick={(e) => { e.stopPropagation(); const m = (mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                 >
                                   <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
                                     <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                      ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannel}
+                                      ⇄ {(mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0].partnerChannel}
                                     </span>
                                   </div>
                                 </div>
@@ -871,7 +893,7 @@ export default function SchedulePage() {
                         <span className="text-xs font-semibold text-foreground">{channel.name}</span>
                         {/* Show mutual deal count for the week */}
                         {(() => {
-                          const total = weekDates.reduce((s, d) => s + (mutualDateMap[channel.id]?.[toIso(d)]?.length ?? 0), 0);
+                          const total = weekDates.reduce((s, d) => s + (Object.values(mutualPurchaseMap[channel.id]?.[toIso(d)] ?? {}).reduce((a, b) => a + b.length, 0)), 0);
                           return total > 0 ? (
                             <span className="ml-2 text-[10px] text-violet-400">
                               ⇄ {total} взаим.
@@ -938,13 +960,13 @@ export default function SchedulePage() {
                                           </div>
                                         )}
                                         {/* ВП badge on occupied purchase cell */}
-                                        {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                        {(((mutualPurchaseMap[channel.id]?.[dateStr]?.[slot] ?? mutualPurchaseMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0 && (
                                           <div
                                             className="mt-0.5 flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden cursor-pointer"
-                                            onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
+                                            onClick={(e) => { e.stopPropagation(); const m = (mutualPurchaseMap[channel.id][dateStr][slot] ?? mutualPurchaseMap[channel.id][dateStr]["__any__"] ?? [])[0]; setMutualDetail({ id: m.id, partnerChannel: (m as any).partnerChannel ?? null, dopDirection: (m as any).dopDirection ?? null, dopAmount: (m as any).dopAmount ?? null }); }}
                                           >
                                             <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                              ⇄ ВП: {mutualDateMap[channel.id][dateStr][0].partnerChannel}
+                                              ⇄ ВП: {(mutualPurchaseMap[channel.id][dateStr][slot] ?? mutualPurchaseMap[channel.id][dateStr]["__any__"] ?? [])[0].admin ?? "ВП"}
                                             </span>
                                           </div>
                                         )}
@@ -980,14 +1002,14 @@ export default function SchedulePage() {
                                   <Plus className="w-3.5 h-3.5 text-blue-500/40 group-hover:text-blue-400 transition-colors" />
                                 )}
                                 {/* ВП badge on purchase empty cell */}
-                                {(mutualDateMap[channel.id]?.[dateStr]?.length ?? 0) > 0 && (
+                                {(((mutualPurchaseMap[channel.id]?.[dateStr]?.[slot] ?? mutualPurchaseMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0 && (
                                   <div
                                     className="absolute top-0 left-0 right-0 px-1 pt-1 z-10"
-                                    onClick={(e) => { e.stopPropagation(); const m = mutualDateMap[channel.id][dateStr][0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
+                                    onClick={(e) => { e.stopPropagation(); const m = (mutualPurchaseMap[channel.id][dateStr][slot] ?? mutualPurchaseMap[channel.id][dateStr]["__any__"] ?? [])[0]; setMutualDetail({ id: m.id, partnerChannel: (m as any).partnerChannel ?? null, dopDirection: (m as any).dopDirection ?? null, dopAmount: (m as any).dopAmount ?? null }); }}
                                   >
                                     <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
                                       <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                        ⇄ {mutualDateMap[channel.id][dateStr][0].partnerChannel}
+                                        ⇄ ВП
                                       </span>
                                     </div>
                                   </div>

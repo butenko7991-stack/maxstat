@@ -766,6 +766,8 @@ const mutualInput = z.object({
   // Per-side dates (replaces single dealDate)
   ourPostDate: z.date().optional(),
   partnerPostDate: z.date().optional(),
+  ourBookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+  partnerBookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
   ourReach: z.number().int().optional(),
   partnerReach: z.number().int().optional(),
   ourPostLink: z.string().max(1024).optional(),
@@ -802,6 +804,8 @@ const mutualRouter = router({
         partnerContact: input.partnerContact ?? null,
         ourPostDate: input.ourPostDate ?? null,
         partnerPostDate: input.partnerPostDate ?? null,
+        ourBookingSlot: input.ourBookingSlot ?? null,
+        partnerBookingSlot: input.partnerBookingSlot ?? null,
         ourReach: input.ourReach ?? null,
         partnerReach: input.partnerReach ?? null,
         ourPostLink: input.ourPostLink ?? null,

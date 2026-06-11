@@ -29,10 +29,12 @@ interface FormData {
   month: string;
   // Our post (we host partner's ad in our channel)
   ourPostDate: string;
+  ourBookingSlot: "утро" | "обед" | "вечер" | "";
   ourReach: string;
   ourPostLink: string;
   // Partner post (they host our ad in their channel)
   partnerPostDate: string;
+  partnerBookingSlot: "утро" | "обед" | "вечер" | "";
   partnerReach: string;
   partnerPostLink: string;
   // Doplate
@@ -51,9 +53,11 @@ const EMPTY_FORM: FormData = {
   partnerContact: "",
   month: new Date().toISOString().slice(0, 7),
   ourPostDate: "",
+  ourBookingSlot: "",
   ourReach: "",
   ourPostLink: "",
   partnerPostDate: "",
+  partnerBookingSlot: "",
   partnerReach: "",
   partnerPostLink: "",
   dealType: "без доплаты",
@@ -179,9 +183,11 @@ export default function MutualPage() {
       partnerContact: d.partnerContact ?? "",
       month: d.month,
       ourPostDate: d.ourPostDate ? new Date(d.ourPostDate).toISOString().slice(0, 10) : "",
+      ourBookingSlot: (d as any).ourBookingSlot ?? "",
       ourReach: d.ourReach != null ? String(d.ourReach) : "",
       ourPostLink: d.ourPostLink ?? "",
       partnerPostDate: d.partnerPostDate ? new Date(d.partnerPostDate).toISOString().slice(0, 10) : "",
+      partnerBookingSlot: (d as any).partnerBookingSlot ?? "",
       partnerReach: d.partnerReach != null ? String(d.partnerReach) : "",
       partnerPostLink: d.partnerPostLink ?? "",
       dealType: d.dealType as DealType,
@@ -203,9 +209,11 @@ export default function MutualPage() {
       partnerContact: form.partnerContact || undefined,
       month: form.month,
       ourPostDate: form.ourPostDate ? new Date(form.ourPostDate) : undefined,
+      ourBookingSlot: (form.ourBookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
       ourReach: form.ourReach ? Number(form.ourReach) : undefined,
       ourPostLink: form.ourPostLink || undefined,
       partnerPostDate: form.partnerPostDate ? new Date(form.partnerPostDate) : undefined,
+      partnerBookingSlot: (form.partnerBookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
       partnerReach: form.partnerReach ? Number(form.partnerReach) : undefined,
       partnerPostLink: form.partnerPostLink || undefined,
       dealType: form.dealType,
@@ -615,6 +623,17 @@ export default function MutualPage() {
                   <Input type="date" value={form.ourPostDate} onChange={e => setForm(f => ({ ...f, ourPostDate: e.target.value }))} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
+                  <Label className="text-xs">Слот в расписании</Label>
+                  <Select value={form.ourBookingSlot} onValueChange={v => setForm(f => ({ ...f, ourBookingSlot: v as any }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Не выбран" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="утро">Утро</SelectItem>
+                      <SelectItem value="обед">Обед</SelectItem>
+                      <SelectItem value="вечер">Вечер</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
                   <Label className="text-xs">Охват</Label>
                   <Input type="number" placeholder="50000" value={form.ourReach} onChange={e => setForm(f => ({ ...f, ourReach: e.target.value }))} className="h-9 text-sm" />
                 </div>
@@ -632,6 +651,17 @@ export default function MutualPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Дата размещения</Label>
                   <Input type="date" value={form.partnerPostDate} onChange={e => setForm(f => ({ ...f, partnerPostDate: e.target.value }))} className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Слот в расписании</Label>
+                  <Select value={form.partnerBookingSlot} onValueChange={v => setForm(f => ({ ...f, partnerBookingSlot: v as any }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Не выбран" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="утро">Утро</SelectItem>
+                      <SelectItem value="обед">Обед</SelectItem>
+                      <SelectItem value="вечер">Вечер</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Охват</Label>
