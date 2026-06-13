@@ -119,6 +119,7 @@ export default function MutualPage() {
       utils.mutual.list.invalidate();
       utils.purchases.list.invalidate();
       utils.sales.list.invalidate();
+      utils.summary.financial.invalidate();
       toast.success("ВП-сделка создана — продажа и закуп добавлены автоматически");
       setDialogOpen(false);
     },
@@ -129,6 +130,7 @@ export default function MutualPage() {
       utils.mutual.list.invalidate();
       utils.purchases.list.invalidate();
       utils.sales.list.invalidate();
+      utils.summary.financial.invalidate();
       toast.success("Сделка обновлена");
       setDialogOpen(false);
     },
@@ -139,6 +141,7 @@ export default function MutualPage() {
       utils.mutual.list.invalidate();
       utils.purchases.list.invalidate();
       utils.sales.list.invalidate();
+      utils.summary.financial.invalidate();
       toast.success("Сделка и связанные записи удалены");
       setDeleteConfirm(null);
     },

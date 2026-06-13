@@ -231,6 +231,7 @@ export default function SchedulePage() {
     onSuccess: () => {
       utils.schedule.getData.invalidate();
       utils.sales.list.invalidate();
+      utils.summary.financial.invalidate();
       setEditSaleOpen(false);
       setEditSaleId(null);
       setEditSaleConflictError(null);
@@ -250,6 +251,7 @@ export default function SchedulePage() {
     onSuccess: () => {
       utils.schedule.getData.invalidate();
       utils.sales.list.invalidate();
+      utils.summary.financial.invalidate();
       setDetailSlot(null);
       toast.success("Запись удалена");
     },
@@ -260,6 +262,7 @@ export default function SchedulePage() {
     onSuccess: () => {
       utils.schedule.getData.invalidate();
       utils.purchases.list.invalidate();
+      utils.summary.financial.invalidate();
       setEditPurchaseOpen(false);
       setEditPurchaseId(null);
       setDetailSlot(null);
@@ -272,6 +275,7 @@ export default function SchedulePage() {
     onSuccess: () => {
       utils.schedule.getData.invalidate();
       utils.purchases.list.invalidate();
+      utils.summary.financial.invalidate();
       setDetailSlot(null);
       toast.success("Запись закупа удалена");
     },

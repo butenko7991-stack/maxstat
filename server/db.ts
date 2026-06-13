@@ -1158,6 +1158,8 @@ export async function updateMutualDealWithRecords(
   if (input.partnerPostLink !== undefined) dealUpdate.partnerPostLink = input.partnerPostLink ?? null;
   if (input.status !== undefined) dealUpdate.status = input.status;
   if (input.notes !== undefined) dealUpdate.notes = input.notes ?? null;
+  if (input.month !== undefined) dealUpdate.month = input.month;
+  if (input.ourChannelId !== undefined) dealUpdate.ourChannelId = input.ourChannelId;
   await updateMutualDeal(id, userId, dealUpdate);
 }
 
