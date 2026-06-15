@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 import { AutocompleteInput } from "./AutocompleteInput";
 import { trpc } from "@/lib/trpc";
 
@@ -526,6 +526,50 @@ export function SaleFormModal({
   onClearConflict,
   bulkSlotsSummary,
 }: SaleFormModalProps) {
+  // ── Link analysis state ──────────────────────────────────────────────────
+  const [linkAnalyzeStatus, setLinkAnalyzeStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [linkAnalyzeError, setLinkAnalyzeError] = useState("");
+  const [linkAnalyzeResult, setLinkAnalyzeResult] = useState<any>(null);
+
+  const analyzeLinkMutation = trpc.ocr.analyzeLink.useMutation({
+    onSuccess: (data) => {
+      setLinkAnalyzeResult(data);
+      setLinkAnalyzeStatus("done");
+      // If single-channel report — auto-fill fields immediately
+      if (data.posts && data.posts.length === 1) {
+        const post = data.posts[0];
+        setForm((f) => ({
+          ...f,
+          reach: post.views24h != null ? String(post.views24h) : f.reach,
+          buyerSubscribers: post.channelSubs != null ? String(post.channelSubs) : f.buyerSubscribers,
+          ...(data.publishedAt ? { date: data.publishedAt.slice(0, 10), month: data.publishedAt.slice(0, 7) } : {}),
+        }));
+      }
+    },
+    onError: (err) => {
+      setLinkAnalyzeStatus("error");
+      setLinkAnalyzeError(err.message);
+    },
+  });
+
+  function handleAnalyzeLink() {
+    const url = form.link.trim();
+    if (!url.startsWith("http")) return;
+    setLinkAnalyzeStatus("loading");
+    setLinkAnalyzeError("");
+    setLinkAnalyzeResult(null);
+    analyzeLinkMutation.mutate({ url });
+  }
+
+  function applyPostData(post: any, publishedAt: string | null) {
+    setForm((f) => ({
+      ...f,
+      reach: post.views24h != null ? String(post.views24h) : f.reach,
+      buyerSubscribers: post.channelSubs != null ? String(post.channelSubs) : f.buyerSubscribers,
+      ...(publishedAt ? { date: publishedAt.slice(0, 10), month: publishedAt.slice(0, 7) } : {}),
+    }));
+  }
+
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
     if (!form.reach || !form.spm) return;
@@ -702,12 +746,86 @@ export function SaleFormModal({
 
             <div className="space-y-1.5 col-span-2">
               <Label>Ссылка (MAX/TG)</Label>
-              <Input
-                value={form.link}
-                onChange={(e) => setForm((f) => ({ ...f, link: e.target.value }))}
-                placeholder="https://iimax.ru/..."
-                className="bg-input border-border"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={form.link}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, link: e.target.value }));
+                    if (linkAnalyzeStatus !== "idle") { setLinkAnalyzeStatus("idle"); setLinkAnalyzeResult(null); }
+                  }}
+                  placeholder="https://iimax.ru/..."
+                  className="bg-input border-border flex-1"
+                />
+                {form.link.startsWith("http") && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5 bg-transparent border-violet-500/40 text-violet-400 hover:bg-violet-500/10 hover:text-violet-300"
+                    onClick={handleAnalyzeLink}
+                    disabled={linkAnalyzeStatus === "loading"}
+                    title="Извлечь данные из ссылки"
+                  >
+                    {linkAnalyzeStatus === "loading" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : linkAnalyzeStatus === "done" ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    <span className="text-xs hidden sm:inline">
+                      {linkAnalyzeStatus === "loading" ? "Загрузка..." : linkAnalyzeStatus === "done" ? "Готово" : "Извлечь"}
+                    </span>
+                  </Button>
+                )}
+              </div>
+              {/* Error */}
+              {linkAnalyzeStatus === "error" && (
+                <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3 h-3" />{linkAnalyzeError}
+                </p>
+              )}
+              {/* Result panel */}
+              {linkAnalyzeStatus === "done" && linkAnalyzeResult && (
+                <div className="mt-2 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3 space-y-2">
+                  {linkAnalyzeResult.draftName && (
+                    <p className="text-xs font-medium text-violet-300 truncate">{linkAnalyzeResult.draftName}</p>
+                  )}
+                  {linkAnalyzeResult.posts && linkAnalyzeResult.posts.length > 1 ? (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">Выберите канал для заполнения:</p>
+                      {linkAnalyzeResult.posts.map((post: any, i: number) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => applyPostData(post, linkAnalyzeResult.publishedAt)}
+                          className="w-full text-left rounded-md border border-violet-500/20 bg-card px-3 py-2 text-xs hover:bg-violet-500/10 transition-colors"
+                        >
+                          <div className="font-medium text-foreground">{post.channelTitle ?? "Канал"}</div>
+                          <div className="text-muted-foreground mt-0.5">
+                            {post.channelSubs != null && <span>{post.channelSubs.toLocaleString()} подп. · </span>}
+                            {post.views24h != null && <span>24ч: {post.views24h.toLocaleString()} </span>}
+                            {post.er24h != null && <span>· ER: {post.er24h}%</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : linkAnalyzeResult.posts && linkAnalyzeResult.posts.length === 1 ? (
+                    <div className="text-xs text-muted-foreground space-y-0.5">
+                      {linkAnalyzeResult.posts[0].channelTitle && (
+                        <div>Канал: <span className="text-foreground">{linkAnalyzeResult.posts[0].channelTitle}</span></div>
+                      )}
+                      {linkAnalyzeResult.posts[0].views24h != null && (
+                        <div>Охваты 24ч: <span className="text-foreground">{linkAnalyzeResult.posts[0].views24h.toLocaleString()}</span></div>
+                      )}
+                      {linkAnalyzeResult.posts[0].er24h != null && (
+                        <div>ER 24ч: <span className="text-foreground">{linkAnalyzeResult.posts[0].er24h}%</span></div>
+                      )}
+                      <p className="text-emerald-400 mt-1">✓ Поля заполнены автоматически</p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">

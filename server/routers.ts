@@ -1016,6 +1016,192 @@ const ocrRouter = router({
     }),
 
   /**
+   * Fetches a Trustat/anypost share link and extracts post statistics.
+   * Uses Next.js RSC payload to get structured JSON data without scraping.
+   * Also supports generic URLs via LLM text extraction as fallback.
+   */
+  analyzeLink: protectedProcedure
+    .input(z.object({
+      url: z.string().url(),
+    }))
+    .mutation(async ({ input }) => {
+      const { url } = input;
+
+      // ── Trustat / anypost share link ──────────────────────────────────────
+      const trustatMatch = url.match(
+        /anypost\.trustat\.me\/share\/stats\/([a-f0-9]+)/i
+      );
+      if (trustatMatch) {
+        const rscResp = await fetch(url, {
+          headers: {
+            "RSC": "1",
+            "Next-Url": new URL(url).pathname,
+            "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)",
+          },
+        });
+        if (!rscResp.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу: ${rscResp.status}` });
+        }
+        const text = await rscResp.text();
+
+        // RSC payload contains lines like: 6:["$","$L1d",null,{...report...}]
+        // Find the line with reportBasePath and report JSON
+        const lines = text.split("\n");
+        let reportData: any = null;
+        for (const line of lines) {
+          if (line.includes("reportBasePath") && line.includes("report")) {
+            const match = line.match(/^[0-9a-f]+:([\s\S]*)/);
+            if (match) {
+              try {
+                const parsed = JSON.parse(match[1]);
+                // parsed is [$, $L1d, null, { token, reportBasePath, report }]
+                if (Array.isArray(parsed) && parsed[3]?.report) {
+                  reportData = parsed[3].report;
+                }
+              } catch {
+                // ignore parse errors
+              }
+            }
+            break;
+          }
+        }
+
+        if (!reportData) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Данные отчёта не найдены в ссылке. Возможно, ссылка устарела." });
+        }
+
+        // Build per-channel results
+        const posts: Array<{
+          channelTitle: string;
+          channelSubs: number | null;
+          views24h: number | null;
+          views48h: number | null;
+          views72h: number | null;
+          er24h: number | null;
+          postedAt: string | null;
+          postUrl: string | null;
+        }> = (reportData.posts ?? []).map((p: any) => ({
+          channelTitle: p.channel_title ?? null,
+          channelSubs: p.channel_subs ?? null,
+          views24h: p.views_24h ?? null,
+          views48h: p.views_48h ?? null,
+          views72h: p.views_72h ?? null,
+          er24h: p.err_24h != null ? Math.round(p.err_24h * 10) / 10 : null,
+          postedAt: p.posted_at ?? null,
+          postUrl: p.post_url ?? null,
+        }));
+
+        return {
+          type: "trustat" as const,
+          draftName: reportData.draft_name ?? null,
+          publishedAt: reportData.published_at ?? null,
+          summary: {
+            views24h: reportData.summary?.views_24h ?? null,
+            views48h: reportData.summary?.views_48h ?? null,
+            views72h: reportData.summary?.views_72h ?? null,
+            er24h: reportData.summary?.err_24h != null
+              ? Math.round(reportData.summary.err_24h * 10) / 10
+              : null,
+            subscribersTotal: reportData.summary?.subscribers_total_known ?? null,
+          },
+          posts,
+        };
+      }
+
+      // ── Generic URL fallback: fetch HTML and ask LLM to extract stats ─────
+      let pageText = "";
+      try {
+        const resp = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
+          signal: AbortSignal.timeout(10_000),
+        });
+        const html = await resp.text();
+        // Strip tags, keep text
+        pageText = html
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .slice(0, 6000);
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу: ${e.message}` });
+      }
+
+      const llmResult = await invokeLLM({
+        messages: [
+          {
+            role: "system",
+            content: `Ты — ассистент для извлечения статистики рекламных постов из текста страницы.
+Извлеки данные и верни JSON. Если поле не найдено — верни null.
+Поля:
+- channelTitle: название канала (строка) или null
+- channelSubs: количество подписчиков (число) или null
+- views24h: просмотры за 24 часа (число) или null
+- views48h: просмотры за 48 часов (число) или null
+- views72h: просмотры за 72 часа (число) или null
+- er24h: ER/ERR за 24 часа в процентах (число) или null
+- postedAt: дата публикации ISO (строка) или null`,
+          },
+          {
+            role: "user",
+            content: `Текст страницы:\n${pageText}`,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "link_stats",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                channelTitle: { type: ["string", "null"] },
+                channelSubs: { type: ["integer", "null"] },
+                views24h: { type: ["integer", "null"] },
+                views48h: { type: ["integer", "null"] },
+                views72h: { type: ["integer", "null"] },
+                er24h: { type: ["number", "null"] },
+                postedAt: { type: ["string", "null"] },
+              },
+              required: ["channelTitle", "channelSubs", "views24h", "views48h", "views72h", "er24h", "postedAt"],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+
+      let extracted: any = {};
+      try {
+        extracted = JSON.parse(llmResult.choices[0].message.content as string);
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось разобрать ответ AI" });
+      }
+
+      return {
+        type: "generic" as const,
+        draftName: null,
+        publishedAt: extracted.postedAt ?? null,
+        summary: {
+          views24h: extracted.views24h ?? null,
+          views48h: extracted.views48h ?? null,
+          views72h: extracted.views72h ?? null,
+          er24h: extracted.er24h ?? null,
+          subscribersTotal: extracted.channelSubs ?? null,
+        },
+        posts: [{
+          channelTitle: extracted.channelTitle ?? null,
+          channelSubs: extracted.channelSubs ?? null,
+          views24h: extracted.views24h ?? null,
+          views48h: extracted.views48h ?? null,
+          views72h: extracted.views72h ?? null,
+          er24h: extracted.er24h ?? null,
+          postedAt: extracted.postedAt ?? null,
+          postUrl: url,
+        }],
+      };
+    }),
+
+  /**
    * Accepts a base64-encoded image (PNG/JPEG/WEBP) and returns structured
    * purchase data extracted by the vision LLM.
    */
