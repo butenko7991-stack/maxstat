@@ -131,6 +131,42 @@ export default function SalesPage() {
     },
     onSettled: () => { utils.sales.list.invalidate(); utils.summary.financial.invalidate(); },
   });
+  // ── Auto-extract stats when quick-pay switches to "paid" ─────────────────
+  const autoSaveStatsMutation = trpc.sales.update.useMutation({
+    onSettled: () => { utils.sales.list.invalidate(); },
+    onError: () => { /* silent background operation */ },
+  });
+  const autoExtractMutation = trpc.ocr.analyzeLink.useMutation({
+    onError: () => { /* silent — background operation */ },
+  });
+
+  function handleQuickPay(record: NonNullable<typeof records>[number]) {
+    const nextStatus = PAYMENT_CYCLE[record.paymentStatus as PaymentStatus] ?? "unpaid";
+    quickPayMutation.mutate({ id: record.id, paymentStatus: nextStatus });
+    // Auto-extract stats when switching to paid and link exists
+    if (nextStatus === "paid" && record.link?.startsWith("http")) {
+      autoExtractMutation.mutate(
+        { url: record.link },
+        {
+          onSuccess: (data) => {
+            const post = data.posts?.[0];
+            if (!post) return;
+            const updatePayload: Record<string, unknown> = { id: record.id };
+            if (post.views24h != null) updatePayload.reach = post.views24h;
+            if (post.channelSubs != null) updatePayload.buyerSubscribers = post.channelSubs;
+            if (data.publishedAt) {
+              updatePayload.date = data.publishedAt.slice(0, 10);
+              updatePayload.month = data.publishedAt.slice(0, 7);
+            }
+            if (Object.keys(updatePayload).length > 1) {
+              autoSaveStatsMutation.mutate(updatePayload as any);
+            }
+          },
+        }
+      );
+    }
+  }
+
   const duplicateMutation = trpc.sales.duplicate.useMutation({
     onSuccess: () => { utils.sales.list.invalidate(); utils.summary.financial.invalidate(); toast.success("Запись скопирована"); },
     onError: (e) => toast.error(e.message),
@@ -405,10 +441,7 @@ export default function SalesPage() {
                     </span>
                     <button
                       title="Нажмите для смены статуса оплаты"
-                      onClick={() => quickPayMutation.mutate({
-                        id: r.id,
-                        paymentStatus: PAYMENT_CYCLE[r.paymentStatus as PaymentStatus] ?? "unpaid",
-                      })}
+                      onClick={() => handleQuickPay(r)}
                       className={PAYMENT_CLASSES[r.paymentStatus] ?? PAYMENT_CLASSES.unpaid}
                     >
                       {PAYMENT_LABELS[r.paymentStatus] ?? r.paymentStatus}

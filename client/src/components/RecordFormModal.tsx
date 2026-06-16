@@ -438,9 +438,7 @@ export function PurchaseFormModal({
               <Label>Слот бронирования</Label>
               <Select
                 value={form.bookingSlot || "none"}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, bookingSlot: (v === "none" ? "" : v) as "утро" | "обед" | "вечер" | "" }))
-                }
+                onValueChange={(v) => setForm((f) => ({ ...f, bookingSlot: v === "none" ? "" : v as "" | "утро" | "обед" | "вечер" }))}
               >
                 <SelectTrigger className="bg-input border-border">
                   <SelectValue placeholder="Выберите слот..." />
@@ -569,6 +567,17 @@ export function SaleFormModal({
       ...(publishedAt ? { date: publishedAt.slice(0, 10), month: publishedAt.slice(0, 7) } : {}),
     }));
   }
+  // ── Auto-extract from link when status changes to paid ─────────────────
+  function handlePaymentStatusChange(v: PaymentStatus) {
+    setForm((f) => ({ ...f, paymentStatus: v }));
+    // Trigger auto-extract only when switching TO paid and link exists and not already analyzed
+    if (v === "paid" && form.link.startsWith("http") && linkAnalyzeStatus === "idle") {
+      setLinkAnalyzeStatus("loading");
+      setLinkAnalyzeError("");
+      setLinkAnalyzeResult(null);
+      analyzeLinkMutation.mutate({ url: form.link.trim() });
+    }
+  }
 
   // Auto-calculate cost when reach or spm changes
   useEffect(() => {
@@ -662,9 +671,7 @@ export function SaleFormModal({
               <Label>Статус оплаты</Label>
               <Select
                 value={form.paymentStatus}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, paymentStatus: v as PaymentStatus }))
-                }
+                onValueChange={(v) => handlePaymentStatusChange(v as PaymentStatus)}
               >
                 <SelectTrigger className="bg-input border-border">
                   <SelectValue />
