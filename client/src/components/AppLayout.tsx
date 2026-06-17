@@ -7,6 +7,7 @@ import {
   Layers,
   LogOut,
   Menu,
+  Receipt,
   Shield,
   ShoppingCart,
   Sparkles,
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/sales", label: "Продажа", icon: TrendingUp, roles: ["admin", "user", "manager"] as string[] },
   { href: "/schedule", label: "Расписание", icon: CalendarDays, roles: ["admin", "user", "buyer", "manager"] as string[] },
   { href: "/summary", label: "Итоги", icon: BarChart3, roles: ["admin", "user"] as string[] },
+  { href: "/expenses", label: "Расходы", icon: Receipt, roles: ["admin", "user"] as string[] },
   { href: "/ai", label: "AI Аналитика", icon: Sparkles, roles: ["admin", "user"] as string[] },
   { href: "/admin", label: "Админ-панель", icon: Shield, roles: ["admin"] as string[] },
 ];
