@@ -9,6 +9,9 @@ import {
   ArrowDownRight,
   AlertCircle,
   Receipt,
+  Handshake,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   Select,
@@ -75,6 +78,9 @@ export default function SummaryPage() {
 
   const { data: months } = trpc.summary.months.useQuery();
   const { data: channels } = trpc.channels.list.useQuery();
+  const { data: mutualSummary } = trpc.mutual.summary.useQuery(
+    { month: selectedMonth !== "all" ? selectedMonth : undefined },
+  );
   const { data: expenseSummary } = trpc.expenses.summary.useQuery(
     { month: selectedMonth !== "all" ? selectedMonth : undefined },
   );
@@ -221,6 +227,62 @@ export default function SummaryPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ВП аналитика */}
+          {mutualSummary && mutualSummary.total > 0 && (
+            <div className="glass rounded-xl p-4 space-y-3 border border-violet-500/20">
+              <div className="flex items-center gap-2">
+                <Handshake className="w-4 h-4 text-violet-400" />
+                <h2 className="text-sm font-semibold text-foreground">Взаимки (ВП)</h2>
+                <span className="ml-auto text-xs text-violet-400 font-medium">{mutualSummary.total} сделок</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(mutualSummary.byStatus).map(([status, count]) => (
+                  <span key={status} className="text-xs px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/25">
+                    {status}: {count}
+                  </span>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {mutualSummary.avgOurReach !== null && (
+                  <div className="bg-card rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Ср. наш охват</p>
+                    <p className="text-sm font-bold text-foreground">{mutualSummary.avgOurReach.toLocaleString('ru-RU')}</p>
+                  </div>
+                )}
+                {mutualSummary.avgPartnerReach !== null && (
+                  <div className="bg-card rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Ср. охват партнёра</p>
+                    <p className="text-sm font-bold text-foreground">{mutualSummary.avgPartnerReach.toLocaleString('ru-RU')}</p>
+                  </div>
+                )}
+                {mutualSummary.totalDopReceived > 0 && (
+                  <div className="bg-profit/10 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Получена доплата</p>
+                    <p className="text-sm font-bold text-profit">+{mutualSummary.totalDopReceived.toLocaleString('ru-RU')} ₽</p>
+                  </div>
+                )}
+                {mutualSummary.totalDopPaid > 0 && (
+                  <div className="bg-loss/10 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Доплата партнёрам</p>
+                    <p className="text-sm font-bold text-loss">−{mutualSummary.totalDopPaid.toLocaleString('ru-RU')} ₽</p>
+                  </div>
+                )}
+              </div>
+              {mutualSummary.avgOurReach !== null && mutualSummary.avgPartnerReach !== null && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Баланс охватов:</span>
+                  {mutualSummary.reachBalance > 0 ? (
+                    <span className="flex items-center gap-1 text-profit"><ArrowUp className="w-3 h-3" />мы даём больше на {Math.abs(mutualSummary.reachBalance).toLocaleString('ru-RU')}</span>
+                  ) : mutualSummary.reachBalance < 0 ? (
+                    <span className="flex items-center gap-1 text-loss"><ArrowDown className="w-3 h-3" />партнёр даёт больше на {Math.abs(mutualSummary.reachBalance).toLocaleString('ru-RU')}</span>
+                  ) : (
+                    <span className="text-muted-foreground">равные охваты</span>
+                  )}
                 </div>
               )}
             </div>

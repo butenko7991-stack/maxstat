@@ -14,6 +14,7 @@ import SummaryPage from "./pages/SummaryPage";
 import AIAnalyticsPage from "./pages/AIAnalyticsPage";
 import AdminPage from "./pages/AdminPage";
 import ExpensesPage from "./pages/ExpensesPage";
+import MutualPage from "./pages/MutualPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 
@@ -36,6 +37,7 @@ function Router() {
             <Route path="/summary" component={SummaryPage} />
             <Route path="/ai" component={AIAnalyticsPage} />
             <Route path="/expenses" component={ExpensesPage} />
+            <Route path="/mutual" component={MutualPage} />
             <Route path="/admin" component={AdminPage} />
             <Route path="/404" component={NotFound} />
             <Route component={NotFound} />

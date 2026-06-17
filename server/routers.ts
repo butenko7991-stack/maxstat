@@ -848,6 +848,32 @@ const mutualRouter = router({
       baseSpm: z.number().optional(),
     }))
     .query(({ input }) => calcRecommendedDoplate(input.ourReach, input.partnerReach, input.baseSpm)),
+  summary: protectedProcedure
+    .input(z.object({ month: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const deals = await getMutualDeals(ctx.user.id, { month: input.month });
+      const total = deals.length;
+      const byStatus = deals.reduce((acc, d) => {
+        acc[d.status] = (acc[d.status] ?? 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      const totalDopPaid = deals
+        .filter(d => d.dopDirection === 'мы платим' && d.dopAmount)
+        .reduce((s, d) => s + parseFloat(String(d.dopAmount ?? 0)), 0);
+      const totalDopReceived = deals
+        .filter(d => d.dopDirection === 'нам платят' && d.dopAmount)
+        .reduce((s, d) => s + parseFloat(String(d.dopAmount ?? 0)), 0);
+      const avgOurReach = (() => {
+        const vals = deals.filter(d => d.ourReach != null).map(d => d.ourReach as number);
+        return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+      })();
+      const avgPartnerReach = (() => {
+        const vals = deals.filter(d => d.partnerReach != null).map(d => d.partnerReach as number);
+        return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+      })();
+      const reachBalance = (avgOurReach ?? 0) - (avgPartnerReach ?? 0);
+      return { total, byStatus, totalDopPaid, totalDopReceived, avgOurReach, avgPartnerReach, reachBalance };
+    }),
 });
 
 // ─── Subscriber Snapshots router ───────────────────────────────────────────────

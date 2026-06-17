@@ -286,3 +286,17 @@
 - [x] Интеграция в SummaryPage: учитывать расходы в итоговой прибыли
 - [x] Интеграция в AI Analytics: передавать расходы в контекст анализа
 - [x] Навигация: добавить пункт «Расходы» в сайдбар
+
+## Полноценный модуль «Взаимки (ВП)» — отдельный раздел
+- [x] DB: таблица mutual_deals (id, userId, ourChannelId, saleRecordId, purchaseRecordId, partnerChannelName, partnerContact, saleDate, saleSlot, purchaseDate, purchaseSlot, ourReach, partnerReach, reachDiff, dopDirection, dopAmount, dopPaymentStatus, status, notes, month, createdAt)
+- [x] Backend: при создании ВП — автоматически создаётся sale_record + purchase_record с is_mutual=true и блокируются слоты
+- [x] Backend: tRPC router mutual (list, create, update, delete, updateStatus)
+- [x] Backend: при удалении ВП — удаляются связанные sale_record и purchase_record
+- [x] Frontend: страница MutualPage — форма создания ВП (наш канал/дата/слот + дата закупа/слот, партнёр, охваты, доплата, статус)
+- [x] Frontend: воронка статусов на MutualPage (предложено → согласовано → размещено → завершено)
+- [x] Frontend: список ВП-сделок с карточками, фильтр по месяцу и статусу
+- [x] Навигация: добавить пункт «ВП» в сайдбар (AppLayout.tsx)
+- [x] Расписание: ВП-ячейки отображаются фиолетовым цветом на обоих гридах (Продажа и Закуп)
+- [x] Расписание: слоты ВП заблокированы — нельзя создать обычную продажу/закуп на занятый ВП-слот
+- [x] Аналитика: отдельный блок ВП в SummaryPage (кол-во сделок, охваты, доплаты, статусы)
+- [x] Тесты: vitest для mutual router (17 тестов)
