@@ -242,3 +242,27 @@ export const channelSubscriberSnapshots = mysqlTable("channel_subscriber_snapsho
 
 export type ChannelSubscriberSnapshot = typeof channelSubscriberSnapshots.$inferSelect;
 export type InsertChannelSubscriberSnapshot = typeof channelSubscriberSnapshots.$inferInsert;
+
+/**
+ * Operational expenses (Расходы).
+ * Tracks costs like content writer salary, buyer salary, etc.
+ */
+export const expenses = mysqlTable("expenses", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  /** Month label for grouping (e.g. "2026-06") */
+  month: varchar("month", { length: 7 }).notNull(),
+  /** Category: контентщик, закупщик, прочее, etc. */
+  category: varchar("category", { length: 100 }).notNull(),
+  /** Description / comment */
+  description: text("description"),
+  /** Amount in rubles */
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  /** Payment status */
+  paymentStatus: mysqlEnum("paymentStatus", ["paid", "unpaid"]).default("unpaid").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Expense = typeof expenses.$inferSelect;
+export type InsertExpense = typeof expenses.$inferInsert;

@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT \n  pr.id,\n  pr.month,\n  pr.cost,\n  pr.payment_status,\n  pr.post_date,\n  c.name as channelName\nFROM purchase_records pr\nJOIN channels c ON pr.channel_id = c.id\nWHERE c.name LIKE '%идеальный%'\nORDER BY pr.month DESC, pr.id DESC\nLIMIT 30;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute \nSELECT \n  pr.id,\n  pr.month,\n  pr.cost,\n  pr.payment_status,\n  pr.post_date,\n  c.name as channelName\nFROM purchase_records pr\nJOIN channels c ON pr.channel_id = c.id\nWHERE c.name LIKE '%идеальный%'\nORDER BY pr.month DESC, pr.id DESC\nLIMIT 30;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'pr.channel_id' in 'on clause'"
+  ]
+}

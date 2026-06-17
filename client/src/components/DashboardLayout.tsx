@@ -20,15 +20,21 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, CalendarDays, ShoppingCart, TrendingUp, BarChart2, BrainCircuit, Receipt } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+  { icon: LayoutDashboard, label: "Каналы", path: "/channels" },
+  { icon: CalendarDays, label: "Расписание", path: "/schedule" },
+  { icon: ShoppingCart, label: "Закупы", path: "/purchases" },
+  { icon: TrendingUp, label: "Продажи", path: "/sales" },
+  { icon: Users, label: "ВП", path: "/" },
+  { icon: BarChart2, label: "Итоги", path: "/summary" },
+  { icon: Receipt, label: "Расходы", path: "/expenses" },
+  { icon: BrainCircuit, label: "AI Аналитика", path: "/ai" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -155,7 +161,7 @@ function DashboardLayoutContent({
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-semibold tracking-tight truncate">
-                    Navigation
+                    MAX Ads
                   </span>
                 </div>
               ) : null}
@@ -210,7 +216,7 @@ function DashboardLayoutContent({
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
+                  <span>Выйти</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

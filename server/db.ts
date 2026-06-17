@@ -18,6 +18,9 @@ import {
   purchaseRecords,
   saleRecords,
   users,
+  expenses,
+  Expense,
+  InsertExpense,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1520,6 +1523,10 @@ export interface AiContext {
   totalSubscribersGained: number;
   totalCurrentSubscribers: number;
   overallAvgCpf: number | null;
+  // Expenses
+  totalExpenses: number;
+  netProfit: number;
+  expensesByCategory: Record<string, number>;
 }
 
 export async function getAiContext(userId: number, month?: string): Promise<AiContext> {
@@ -1530,6 +1537,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     mutual: { total: 0, completed: 0, active: 0, totalDopPaid: 0, totalDopReceived: 0, avgOurReach: null, avgPartnerReach: null },
     totalSales: 0, totalPurchases: 0, totalProfit: 0, overallROI: 0,
     totalSubscribersGained: 0, totalCurrentSubscribers: 0, overallAvgCpf: null,
+    totalExpenses: 0, netProfit: 0, expensesByCategory: {},
   };
   if (!db) return empty;
 
@@ -1705,11 +1713,103 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     ? Math.round((allCpfs.reduce((a, b) => a + b, 0) / allCpfs.length) * 100) / 100
     : null;
 
+   // ── Expenses ─────────────────────────────────────────────────────────────
+  const expenseSummary = await getExpenseSummary(userId, month);
+  const totalExpenses = expenseSummary.total;
+  const netProfit = totalProfit - totalExpenses;
   return {
     month: month ?? null,
     channels: channelsList,
     mutual: mutualSummary,
     totalSales, totalPurchases, totalProfit, overallROI,
     totalSubscribersGained, totalCurrentSubscribers, overallAvgCpf,
+    totalExpenses, netProfit, expensesByCategory: expenseSummary.byCategory,
   };
+}
+// ─── Expenses ───────────────────────────────────────────────────────────────
+
+export interface CreateExpenseInput {
+  userId: number;
+  month: string;
+  category: string;
+  description?: string;
+  amount: number;
+  paymentStatus?: "paid" | "unpaid";
+}
+
+export interface UpdateExpenseInput {
+  month?: string;
+  category?: string;
+  description?: string;
+  amount?: number;
+  paymentStatus?: "paid" | "unpaid";
+}
+
+export async function getExpenses(
+  userId: number,
+  month?: string
+): Promise<Expense[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conds: any[] = [eq(expenses.userId, userId)];
+  if (month) conds.push(eq(expenses.month, month));
+  return db.select().from(expenses).where(and(...conds)).orderBy(desc(expenses.createdAt));
+}
+
+export async function createExpense(input: CreateExpenseInput): Promise<Expense> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(expenses).values({
+    userId: input.userId,
+    month: input.month,
+    category: input.category,
+    description: input.description ?? null,
+    amount: String(input.amount),
+    paymentStatus: input.paymentStatus ?? "unpaid",
+  });
+  const [row] = await db.select().from(expenses).where(eq(expenses.id, (result as any).insertId));
+  return row;
+}
+
+export async function updateExpense(
+  id: number,
+  userId: number,
+  input: UpdateExpenseInput
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const data: Record<string, unknown> = {};
+  if (input.month !== undefined) data.month = input.month;
+  if (input.category !== undefined) data.category = input.category;
+  if (input.description !== undefined) data.description = input.description;
+  if (input.amount !== undefined) data.amount = String(input.amount);
+  if (input.paymentStatus !== undefined) data.paymentStatus = input.paymentStatus;
+  if (Object.keys(data).length === 0) return;
+  await db.update(expenses).set(data).where(and(eq(expenses.id, id), eq(expenses.userId, userId)));
+}
+
+export async function deleteExpense(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)));
+}
+
+export async function getExpenseSummary(
+  userId: number,
+  month?: string
+): Promise<{ total: number; paid: number; unpaid: number; byCategory: Record<string, number> }> {
+  const db = await getDb();
+  if (!db) return { total: 0, paid: 0, unpaid: 0, byCategory: {} };
+  const conds: any[] = [eq(expenses.userId, userId)];
+  if (month) conds.push(eq(expenses.month, month));
+  const rows = await db.select().from(expenses).where(and(...conds));
+  let total = 0, paid = 0, unpaid = 0;
+  const byCategory: Record<string, number> = {};
+  for (const r of rows) {
+    const amt = parseFloat(String(r.amount ?? 0));
+    total += amt;
+    if (r.paymentStatus === "paid") paid += amt; else unpaid += amt;
+    byCategory[r.category] = (byCategory[r.category] ?? 0) + amt;
+  }
+  return { total, paid, unpaid, byCategory };
 }

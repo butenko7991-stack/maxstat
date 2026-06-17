@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT \n  pr.id,\n  pr.month,\n  pr.cost,\n  pr.paymentStatus,\n  pr.postDate,\n  c.name as channelName\nFROM purchaseRecords pr\nJOIN channels c ON pr.channelId = c.id\nWHERE c.name LIKE '%идеальный%'\nORDER BY pr.month DESC, pr.id DESC\nLIMIT 30;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute \nSELECT \n  pr.id,\n  pr.month,\n  pr.cost,\n  pr.paymentStatus,\n  pr.postDate,\n  c.name as channelName\nFROM purchaseRecords pr\nJOIN channels c ON pr.channelId = c.id\nWHERE c.name LIKE '%идеальный%'\nORDER BY pr.month DESC, pr.id DESC\nLIMIT 30;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 2: Table 'm7risp4w4x9eerx7kf6epq.purchaseRecords' doesn't exist"
+  ]
+}

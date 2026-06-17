@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   AlertCircle,
+  Receipt,
 } from "lucide-react";
 import {
   Select,
@@ -74,6 +75,9 @@ export default function SummaryPage() {
 
   const { data: months } = trpc.summary.months.useQuery();
   const { data: channels } = trpc.channels.list.useQuery();
+  const { data: expenseSummary } = trpc.expenses.summary.useQuery(
+    { month: selectedMonth !== "all" ? selectedMonth : undefined },
+  );
   const { data: summaries, isLoading } = trpc.summary.financial.useQuery({
     month: selectedMonth !== "all" ? selectedMonth : undefined,
   });
@@ -104,6 +108,9 @@ export default function SummaryPage() {
       ),
     [filteredSummaries]
   );
+
+  const totalExpenses = expenseSummary?.total ?? 0;
+  const netProfit = totals.profit - totalExpenses;
 
   const hasChartData = (chartData ?? []).length > 0;
 
@@ -162,14 +169,15 @@ export default function SummaryPage() {
       ) : (
         <>
           {/* Overall summary cards */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <MetricCard label="Закуп" value={totals.spend} icon={TrendingDown} variant="loss" />
             <MetricCard label="Продажа" value={totals.income} icon={TrendingUp} variant="profit" />
+            <MetricCard label="Расходы" value={totalExpenses} icon={Receipt} variant="loss" />
             <MetricCard
-              label="Прибыль"
-              value={totals.profit}
+              label="Чистая прибыль"
+              value={netProfit}
               icon={Wallet}
-              variant={totals.profit >= 0 ? "profit" : "loss"}
+              variant={netProfit >= 0 ? "profit" : "loss"}
               signed
             />
           </div>

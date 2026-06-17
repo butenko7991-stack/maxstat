@@ -52,6 +52,11 @@ import {
   getCpfAnalytics,
   getSourceEfficiency,
   getAiContext,
+  getExpenses,
+  createExpense,
+  updateExpense,
+  deleteExpense,
+  getExpenseSummary,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 
@@ -598,7 +603,9 @@ ${ctx_data.mutual.avgPartnerReach !== null ? `- Ср. охват партнёр�
 ОБЩИЕ ПОКАЗАТЕЛИ (${periodLabel}):
 - Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.salesCount, 0)} продаж)
 - Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.purchasesCount, 0)} закупок)
-- Прибыль: ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
+- Прибыль (до расходов): ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
+${ctx_data.totalExpenses > 0 ? `- Операционные расходы: ${ctx_data.totalExpenses.toLocaleString('ru-RU')}₽ (${Object.entries(ctx_data.expensesByCategory).map(([k,v]) => `${k}: ${(v as number).toLocaleString('ru-RU')}₽`).join(', ')})` : ''}
+${ctx_data.totalExpenses > 0 ? `- Чистая прибыль: ${ctx_data.netProfit.toLocaleString('ru-RU')}₽` : ''}
 - Подписчиков сейчас: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')}
 - Привлечено за период: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}
 ${ctx_data.overallAvgCpf !== null ? `- Средний CPF: ${ctx_data.overallAvgCpf}₽` : ''}
@@ -669,7 +676,7 @@ ${channelsSummary}
       const prompt = `Составь краткий бизнес-дайджест ${periodLabel} для владельца рекламных каналов в Макс/Телеграм.
 
 ДАННЫЕ:
-- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
+- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%${ctx_data.totalExpenses > 0 ? `\n- Операц. расходы: ${ctx_data.totalExpenses.toLocaleString('ru-RU')}₽ | Чистая прибыль: ${ctx_data.netProfit.toLocaleString('ru-RU')}₽` : ''}
 - Подписчиков: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')} | Привлечено: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}${ctx_data.overallAvgCpf !== null ? ` | Ср. CPF: ${ctx_data.overallAvgCpf}₽` : ''}${mutualLine}
 
 По каналам:
@@ -1294,6 +1301,47 @@ const ocrRouter = router({
     }),
 });
 
+// ─── Expenses router ─────────────────────────────────────────────────────────
+const expensesRouter = router({
+  list: protectedProcedure
+    .input(z.object({ month: z.string().optional() }))
+    .query(({ ctx, input }) => getExpenses(ctx.user.id, input.month)),
+
+  summary: protectedProcedure
+    .input(z.object({ month: z.string().optional() }))
+    .query(({ ctx, input }) => getExpenseSummary(ctx.user.id, input.month)),
+
+  create: protectedProcedure
+    .input(z.object({
+      month: z.string().min(7).max(7),
+      category: z.string().min(1).max(100),
+      description: z.string().optional(),
+      amount: z.number().positive(),
+      paymentStatus: z.enum(["paid", "unpaid"]).optional(),
+    }))
+    .mutation(({ ctx, input }) =>
+      createExpense({ ...input, userId: ctx.user.id })
+    ),
+
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      month: z.string().min(7).max(7).optional(),
+      category: z.string().min(1).max(100).optional(),
+      description: z.string().optional(),
+      amount: z.number().positive().optional(),
+      paymentStatus: z.enum(["paid", "unpaid"]).optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      const { id, ...data } = input;
+      return updateExpense(id, ctx.user.id, data);
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(({ ctx, input }) => deleteExpense(input.id, ctx.user.id)),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -1313,6 +1361,7 @@ export const appRouter = router({system: systemRouter,  auth: router({
   mutual: mutualRouter,
   snapshots: snapshotsRouter,
   ocr: ocrRouter,
+  expenses: expensesRouter,
 });
 
 export type AppRouter = typeof appRouter;

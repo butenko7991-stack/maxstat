@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `expenses` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`month` varchar(7) NOT NULL,\n\t`category` varchar(100) NOT NULL,\n\t`description` text,\n\t`amount` decimal(12,2) NOT NULL,\n\t`paymentStatus` enum('paid','unpaid') NOT NULL DEFAULT 'unpaid',\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `expenses_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute CREATE TABLE `expenses` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`month` varchar(7) NOT NULL,\n\t`category` varchar(100) NOT NULL,\n\t`description` text,\n\t`amount` decimal(12,2) NOT NULL,\n\t`paymentStatus` enum('paid','unpaid') NOT NULL DEFAULT 'unpaid',\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `expenses_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 918
+}

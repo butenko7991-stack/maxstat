@@ -1,0 +1,17 @@
+{
+  "query": "\nSELECT \n  COUNT(*) as totalCount,\n  SUM(CAST(pr.cost AS DECIMAL(12,2))) as totalCost,\n  SUM(CASE WHEN pr.paymentStatus = 'paid' THEN CAST(pr.cost AS DECIMAL(12,2)) ELSE 0 END) as paidCost,\n  SUM(CASE WHEN pr.paymentStatus != 'paid' THEN CAST(pr.cost AS DECIMAL(12,2)) ELSE 0 END) as unpaidCost,\n  c.name as channelName\nFROM purchase_records pr\nJOIN channels c ON pr.channelId = c.id\nWHERE c.name LIKE '%идеальный%' AND pr.month = '2026-06'\nGROUP BY c.name;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute \nSELECT \n  COUNT(*) as totalCount,\n  SUM(CAST(pr.cost AS DECIMAL(12,2))) as totalCost,\n  SUM(CASE WHEN pr.paymentStatus = 'paid' THEN CAST(pr.cost AS DECIMAL(12,2)) ELSE 0 END) as paidCost,\n  SUM(CASE WHEN pr.paymentStatus != 'paid' THEN CAST(pr.cost AS DECIMAL(12,2)) ELSE 0 END) as unpaidCost,\n  c.name as channelName\nFROM purchase_records pr\nJOIN channels c ON pr.channelId = c.id\nWHERE c.name LIKE '%идеальный%' AND pr.month = '2026-06'\nGROUP BY c.name;\n",
+  "rows": [
+    {
+      "totalCount": "22",
+      "totalCost": "69647.00",
+      "paidCost": "55742.00",
+      "unpaidCost": "13905.00",
+      "channelName": "НЕидеальный муж"
+    }
+  ],
+  "messages": [],
+  "stdout": "totalCount\ttotalCost\tpaidCost\tunpaidCost\tchannelName\n22\t69647.00\t55742.00\t13905.00\tНЕидеальный муж\n",
+  "stderr": "",
+  "execution_time_ms": 265
+}

@@ -278,3 +278,11 @@
 - [ ] Fix mutualDateMap in SchedulePage to be slot-aware (channelId -> date -> slot -> deals[])
 - [ ] Fix purchase grid to show ВП badge per-slot and block that slot
 - [ ] Fix sales grid to show ВП badge only on the correct slot
+
+## Раздел «Расходы» (операционные затраты)
+- [x] DB: таблица expenses (id, userId, month, category, description, amount, paymentStatus, createdAt)
+- [x] Backend: tRPC router expenses (list, create, update, delete)
+- [x] Frontend: страница ExpensesPage с CRUD формой и фильтром по месяцу
+- [x] Интеграция в SummaryPage: учитывать расходы в итоговой прибыли
+- [x] Интеграция в AI Analytics: передавать расходы в контекст анализа
+- [x] Навигация: добавить пункт «Расходы» в сайдбар

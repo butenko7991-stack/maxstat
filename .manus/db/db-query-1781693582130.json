@@ -1,0 +1,250 @@
+{
+  "query": "\nSELECT \n  pr.id,\n  pr.month,\n  pr.cost,\n  pr.paymentStatus,\n  pr.date,\n  c.name as channelName\nFROM purchase_records pr\nJOIN channels c ON pr.channelId = c.id\nWHERE c.name LIKE '%идеальный%'\nORDER BY pr.month DESC, pr.id DESC\nLIMIT 30;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute \nSELECT \n  pr.id,\n  pr.month,\n  pr.cost,\n  pr.paymentStatus,\n  pr.date,\n  c.name as channelName\nFROM purchase_records pr\nJOIN channels c ON pr.channelId = c.id\nWHERE c.name LIKE '%идеальный%'\nORDER BY pr.month DESC, pr.id DESC\nLIMIT 30;\n",
+  "rows": [
+    {
+      "id": "1410001",
+      "month": "2026-06",
+      "cost": "2500.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-17 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1380001",
+      "month": "2026-06",
+      "cost": "250.00",
+      "paymentStatus": "unpaid",
+      "date": "2026-06-16 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1350002",
+      "month": "2026-06",
+      "cost": "3303.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-15 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1350001",
+      "month": "2026-06",
+      "cost": "2303.00",
+      "paymentStatus": "unpaid",
+      "date": "2026-06-15 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1290001",
+      "month": "2026-06",
+      "cost": "5505.00",
+      "paymentStatus": "unpaid",
+      "date": "2026-06-11 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1260001",
+      "month": "2026-06",
+      "cost": "2025.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-08 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1230001",
+      "month": "2026-06",
+      "cost": "5347.00",
+      "paymentStatus": "unpaid",
+      "date": "2026-06-12 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1200002",
+      "month": "2026-06",
+      "cost": "2100.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-09 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1200001",
+      "month": "2026-06",
+      "cost": "1588.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-09 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1170003",
+      "month": "2026-06",
+      "cost": "500.00",
+      "paymentStatus": "unpaid",
+      "date": "2026-06-15 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1170002",
+      "month": "2026-06",
+      "cost": "4879.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-10 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1170001",
+      "month": "2026-06",
+      "cost": "658.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-08 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1140001",
+      "month": "2026-06",
+      "cost": "489.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-08 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "1050001",
+      "month": "2026-06",
+      "cost": "2575.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-03 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "960002",
+      "month": "2026-06",
+      "cost": "558.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-05 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "960001",
+      "month": "2026-06",
+      "cost": "2600.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-06 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "930001",
+      "month": "2026-06",
+      "cost": "3213.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-05 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "900002",
+      "month": "2026-06",
+      "cost": "1000.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-03 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "900001",
+      "month": "2026-06",
+      "cost": "1000.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-03 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "870001",
+      "month": "2026-06",
+      "cost": "9360.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-04 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "840001",
+      "month": "2026-06",
+      "cost": "14700.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-01 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "780001",
+      "month": "2026-06",
+      "cost": "3194.00",
+      "paymentStatus": "paid",
+      "date": "2026-06-02 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "810001",
+      "month": "2026-05",
+      "cost": "600.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-31 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "750002",
+      "month": "2026-05",
+      "cost": "1766.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-29 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "720001",
+      "month": "2026-05",
+      "cost": "465.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-26 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "690002",
+      "month": "2026-05",
+      "cost": "800.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-26 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "630001",
+      "month": "2026-05",
+      "cost": "780.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-27 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "600001",
+      "month": "2026-05",
+      "cost": "1402.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-25 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "570001",
+      "month": "2026-05",
+      "cost": "9924.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-15 00:00:00",
+      "channelName": "НЕидеальный муж"
+    },
+    {
+      "id": "540001",
+      "month": "2026-05",
+      "cost": "2700.00",
+      "paymentStatus": "paid",
+      "date": "2026-05-25 00:00:00",
+      "channelName": "НЕидеальный муж"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tmonth\tcost\tpaymentStatus\tdate\tchannelName\n1410001\t2026-06\t2500.00\tpaid\t2026-06-17 00:00:00\tНЕидеальный муж\n1380001\t2026-06\t250.00\tunpaid\t2026-06-16 00:00:00\tНЕидеальный муж\n1350002\t2026-06\t3303.00\tpaid\t2026-06-15 00:00:00\tНЕидеальный муж\n1350001\t2026-06\t2303.00\tunpaid\t2026-06-15 00:00:00\tНЕидеальный муж\n1290001\t2026-06\t5505.00\tunpaid\t2026-06-11 00:00:00\tНЕидеальный муж\n1260001\t2026-06\t2025.00\tpaid\t2026-06-08 00:00:00\tНЕидеальный муж\n1230001\t2026-06\t5347.00\tunpaid\t2026-06-12 00:00:00\tНЕидеальный муж\n1200002\t2026-06\t2100.00\tpaid\t2026-06-09 00:00:00\tНЕидеальный муж\n1200001\t2026-06\t1588.00\tpaid\t2026-06-09 00:00:00\tНЕидеальный муж\n1170003\t2026-06\t500.00\tunpaid\t2026-06-15 00:00:00\tНЕидеальный муж\n1170002\t2026-06\t4879.00\tpaid\t2026-06-10 00:00:00\tНЕидеальный муж\n1170001\t2026-06\t658.00\tpaid\t2026-06-08 00:00:00\tНЕидеальный муж\n1140001\t2026-06\t489.00\tpaid\t2026-06-08 00:00:00\tНЕидеальный муж\n1050001\t2026-06\t2575.00\tpaid\t2026-06-03 00:00:00\tНЕидеальный муж\n960002\t2026-06\t558.00\tpaid\t2026-06-05 00:00:00\tНЕидеальный муж\n960001\t2026-06\t2600.00\tpaid\t2026-06-06 00:00:00\tНЕидеальный муж\n930001\t2026-06\t3213.00\tpaid\t2026-06-05 00:00:00\tНЕидеальный муж\n900002\t2026-06\t1000.00\tpaid\t2026-06-03 00:00:00\tНЕидеальный муж\n900001\t2026-06\t1000.00\tpaid\t2026-06-03 00:00:00\tНЕидеальный муж\n870001\t2026-06\t9360.00\tpaid\t2026-06-04 00:00:00\tНЕидеальный муж\n840001\t2026-06\t14700.00\tpaid\t2026-06-01 00:00:00\tНЕидеальный муж\n780001\t2026-06\t3194.00\tpaid\t2026-06-02 00:00:00\tНЕидеальный муж\n810001\t2026-05\t600.00\tpaid\t2026-05-31 00:00:00\tНЕидеальный муж\n750002\t2026-05\t1766.00\tpaid\t2026-05-29 00:00:00\tНЕидеальный муж\n720001\t2026-05\t465.00\tpaid\t2026-05-26 00:00:00\tНЕидеальный муж\n690002\t2026-05\t800.00\tpaid\t2026-05-26 00:00:00\tНЕидеальный муж\n630001\t2026-05\t780.00\tpaid\t2026-05-27 00:00:00\tНЕидеальный муж\n600001\t2026-05\t1402.00\tpaid\t2026-05-25 00:00:00\tНЕидеальный муж\n570001\t2026-05\t9924.00\tpaid\t2026-05-15 00:00:00\tНЕидеальный муж\n540001\t2026-05\t2700.00\tpaid\t2026-05-25 00:00:00\tНЕидеальный муж\n",
+  "stderr": "",
+  "execution_time_ms": 270
+}
