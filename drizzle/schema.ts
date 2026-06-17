@@ -266,3 +266,42 @@ export const expenses = mysqlTable("expenses", {
 
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = typeof expenses.$inferInsert;
+
+/**
+ * Post analytics fetched from Trustat (anypost.trustat.me) or similar services.
+ * Auto-fetched when a sale/purchase record status changes to "paid".
+ */
+export const postAnalytics = mysqlTable("post_analytics", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  /** "sale" or "purchase" */
+  recordType: mysqlEnum("recordType", ["sale", "purchase"]).notNull(),
+  recordId: int("recordId").notNull(),
+  /** The analytics URL that was fetched */
+  url: varchar("url", { length: 2048 }).notNull(),
+  /** Post title / draft name */
+  postTitle: text("postTitle"),
+  /** Total current views across all channels */
+  totalViews: int("totalViews"),
+  /** Views in first 24h */
+  views24h: int("views24h"),
+  /** Views in first 48h */
+  views48h: int("views48h"),
+  /** Views in first 72h */
+  views72h: int("views72h"),
+  /** ERR (engagement rate) 24h as percentage */
+  err24h: decimal("err24h", { precision: 6, scale: 2 }),
+  /** Total subscribers across all channels in the report */
+  totalSubscribers: int("totalSubscribers"),
+  /** Number of channels in the report */
+  channelCount: int("channelCount"),
+  /** JSON array of per-channel breakdown */
+  channelsJson: text("channelsJson"),
+  /** Raw JSON of the full report for AI context */
+  rawJson: text("rawJson"),
+  /** When this data was fetched */
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PostAnalytics = typeof postAnalytics.$inferSelect;
+export type InsertPostAnalytics = typeof postAnalytics.$inferInsert;

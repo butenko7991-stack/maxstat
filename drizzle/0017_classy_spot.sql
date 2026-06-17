@@ -1,0 +1,20 @@
+CREATE TABLE `post_analytics` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`userId` int NOT NULL,
+	`recordType` enum('sale','purchase') NOT NULL,
+	`recordId` int NOT NULL,
+	`url` varchar(2048) NOT NULL,
+	`postTitle` text,
+	`totalViews` int,
+	`views24h` int,
+	`views48h` int,
+	`views72h` int,
+	`err24h` decimal(6,2),
+	`totalSubscribers` int,
+	`channelCount` int,
+	`channelsJson` text,
+	`rawJson` text,
+	`fetchedAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `post_analytics_id` PRIMARY KEY(`id`)
+);

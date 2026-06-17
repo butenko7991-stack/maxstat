@@ -19,6 +19,7 @@ import {
 } from "@/components/RecordFormModal";
 import { formatMonthLabel, formatCost, todayIso, currentMonth } from "@/lib/utils";
 import * as XLSX from "xlsx";
+import { PostAnalyticsBadge } from "@/components/PostAnalyticsBadge";
 
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
@@ -491,6 +492,12 @@ export default function SalesPage() {
                       <span className="truncate">{r.link}</span>
                     </a>
                   )}
+                  <PostAnalyticsBadge
+                    recordType="sale"
+                    recordId={r.id}
+                    link={r.link}
+                    paymentStatus={r.paymentStatus}
+                  />
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
                   <span className="text-sm font-semibold text-profit">

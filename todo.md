@@ -300,3 +300,12 @@
 - [x] Расписание: слоты ВП заблокированы — нельзя создать обычную продажу/закуп на занятый ВП-слот
 - [x] Аналитика: отдельный блок ВП в SummaryPage (кол-во сделок, охваты, доплаты, статусы)
 - [x] Тесты: vitest для mutual router (17 тестов)
+
+## Автоматическое извлечение аналитики из ссылок MAX (iimax.ru)
+- [ ] Исследовать структуру ссылок iimax.ru и доступные данные (HTML/API)
+- [ ] DB: таблица post_analytics (id, userId, recordType, recordId, url, channelName, channelSubscribers, postViews, postReach, reactions, comments, reposts, fetchedAt, rawData)
+- [ ] Backend: tRPC процедура fetchPostAnalytics — парсит iimax.ru ссылку через LLM+fetch, возвращает структурированные данные
+- [ ] Backend: при смене статуса записи на "оплачено" — автоматически запускать fetchPostAnalytics для ссылки
+- [ ] Frontend: в карточке продажи/закупа показывать извлечённые данные (охваты, просмотры, реакции)
+- [ ] Frontend: кнопка "Обновить аналитику" для ручного перезапуска парсинга
+- [ ] AI Analytics: включить post_analytics данные в контекст LLM для анализа эффективности

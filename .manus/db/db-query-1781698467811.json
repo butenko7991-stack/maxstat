@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `post_analytics` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`recordType` enum('sale','purchase') NOT NULL,\n\t`recordId` int NOT NULL,\n\t`url` varchar(2048) NOT NULL,\n\t`postTitle` text,\n\t`totalViews` int,\n\t`views24h` int,\n\t`views48h` int,\n\t`views72h` int,\n\t`err24h` decimal(6,2),\n\t`totalSubscribers` int,\n\t`channelCount` int,\n\t`channelsJson` text,\n\t`rawJson` text,\n\t`fetchedAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `post_analytics_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3w772QE1KpnYzBG.85989796fc0e --database m7risP4w4X9EeRX7Kf6EPq --execute CREATE TABLE `post_analytics` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`recordType` enum('sale','purchase') NOT NULL,\n\t`recordId` int NOT NULL,\n\t`url` varchar(2048) NOT NULL,\n\t`postTitle` text,\n\t`totalViews` int,\n\t`views24h` int,\n\t`views48h` int,\n\t`views72h` int,\n\t`err24h` decimal(6,2),\n\t`totalSubscribers` int,\n\t`channelCount` int,\n\t`channelsJson` text,\n\t`rawJson` text,\n\t`fetchedAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `post_analytics_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 7494
+}

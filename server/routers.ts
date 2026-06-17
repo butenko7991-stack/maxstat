@@ -57,6 +57,9 @@ import {
   updateExpense,
   deleteExpense,
   getExpenseSummary,
+  upsertPostAnalytics,
+  getPostAnalyticsByRecord,
+  getPostAnalyticsByUser,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 
@@ -185,6 +188,13 @@ const purchasesRouter = router({
     .input(z.object({ id: z.number().int().positive(), paymentStatus: paymentStatusEnum }))
     .mutation(async ({ ctx, input }) => {
       await updatePurchaseRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus });
+      // Auto-fetch analytics when status changes to paid and record has a link
+      if (input.paymentStatus === "paid") {
+        const record = await getPurchaseById(input.id, ctx.user.id);
+        if (record?.link) {
+          upsertPostAnalytics(ctx.user.id, "purchase", input.id, record.link).catch(() => {});
+        }
+      }
       return { success: true };
     }),
   duplicate: protectedProcedure
@@ -410,6 +420,13 @@ const salesRouter = router({
     .input(z.object({ id: z.number().int().positive(), paymentStatus: paymentStatusEnum }))
     .mutation(async ({ ctx, input }) => {
       await updateSaleRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus });
+      // Auto-fetch analytics when status changes to paid and record has a link
+      if (input.paymentStatus === "paid") {
+        const record = await getSaleById(input.id, ctx.user.id);
+        if (record?.link) {
+          upsertPostAnalytics(ctx.user.id, "sale", input.id, record.link).catch(() => {});
+        }
+      }
       return { success: true };
     }),
   duplicate: protectedProcedure
@@ -588,6 +605,17 @@ const aiRouter = router({
 ${ctx_data.mutual.avgOurReach !== null ? `- Ср. наш охват в ВП: ${ctx_data.mutual.avgOurReach.toLocaleString('ru-RU')}` : ''}
 ${ctx_data.mutual.avgPartnerReach !== null ? `- Ср. охват партнёра: ${ctx_data.mutual.avgPartnerReach.toLocaleString('ru-RU')}` : ''}` : '';
 
+      // Fetch post analytics for context
+      const allPostAnalytics = await getPostAnalyticsByUser(ctx.user.id);
+      const postAnalyticsBlock = allPostAnalytics.length > 0 ? `
+АНАЛИТИКА ПОСТОВ (из Trustat, ${allPostAnalytics.length} записей):
+${allPostAnalytics.slice(0, 20).map(pa => {
+        const channels_data = (() => { try { return JSON.parse(pa.channelsJson ?? '[]'); } catch { return []; } })();
+        const chList = channels_data.map((ch: { channelTitle: string; currentViews: number; err24h: number | null }) =>
+          `${ch.channelTitle}: ${ch.currentViews} просм.${ch.err24h != null ? ` ERR=${ch.err24h.toFixed(1)}%` : ''}`
+        ).join(', ');
+        return `- [${pa.recordType === 'sale' ? 'Продажа' : 'Закуп'}] ${pa.postTitle ?? 'Без названия'}: ${pa.totalViews ?? 0} просм. всего, 24ч=${pa.views24h ?? '—'}, ERR24=${pa.err24h != null ? parseFloat(String(pa.err24h)).toFixed(1) + '%' : '—'}, подп.=${pa.totalSubscribers ?? '—'}${chList ? ` | ${chList}` : ''}`;
+      }).join('\n')}` : '';
       const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
       const prompt = `Ты — эксперт по экономике рекламных каналов в Макс/Телеграм. Анализируй ${periodLabel}.
 
@@ -610,10 +638,9 @@ ${ctx_data.totalExpenses > 0 ? `- Чистая прибыль: ${ctx_data.netPro
 - Привлечено за период: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}
 ${ctx_data.overallAvgCpf !== null ? `- Средний CPF: ${ctx_data.overallAvgCpf}₽` : ''}
 ${mutualBlock}
-
+${postAnalyticsBlock}
 ПО КАНАЛАМ:
 ${channelsSummary}
-
 ЗАДАНИЕ: Дай глубокий анализ на русском языке в формате markdown.
 Структура ответа:
 ## 📊 Общая оценка бизнеса
@@ -1368,6 +1395,32 @@ const expensesRouter = router({
     .mutation(({ ctx, input }) => deleteExpense(input.id, ctx.user.id)),
 });
 
+// ─── Post Analytics router ──────────────────────────────────────────────────
+const postAnalyticsRouter = router({
+  /** Fetch analytics for a specific record (sale or purchase) */
+  getByRecord: protectedProcedure
+    .input(z.object({
+      recordType: z.enum(["sale", "purchase"]),
+      recordId: z.number().int().positive(),
+    }))
+    .query(({ input }) => getPostAnalyticsByRecord(input.recordType, input.recordId)),
+
+  /** Manually trigger analytics fetch for a record with a link */
+  fetch: protectedProcedure
+    .input(z.object({
+      recordType: z.enum(["sale", "purchase"]),
+      recordId: z.number().int().positive(),
+      url: z.string().url(),
+    }))
+    .mutation(({ ctx, input }) =>
+      upsertPostAnalytics(ctx.user.id, input.recordType, input.recordId, input.url)
+    ),
+
+  /** List all fetched analytics for the current user */
+  list: protectedProcedure
+    .query(({ ctx }) => getPostAnalyticsByUser(ctx.user.id)),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -1387,7 +1440,7 @@ export const appRouter = router({system: systemRouter,  auth: router({
   mutual: mutualRouter,
   snapshots: snapshotsRouter,
   ocr: ocrRouter,
-  expenses: expensesRouter,
+   expenses: expensesRouter,
+  postAnalytics: postAnalyticsRouter,
 });
-
 export type AppRouter = typeof appRouter;

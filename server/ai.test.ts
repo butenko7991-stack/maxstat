@@ -162,6 +162,7 @@ vi.mock("./db", () => ({
   bulkCreatePurchaseRecords: vi.fn().mockResolvedValue([]),
   bulkCreateSaleRecords: vi.fn().mockResolvedValue([]),
   getAiContext: vi.fn(),
+  getPostAnalyticsByUser: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("./_core/llm", () => ({

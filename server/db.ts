@@ -21,6 +21,9 @@ import {
   expenses,
   Expense,
   InsertExpense,
+  postAnalytics,
+  PostAnalytics,
+  InsertPostAnalytics,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1812,4 +1815,181 @@ export async function getExpenseSummary(
     byCategory[r.category] = (byCategory[r.category] ?? 0) + amt;
   }
   return { total, paid, unpaid, byCategory };
+}
+
+// ─── Post Analytics ───────────────────────────────────────────────────────────
+
+/**
+ * Fetch and parse a Trustat (anypost.trustat.me) analytics page.
+ * Returns structured data extracted from the embedded JSON.
+ */
+export async function fetchTrustatAnalytics(url: string): Promise<{
+  postTitle: string | null;
+  totalViews: number | null;
+  views24h: number | null;
+  views48h: number | null;
+  views72h: number | null;
+  err24h: number | null;
+  totalSubscribers: number | null;
+  channelCount: number;
+  channels: Array<{
+    channelTitle: string;
+    channelSubs: number;
+    currentViews: number;
+    views24h: number | null;
+    views48h: number | null;
+    err24h: number | null;
+    status: string;
+    postUrl: string | null;
+  }>;
+  rawJson: string;
+} | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; AdsManager/1.0)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+     // Extract the embedded JSON payload from self.__next_f.push
+    const scriptMatch = html.match(/self\.__next_f\.push\(\[1,"([\s\S]*?)"\]\)/);
+    
+    let reportData: any = null;
+    
+    if (scriptMatch) {
+      try {
+        // Unescape the JSON string
+        const unescaped = scriptMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+        const reportExtract = unescaped.match(/"report":\{([\s\S]*?),"increments"/);
+        if (reportExtract) {
+          reportData = JSON.parse('{"report":{' + reportExtract[1] + '}}').report;
+        }
+      } catch {}
+    }
+
+    // Alternative: find full JSON object
+    if (!reportData) {
+      const fullMatch = html.match(/"report":\{[\s\S]*?"total_views":\d+\}/);
+      if (fullMatch) {
+        try {
+          reportData = JSON.parse('{' + fullMatch[0] + '}').report;
+        } catch {}
+      }
+    }
+
+    // Fallback: use LLM to extract from HTML text
+    if (!reportData) {
+      return null;
+    }
+
+    const summary = reportData.summary ?? {};
+    const posts: any[] = reportData.posts ?? [];
+
+    const channelList = posts.map((p: any) => ({
+      channelTitle: p.channel_title ?? "",
+      channelSubs: p.channel_subs ?? 0,
+      currentViews: p.current_views ?? p.views ?? 0,
+      views24h: p.views_24h ?? null,
+      views48h: p.views_48h ?? null,
+      err24h: p.err_24h ?? null,
+      status: p.status ?? "unknown",
+      postUrl: p.post_url ?? null,
+    }));
+
+    return {
+      postTitle: reportData.draft_name ?? null,
+      totalViews: summary.current_views ?? null,
+      views24h: summary.views_24h ?? null,
+      views48h: summary.views_48h ?? null,
+      views72h: summary.views_72h ?? null,
+      err24h: summary.err_24h ?? null,
+      totalSubscribers: summary.subscribers_total_known ?? null,
+      channelCount: posts.length,
+      channels: channelList,
+      rawJson: JSON.stringify(reportData),
+    };
+  } catch (err) {
+    console.error("[fetchTrustatAnalytics] Error:", err);
+    return null;
+  }
+}
+
+export async function upsertPostAnalytics(
+  userId: number,
+  recordType: "sale" | "purchase",
+  recordId: number,
+  url: string
+): Promise<PostAnalytics | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const data = await fetchTrustatAnalytics(url);
+  if (!data) return null;
+
+  // Check if record already exists
+  const existing = await db
+    .select()
+    .from(postAnalytics)
+    .where(and(eq(postAnalytics.recordType, recordType), eq(postAnalytics.recordId, recordId)))
+    .limit(1);
+
+  const payload: InsertPostAnalytics = {
+    userId,
+    recordType,
+    recordId,
+    url,
+    postTitle: data.postTitle,
+    totalViews: data.totalViews ?? undefined,
+    views24h: data.views24h ?? undefined,
+    views48h: data.views48h ?? undefined,
+    views72h: data.views72h ?? undefined,
+    err24h: data.err24h != null ? String(data.err24h) : undefined,
+    totalSubscribers: data.totalSubscribers ?? undefined,
+    channelCount: data.channelCount,
+    channelsJson: JSON.stringify(data.channels),
+    rawJson: data.rawJson,
+  };
+
+  if (existing.length > 0) {
+    await db
+      .update(postAnalytics)
+      .set({ ...payload, fetchedAt: new Date() })
+      .where(eq(postAnalytics.id, existing[0].id));
+    const updated = await db.select().from(postAnalytics).where(eq(postAnalytics.id, existing[0].id)).limit(1);
+    return updated[0] ?? null;
+  } else {
+    const result = await db.insert(postAnalytics).values(payload);
+    const insertId = (result as any)[0]?.insertId;
+    if (!insertId) return null;
+    const inserted = await db.select().from(postAnalytics).where(eq(postAnalytics.id, insertId)).limit(1);
+    return inserted[0] ?? null;
+  }
+}
+
+export async function getPostAnalyticsByRecord(
+  recordType: "sale" | "purchase",
+  recordId: number
+): Promise<PostAnalytics | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(postAnalytics)
+    .where(and(eq(postAnalytics.recordType, recordType), eq(postAnalytics.recordId, recordId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getPostAnalyticsByUser(userId: number): Promise<PostAnalytics[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(postAnalytics)
+    .where(eq(postAnalytics.userId, userId))
+    .orderBy(desc(postAnalytics.fetchedAt));
 }

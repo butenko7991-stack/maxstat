@@ -120,6 +120,13 @@
       "when": 1781693796134,
       "tag": "0016_modern_inertia",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1781698450670,
+      "tag": "0017_classy_spot",
+      "breakpoints": true
     }
   ]
 }
