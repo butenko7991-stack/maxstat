@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, Pencil, Trash2, ExternalLink, TrendingUp, TrendingDown,
   Handshake, BarChart3, ArrowRightLeft, CheckCircle2, XCircle,
-  Clock, ChevronRight, Calculator, ArrowUp, ArrowDown,
+  Clock, ChevronRight, Calculator, ArrowUp, ArrowDown, Users,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,6 +25,7 @@ type DopPaymentStatus = "paid" | "unpaid" | "not_applicable";
 
 interface FormData {
   ourChannelId: string;
+  ourChannelIds: string[]; // multi-channel IDs (when creating for multiple channels)
   partnerChannelName: string;
   partnerContact: string;
   month: string;
@@ -49,6 +51,7 @@ interface FormData {
 
 const EMPTY_FORM: FormData = {
   ourChannelId: "",
+  ourChannelIds: [],
   partnerChannelName: "",
   partnerContact: "",
   month: new Date().toISOString().slice(0, 7),
@@ -105,6 +108,8 @@ export default function MutualPage() {
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("list");
+  // Map of channelId -> latest views24h from snapshots
+  const [channelReachMap, setChannelReachMap] = useState<Record<number, number | null>>({});
 
   const utils = trpc.useUtils();
   const { data: channels = [] } = trpc.channels.list.useQuery();
@@ -113,6 +118,31 @@ export default function MutualPage() {
     status: filterStatus === "all" ? undefined : filterStatus,
     ourChannelId: filterChannel === "all" ? undefined : Number(filterChannel),
   });
+
+  // Fetch latest snapshots for all channels to build reach map
+  const { data: allSnapshots = [] } = trpc.snapshots.list.useQuery({});
+
+  useEffect(() => {
+    if (!allSnapshots.length || !channels.length) return;
+    const map: Record<number, number | null> = {};
+    for (const ch of channels) {
+      const chSnaps = allSnapshots
+        .filter((s: any) => s.channelId === ch.id && s.views24h != null)
+        .sort((a: any, b: any) => new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime());
+      map[ch.id] = chSnaps.length > 0 ? chSnaps[0].views24h : null;
+    }
+    setChannelReachMap(map);
+  }, [allSnapshots, channels]);
+
+  // When ourChannelId changes (single mode), auto-fill ourReach from snapshot
+  useEffect(() => {
+    if (!form.ourChannelId || editId) return;
+    const chId = Number(form.ourChannelId);
+    const reach = channelReachMap[chId];
+    if (reach != null) {
+      setForm(f => ({ ...f, ourReach: String(reach) }));
+    }
+  }, [form.ourChannelId, channelReachMap, editId]);
 
   const createMutation = trpc.mutual.create.useMutation({
     onSuccess: () => {
@@ -172,6 +202,22 @@ export default function MutualPage() {
     return { total: deals.length, active: active.length, completed: completed.length, withDop: withDop.length, wePayTotal, theyPayTotal, byStatus };
   }, [deals]);
 
+  // Multi-channel toggle helper
+  function toggleChannel(chId: string) {
+    setForm(f => {
+      const ids = f.ourChannelIds.includes(chId)
+        ? f.ourChannelIds.filter(id => id !== chId)
+        : [...f.ourChannelIds, chId];
+      // Auto-fill ourReach from first selected channel's snapshot
+      let ourReach = f.ourReach;
+      if (ids.length === 1) {
+        const reach = channelReachMap[Number(ids[0])];
+        if (reach != null) ourReach = String(reach);
+      }
+      return { ...f, ourChannelIds: ids, ourChannelId: ids[0] ?? "", ourReach };
+    });
+  }
+
   function openCreate() {
     setEditId(null);
     setForm({ ...EMPTY_FORM, month });
@@ -182,6 +228,7 @@ export default function MutualPage() {
     setEditId(d.id);
     setForm({
       ourChannelId: String(d.ourChannelId),
+      ourChannelIds: [String(d.ourChannelId)],
       partnerChannelName: d.partnerChannelName,
       partnerContact: d.partnerContact ?? "",
       month: d.month,
@@ -204,10 +251,14 @@ export default function MutualPage() {
   }
 
   function handleSubmit() {
-    if (!form.ourChannelId) { toast.error("Выбери наш канал"); return; }
+    const selectedIds = editId
+      ? [Number(form.ourChannelId)]
+      : form.ourChannelIds.map(Number).filter(Boolean);
+
+    if (selectedIds.length === 0) { toast.error("Выбери хотя бы один канал"); return; }
     if (!form.partnerChannelName.trim()) { toast.error("Укажи канал партнёра"); return; }
-    const payload = {
-      ourChannelId: Number(form.ourChannelId),
+
+    const basePayload = {
       partnerChannelName: form.partnerChannelName.trim(),
       partnerContact: form.partnerContact || undefined,
       month: form.month,
@@ -226,10 +277,31 @@ export default function MutualPage() {
       status: form.status,
       notes: form.notes || undefined,
     };
+
     if (editId) {
-      updateMutation.mutate({ id: editId, ...payload });
+      updateMutation.mutate({ id: editId, ourChannelId: selectedIds[0], ...basePayload });
+    } else if (selectedIds.length === 1) {
+      createMutation.mutate({ ourChannelId: selectedIds[0], ourChannelIds: selectedIds, ...basePayload });
     } else {
-      createMutation.mutate(payload);
+      // Create one deal per selected channel sequentially
+      const createNext = (idx: number) => {
+        if (idx >= selectedIds.length) {
+          utils.mutual.list.invalidate();
+          utils.purchases.list.invalidate();
+          utils.sales.list.invalidate();
+          utils.summary.financial.invalidate();
+          toast.success(`Создано ${selectedIds.length} ВП-сделок`);
+          setDialogOpen(false);
+          return;
+        }
+        const chId = selectedIds[idx];
+        const reach = channelReachMap[chId] ?? (form.ourReach ? Number(form.ourReach) : undefined);
+        createMutation.mutate(
+          { ourChannelId: chId, ourChannelIds: [chId], ...basePayload, ourReach: reach ?? basePayload.ourReach },
+          { onSuccess: () => createNext(idx + 1), onError: (e) => toast.error(e.message) }
+        );
+      };
+      createNext(0);
     }
   }
 
@@ -259,7 +331,6 @@ export default function MutualPage() {
           </Button>
         </div>
       </div>
-
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-8">
@@ -267,7 +338,6 @@ export default function MutualPage() {
           <TabsTrigger value="analytics" className="text-xs gap-1"><BarChart3 className="w-3 h-3" />Аналитика</TabsTrigger>
           <TabsTrigger value="calculator" className="text-xs gap-1"><Calculator className="w-3 h-3" />Калькулятор</TabsTrigger>
         </TabsList>
-
         {/* ── LIST TAB ── */}
         <TabsContent value="list" className="mt-4 space-y-4">
           <div className="flex gap-2 flex-wrap">
@@ -289,17 +359,10 @@ export default function MutualPage() {
             </Select>
           </div>
 
-          <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground px-1">
-            {STATUS_ORDER.map((s, i) => (
-              <div key={s} className="flex items-center gap-1">
-                <span className={`px-2 py-0.5 rounded-full border ${STATUS_CONFIG[s].color}`}>{STATUS_CONFIG[s].label}</span>
-                {i < STATUS_ORDER.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground/50" />}
-              </div>
-            ))}
-          </div>
-
           {isLoading ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">Загрузка...</div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {[1,2,3].map(i => <div key={i} className="h-48 rounded-xl bg-muted/30 animate-pulse" />)}
+            </div>
           ) : deals.length === 0 ? (
             <div className="text-center py-16 space-y-3">
               <Handshake className="w-12 h-12 text-muted-foreground/30 mx-auto" />
@@ -362,60 +425,33 @@ export default function MutualPage() {
                           )}
                         </div>
                       </div>
-
+                      {/* Reach diff badge */}
                       {rd && (
-                        <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md ${rd.diff > 0 ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+                        <div className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md ${rd.diff > 0 ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
                           {rd.diff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                          <span>Разница охватов: {rd.pct}% {rd.diff > 0 ? "(наш больше)" : "(партнёра больше)"}</span>
+                          <span>{rd.diff > 0 ? "+" : ""}{rd.diff.toLocaleString()} охватов ({rd.pct}%)</span>
                         </div>
                       )}
-
-                      {d.dealType === "с доплатой" && (
-                        <div className="flex items-center gap-2 text-xs bg-accent/40 rounded-lg px-2.5 py-1.5">
-                          <span className="text-muted-foreground">Доплата:</span>
-                          <span className="font-medium text-foreground">{d.dopDirection === "мы платим" ? "Мы платим" : "Нам платят"}</span>
-                          {d.dopAmount && <span className="font-semibold text-primary">{d.dopAmount} ₽</span>}
-                          <Badge variant="outline" className={`ml-auto text-xs ${d.dopPaymentStatus === "paid" ? "text-green-400 border-green-500/30" : d.dopPaymentStatus === "unpaid" ? "text-red-400 border-red-500/30" : "text-muted-foreground"}`}>
-                            {DOP_PAYMENT_LABELS[d.dopPaymentStatus as DopPaymentStatus]}
-                          </Badge>
+                      {/* Doplate */}
+                      {d.dealType === "с доплатой" && d.dopAmount && (
+                        <div className="flex items-center justify-between text-xs bg-accent/30 rounded-md px-2 py-1">
+                          <span className="text-muted-foreground">{d.dopDirection === "мы платим" ? "Мы платим:" : "Нам платят:"}</span>
+                          <span className="font-medium">{Number(d.dopAmount).toLocaleString()} ₽ · {DOP_PAYMENT_LABELS[d.dopPaymentStatus as DopPaymentStatus]}</span>
                         </div>
                       )}
-
-                      {(d.saleRecordId || d.purchaseRecordId) && (
-                        <div className="flex gap-1.5 text-xs flex-wrap">
-                          {d.saleRecordId && (
-                            <span className="px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">
-                              Продажа #{d.saleRecordId}
-                            </span>
-                          )}
-                          {d.purchaseRecordId && (
-                            <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                              Закуп #{d.purchaseRecordId}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {d.notes && <p className="text-xs text-muted-foreground line-clamp-2 italic">{d.notes}</p>}
-
+                      {/* Actions */}
                       <div className="flex items-center gap-1.5 pt-1">
                         {canAdvance && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs flex-1 gap-1"
-                            onClick={() => advanceStatus(d)}
-                            disabled={updateMutation.isPending}
-                          >
+                          <Button size="sm" variant="outline" className="h-7 text-xs flex-1 gap-1" onClick={() => advanceStatus(d)}>
                             <ChevronRight className="w-3 h-3" />
                             {STATUS_CONFIG[STATUS_ORDER[STATUS_ORDER.indexOf(d.status as DealStatus) + 1]]?.label}
                           </Button>
                         )}
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(d)}>
-                          <Pencil className="w-3.5 h-3.5" />
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => openEdit(d)}>
+                          <Pencil className="w-3 h-3" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(d.id)}>
-                          <Trash2 className="w-3.5 h-3.5" />
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(d.id)}>
+                          <Trash2 className="w-3 h-3" />
                         </Button>
                       </div>
                     </CardContent>
@@ -427,74 +463,73 @@ export default function MutualPage() {
         </TabsContent>
 
         {/* ── ANALYTICS TAB ── */}
-        <TabsContent value="analytics" className="mt-4 space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: "Всего сделок", value: analytics.total, icon: <Handshake className="w-4 h-4" />, color: "text-primary" },
-              { label: "Активных", value: analytics.active, icon: <Clock className="w-4 h-4" />, color: "text-yellow-400" },
-              { label: "Завершено", value: analytics.completed, icon: <CheckCircle2 className="w-4 h-4" />, color: "text-green-400" },
-              { label: "С доплатой", value: analytics.withDop, icon: <ArrowRightLeft className="w-4 h-4" />, color: "text-purple-400" },
-            ].map(m => (
-              <Card key={m.label} className="glass border-border/50">
-                <CardContent className="p-4">
-                  <div className={`${m.color} mb-2`}>{m.icon}</div>
-                  <p className="text-2xl font-bold text-foreground">{m.value}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{m.label}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {analytics.withDop > 0 && (
+        <TabsContent value="analytics" className="mt-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="glass border-border/50">
-              <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Calculator className="w-4 h-4 text-primary" />Доплаты за период
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Мы платим партнёрам</p>
-                    <p className="text-xl font-bold text-red-400">{analytics.wePayTotal.toLocaleString("ru-RU")} ₽</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Партнёры платят нам</p>
-                    <p className="text-xl font-bold text-green-400">{analytics.theyPayTotal.toLocaleString("ru-RU")} ₽</p>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground">Чистый баланс доплат</p>
-                  <p className={`text-lg font-bold ${analytics.theyPayTotal - analytics.wePayTotal >= 0 ? "text-green-400" : "text-red-400"}`}>
-                    {(analytics.theyPayTotal - analytics.wePayTotal) >= 0 ? "+" : ""}
-                    {(analytics.theyPayTotal - analytics.wePayTotal).toLocaleString("ru-RU")} ₽
-                  </p>
-                </div>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Всего сделок</p>
+                <p className="text-2xl font-bold text-foreground mt-1">{analytics.total}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{analytics.active} активных</p>
               </CardContent>
             </Card>
-          )}
-
-          <Card className="glass border-border/50">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm">Воронка статусов</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-2">
-              {analytics.byStatus.map(({ status, count }) => (
-                <div key={status} className="flex items-center gap-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full border w-28 text-center ${STATUS_CONFIG[status].color}`}>
-                    {STATUS_CONFIG[status].label}
-                  </span>
-                  <div className="flex-1 bg-accent/30 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-primary/60 transition-all"
-                      style={{ width: analytics.total > 0 ? `${(count / analytics.total) * 100}%` : "0%" }}
-                    />
-                  </div>
-                  <span className="text-xs font-medium text-foreground w-6 text-right">{count}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+            <Card className="glass border-border/50">
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Завершено</p>
+                <p className="text-2xl font-bold text-green-400 mt-1">{analytics.completed}</p>
+              </CardContent>
+            </Card>
+            <Card className="glass border-border/50">
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Нам платят</p>
+                <p className="text-2xl font-bold text-primary mt-1">{analytics.theyPayTotal.toLocaleString()} ₽</p>
+              </CardContent>
+            </Card>
+            <Card className="glass border-border/50">
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Мы платим</p>
+                <p className="text-2xl font-bold text-red-400 mt-1">{analytics.wePayTotal.toLocaleString()} ₽</p>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Card className="glass border-border/50">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm">Воронка статусов</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-2">
+                {analytics.byStatus.map(({ status, count }) => {
+                  const sc = STATUS_CONFIG[status];
+                  return (
+                    <div key={status} className="flex items-center justify-between">
+                      <Badge className={`text-xs border gap-1 ${sc.color}`}>{sc.icon}{sc.label}</Badge>
+                      <span className="text-sm font-medium">{count}</span>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+            <Card className="glass border-border/50">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm">Охваты по каналам</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-2">
+                {channels.map(ch => {
+                  const chDeals = deals.filter(d => d.ourChannelId === ch.id && d.ourReach);
+                  if (!chDeals.length) return null;
+                  const avgReach = Math.round(chDeals.reduce((s, d) => s + (d.ourReach ?? 0), 0) / chDeals.length);
+                  return (
+                    <div key={ch.id} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground truncate max-w-[60%]">{ch.name}</span>
+                      <span className="font-medium">{fmtReach(avgReach)} avg · {chDeals.length} ВП</span>
+                    </div>
+                  );
+                })}
+                {channels.every(ch => !deals.find(d => d.ourChannelId === ch.id)) && (
+                  <p className="text-xs text-muted-foreground">Нет данных за период</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* ── CALCULATOR TAB ── */}
@@ -562,28 +597,69 @@ export default function MutualPage() {
             )}
           </DialogHeader>
           <div className="space-y-4 py-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Наш канал *</Label>
-                <Select value={form.ourChannelId} onValueChange={v => setForm(f => ({ ...f, ourChannelId: v }))}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Выбери канал" /></SelectTrigger>
-                  <SelectContent>
-                    {channels.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+
+            {/* ── Channel selector ── */}
+            {editId ? (
+              // Edit mode: single channel select
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Наш канал *</Label>
+                  <Select value={form.ourChannelId} onValueChange={v => setForm(f => ({ ...f, ourChannelId: v, ourChannelIds: [v] }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Выбери канал" /></SelectTrigger>
+                    <SelectContent>
+                      {channels.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Статус</Label>
+                  <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as DealStatus }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Статус</Label>
-                <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as DealStatus }))}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            ) : (
+              // Create mode: multi-channel checkboxes
+              <div className="space-y-2">
+                <Label className="text-xs flex items-center gap-1">
+                  <Users className="w-3 h-3" />Наши каналы * <span className="text-muted-foreground font-normal">(можно выбрать несколько)</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-1.5 p-3 rounded-lg border border-border/50 bg-accent/10 max-h-40 overflow-y-auto">
+                  {channels.map(c => {
+                    const reach = channelReachMap[c.id];
+                    const checked = form.ourChannelIds.includes(String(c.id));
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors text-xs ${checked ? "bg-primary/15 text-primary" : "hover:bg-accent/30 text-foreground"}`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleChannel(String(c.id))}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span className="truncate flex-1">{c.name}</span>
+                        {reach != null && (
+                          <span className="text-muted-foreground shrink-0">{fmtReach(reach)}</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                {form.ourChannelIds.length > 1 && (
+                  <p className="text-xs text-primary flex items-center gap-1">
+                    <Handshake className="w-3 h-3" />
+                    Будет создано {form.ourChannelIds.length} отдельных ВП-сделок
+                  </p>
+                )}
               </div>
-            </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Канал партнёра *</Label>
@@ -604,15 +680,43 @@ export default function MutualPage() {
                 />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Месяц *</Label>
-              <Input
-                type="month"
-                value={form.month}
-                onChange={e => setForm(f => ({ ...f, month: e.target.value }))}
-                className="h-9 text-sm w-40"
-              />
-            </div>
+
+            {/* Status for create mode */}
+            {!editId && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Месяц *</Label>
+                  <Input
+                    type="month"
+                    value={form.month}
+                    onChange={e => setForm(f => ({ ...f, month: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Статус</Label>
+                  <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as DealStatus }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            {editId && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Месяц *</Label>
+                <Input
+                  type="month"
+                  value={form.month}
+                  onChange={e => setForm(f => ({ ...f, month: e.target.value }))}
+                  className="h-9 text-sm w-40"
+                />
+              </div>
+            )}
 
             {/* Two-sided post sections */}
             <div className="grid grid-cols-2 gap-3">
@@ -637,7 +741,12 @@ export default function MutualPage() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Охват</Label>
+                  <Label className="text-xs flex items-center gap-1">
+                    Охват
+                    {form.ourChannelIds.length === 1 && channelReachMap[Number(form.ourChannelIds[0])] != null && (
+                      <span className="text-primary font-normal">(авто из снимка)</span>
+                    )}
+                  </Label>
                   <Input type="number" placeholder="50000" value={form.ourReach} onChange={e => setForm(f => ({ ...f, ourReach: e.target.value }))} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
@@ -751,7 +860,7 @@ export default function MutualPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Отмена</Button>
             <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending}>
-              {editId ? "Сохранить" : "Создать ВП"}
+              {editId ? "Сохранить" : form.ourChannelIds.length > 1 ? `Создать ${form.ourChannelIds.length} ВП` : "Создать ВП"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,0 +1,1 @@
+ALTER TABLE `mutual_deals` ADD `ourChannelIds` text;

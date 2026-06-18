@@ -127,6 +127,13 @@
       "when": 1781698450670,
       "tag": "0017_classy_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1781795281941,
+      "tag": "0018_puzzling_cable",
+      "breakpoints": true
     }
   ]
 }

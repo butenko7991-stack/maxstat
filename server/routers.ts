@@ -795,6 +795,8 @@ const adminRouter = router({
 // ─── Mutual Deals router ─────────────────────────────────────────────────────
 const mutualInput = z.object({
   ourChannelId: z.number().int(),
+  /** Multiple channel IDs for multi-channel ВП */
+  ourChannelIds: z.array(z.number().int()).optional(),
   partnerChannelName: z.string().min(1).max(255),
   partnerContact: z.string().max(255).optional(),
   // Per-side dates (replaces single dealDate)
@@ -834,6 +836,7 @@ const mutualRouter = router({
       const id = await createMutualDealWithRecords({
         userId: ctx.user.id,
         ourChannelId: input.ourChannelId,
+        ourChannelIds: input.ourChannelIds,
         partnerChannelName: input.partnerChannelName,
         partnerContact: input.partnerContact ?? null,
         ourPostDate: input.ourPostDate ?? null,

@@ -171,8 +171,10 @@ export type InsertChannelAssignment = typeof channelAssignments.$inferInsert;
 export const mutualDeals = mysqlTable("mutual_deals", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  /** Our channel participating in the deal */
+  /** Our channel participating in the deal (primary, kept for compatibility) */
   ourChannelId: int("ourChannelId").notNull(),
+  /** Additional channels participating in the deal (JSON array of channel IDs) */
+  ourChannelIds: text("ourChannelIds"),
   /** Partner channel name (external, free text) */
   partnerChannelName: varchar("partnerChannelName", { length: 255 }).notNull(),
   /** Partner contact (admin name, username, etc.) */

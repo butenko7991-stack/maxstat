@@ -1009,6 +1009,8 @@ export async function deleteMutualDeal(id: number, userId: number): Promise<void
 export interface CreateMutualDealInput {
   userId: number;
   ourChannelId: number;
+  /** Additional channel IDs for multi-channel ВП (creates separate sale+purchase per channel) */
+  ourChannelIds?: number[] | null;
   partnerChannelName: string;
   partnerContact?: string | null;
   month: string;
@@ -1082,9 +1084,50 @@ export async function createMutualDealWithRecords(input: CreateMutualDealInput):
     timeSlot: input.partnerBookingSlot ?? undefined,
   });
 
+  // For multi-channel: create additional sale+purchase records for each extra channel
+  const extraChannelIds = (input.ourChannelIds ?? []).filter(cid => cid !== input.ourChannelId);
+  for (const extraChannelId of extraChannelIds) {
+    await createSaleRecord({
+      userId: input.userId,
+      channelId: extraChannelId,
+      date: input.ourPostDate ?? new Date(),
+      admin: input.partnerChannelName,
+      link: input.ourPostLink ?? null,
+      month: input.month,
+      reach: input.ourReach ?? null,
+      cost: saleRevenue,
+      paymentStatus: salePaymentStatus,
+      isMutual: true,
+      partnerChannel: input.partnerChannelName,
+      ourReach: input.ourReach ?? null,
+      partnerReach: input.partnerReach ?? null,
+      notes: input.notes ?? null,
+      bookingSlot: input.ourBookingSlot ?? undefined,
+      timeSlot: input.ourBookingSlot ?? undefined,
+    });
+    await createPurchaseRecord({
+      userId: input.userId,
+      channelId: extraChannelId,
+      date: input.partnerPostDate ?? new Date(),
+      admin: input.partnerChannelName,
+      link: input.partnerPostLink ?? null,
+      month: input.month,
+      reach: input.partnerReach ?? null,
+      cost: purchaseCost,
+      paymentStatus: purchasePaymentStatus,
+      isMutual: true,
+      partnerChannel: input.partnerChannelName,
+      notes: input.notes ?? null,
+      bookingSlot: input.partnerBookingSlot ?? undefined,
+      timeSlot: input.partnerBookingSlot ?? undefined,
+    });
+  }
+  // All selected channel IDs (primary + extras)
+  const allChannelIds = [input.ourChannelId, ...extraChannelIds];
   const dealResult = await db.insert(mutualDeals).values({
     userId: input.userId,
     ourChannelId: input.ourChannelId,
+    ourChannelIds: allChannelIds.length > 1 ? JSON.stringify(allChannelIds) : null,
     partnerChannelName: input.partnerChannelName,
     partnerContact: input.partnerContact ?? null,
     ourPostDate: input.ourPostDate ?? null,
