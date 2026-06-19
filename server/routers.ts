@@ -1426,6 +1426,41 @@ const postAnalyticsRouter = router({
   /** List all fetched analytics for the current user */
   list: protectedProcedure
     .query(({ ctx }) => getPostAnalyticsByUser(ctx.user.id)),
+  /** Batch-fetch analytics for all paid records with links that don't have analytics yet */
+  fetchAllMissing: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const [sales, purchases, existing] = await Promise.all([
+        getSaleRecords(ctx.user.id, {}),
+        getPurchaseRecords(ctx.user.id, {}),
+        getPostAnalyticsByUser(ctx.user.id),
+      ]);
+      const existingKeys = new Set(
+        existing.map((a) => `${a.recordType}:${a.recordId}`)
+      );
+      const toFetch: Array<{ recordType: "sale" | "purchase"; recordId: number; url: string }> = [];
+      for (const r of sales) {
+        if (r.paymentStatus === "paid" && r.link && !existingKeys.has(`sale:${r.id}`)) {
+          toFetch.push({ recordType: "sale", recordId: r.id, url: r.link });
+        }
+      }
+      for (const r of purchases) {
+        if (r.paymentStatus === "paid" && r.link && !existingKeys.has(`purchase:${r.id}`)) {
+          toFetch.push({ recordType: "purchase", recordId: r.id, url: r.link });
+        }
+      }
+      if (toFetch.length === 0) return { fetched: 0, skipped: 0 };
+      let fetched = 0;
+      let skipped = 0;
+      for (const item of toFetch) {
+        try {
+          await upsertPostAnalytics(ctx.user.id, item.recordType, item.recordId, item.url);
+          fetched++;
+        } catch {
+          skipped++;
+        }
+      }
+      return { fetched, skipped };
+    }),
 });
 
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────

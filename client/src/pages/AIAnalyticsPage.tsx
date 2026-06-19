@@ -518,6 +518,43 @@ function SubscribersTab() {
   );
 }
 
+// ─── Batch Fetch Analytics Button ───────────────────────────────────────────
+function FetchAllAnalyticsButton() {
+  const utils = trpc.useUtils();
+  const [result, setResult] = useState<{ fetched: number; skipped: number } | null>(null);
+  const mutation = trpc.postAnalytics.fetchAllMissing.useMutation({
+    onSuccess: (data) => {
+      setResult(data);
+      utils.postAnalytics.getByRecord.invalidate();
+      utils.postAnalytics.list.invalidate();
+    },
+  });
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => { setResult(null); mutation.mutate(); }}
+        disabled={mutation.isPending}
+        className="gap-2 text-xs"
+      >
+        {mutation.isPending ? (
+          <RefreshCw className="w-3 h-3 animate-spin" />
+        ) : (
+          <BarChart2 className="w-3 h-3" />
+        )}
+        {mutation.isPending ? "Загружаю..." : "Загрузить аналитику постов"}
+      </Button>
+      {result && (
+        <span className="text-xs text-muted-foreground">
+          {result.fetched > 0 ? `✓ ${result.fetched} загружено` : "Всё уже загружено"}
+          {result.skipped > 0 ? `, ${result.skipped} пропущено` : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AIAnalyticsPage() {
   const { data: months } = trpc.summary.months.useQuery();
@@ -715,6 +752,7 @@ export default function AIAnalyticsPage() {
               )}
               {analyzeMutation.isPending ? "Анализирую..." : "Запустить AI анализ"}
             </Button>
+            <FetchAllAnalyticsButton />
             <span className="text-xs text-muted-foreground">
               Анализ CPF, ER24, охватов, ниш, тарифов, взаимок и платформ
             </span>
