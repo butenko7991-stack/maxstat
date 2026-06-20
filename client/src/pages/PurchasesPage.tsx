@@ -3,7 +3,8 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Plus, ShoppingCart, Pencil, Trash2, X, Check,
-  ExternalLink, Copy, Download, Search, ArrowUpDown,
+  ExternalLink, Copy, Download, Search, ArrowUpDown, ChevronRight,
+  Users, DollarSign, Calendar, Tag, Link2, FileText, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,190 @@ const PAYMENT_CLASSES: Record<string, string> = {
   partial: "badge-partial cursor-pointer hover:opacity-75 transition-opacity select-none",
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function PurchaseDetailDrawer({ record, channelMap, onClose, onEdit }: { record: any; channelMap: Record<number, string>; onClose: () => void; onEdit: () => void }) {
+  const r = record;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      {/* Drawer */}
+      <div
+        className="relative w-full max-w-md bg-card border-l border-border h-full overflow-y-auto shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="w-4 h-4 text-primary" />
+            <span className="font-semibold text-foreground">Детали закупа</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5 bg-transparent" onClick={onEdit}>
+              <Pencil className="w-3.5 h-3.5" />
+              Редактировать
+            </Button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 space-y-4 flex-1">
+          {/* Channel + Status */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-primary bg-primary/10 px-3 py-1 rounded-full">
+              {channelMap[r.channelId] ?? "—"}
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+              r.paymentStatus === "paid" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" :
+              r.paymentStatus === "partial" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
+              "bg-red-500/20 text-red-400 border border-red-500/30"
+            }`}>
+              {PAYMENT_LABELS[r.paymentStatus] ?? r.paymentStatus}
+            </span>
+            {r.isMutual && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-500/20 text-violet-400 border border-violet-500/30">
+                ⇄ ВП{r.partnerChannel ? `: ${r.partnerChannel}` : ""}
+              </span>
+            )}
+          </div>
+
+          {/* Main info grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {r.admin && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Users className="w-3 h-3" /> Админ</p>
+                <p className="text-sm font-medium text-foreground">{r.admin}</p>
+              </div>
+            )}
+            {r.date && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" /> Дата</p>
+                <p className="text-sm font-medium text-foreground">{new Date(r.date).toLocaleDateString("ru-RU")}</p>
+              </div>
+            )}
+            {r.cost && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><DollarSign className="w-3 h-3" /> Стоимость</p>
+                <p className="text-sm font-semibold text-loss">{formatCost(parseFloat(r.cost))} ₽</p>
+              </div>
+            )}
+            {r.subscribersGained != null && r.subscribersGained > 0 && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Users className="w-3 h-3" /> Привлечено</p>
+                <p className="text-sm font-semibold text-emerald-400">+{r.subscribersGained} подп.</p>
+                {r.cost && <p className="text-xs text-muted-foreground">{Math.round(parseFloat(r.cost) / r.subscribersGained)} ₽/подп.</p>}
+              </div>
+            )}
+            {r.tariff && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Tag className="w-3 h-3" /> Тариф</p>
+                <p className="text-sm font-medium text-foreground">{r.tariff}</p>
+              </div>
+            )}
+            {r.spm && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground">СПМ</p>
+                <p className="text-sm font-medium text-foreground">{r.spm}</p>
+              </div>
+            )}
+            {r.reach != null && r.reach > 0 && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground">Охват</p>
+                <p className="text-sm font-medium text-foreground">{r.reach.toLocaleString("ru-RU")}</p>
+              </div>
+            )}
+            {r.sourceSubscribers != null && r.sourceSubscribers > 0 && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground">Подп. источника</p>
+                <p className="text-sm font-medium text-foreground">{r.sourceSubscribers.toLocaleString("ru-RU")}</p>
+              </div>
+            )}
+            {r.timeSlot && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground">Время</p>
+                <p className="text-sm font-medium text-foreground">{r.timeSlot}</p>
+              </div>
+            )}
+            {r.bookingSlot && (
+              <div className="glass rounded-xl p-3 space-y-0.5">
+                <p className="text-xs text-muted-foreground">Слот</p>
+                <p className="text-sm font-medium text-foreground capitalize">{r.bookingSlot}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Direction / buyer */}
+          {(r.direction || r.buyer) && (
+            <div className="glass rounded-xl p-3 space-y-2">
+              {r.direction && (
+                <div className="flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs text-muted-foreground">Направление:</span>
+                  <span className="text-sm text-foreground">{r.direction}</span>
+                </div>
+              )}
+              {r.buyer && (
+                <div className="flex items-center gap-2">
+                  <Users className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs text-muted-foreground">Закупщик:</span>
+                  <span className="text-sm text-foreground">{r.buyer}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Target channels */}
+          {r.targetChannels && (
+            <div className="glass rounded-xl p-3 space-y-1">
+              <p className="text-xs text-muted-foreground flex items-center gap-1"><Layers className="w-3 h-3" /> Целевые каналы</p>
+              <p className="text-sm text-foreground">{r.targetChannels}</p>
+            </div>
+          )}
+
+          {/* Link */}
+          {r.link && (
+            <div className="glass rounded-xl p-3 space-y-1">
+              <p className="text-xs text-muted-foreground flex items-center gap-1"><Link2 className="w-3 h-3" /> Ссылка</p>
+              <a
+                href={r.link.startsWith("http") ? r.link : `https://${r.link}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 break-all"
+              >
+                <ExternalLink className="w-3 h-3 shrink-0" />
+                {r.link}
+              </a>
+            </div>
+          )}
+
+          {/* Post analytics */}
+          <PostAnalyticsBadge
+            recordType="purchase"
+            recordId={r.id}
+            link={r.link}
+            paymentStatus={r.paymentStatus}
+          />
+
+          {/* Notes */}
+          {r.notes && (
+            <div className="glass rounded-xl p-3 space-y-1">
+              <p className="text-xs text-muted-foreground flex items-center gap-1"><FileText className="w-3 h-3" /> Заметки</p>
+              <p className="text-sm text-foreground whitespace-pre-wrap">{r.notes}</p>
+            </div>
+          )}
+
+          {/* Month */}
+          <div className="text-xs text-muted-foreground text-right">
+            Месяц: {formatMonthLabel(r.month)} · ID: {r.id}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PurchasesPage() {
   const utils = trpc.useUtils();
   const { data: channels } = trpc.channels.list.useQuery();
@@ -59,6 +244,8 @@ export default function PurchasesPage() {
   const [form, setForm] = useState<PurchaseFormData>(EMPTY_FORM);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [exportPending, setExportPending] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [viewRecord, setViewRecord] = useState<any | null>(null);
 
   const listInput = useMemo(() => ({
     channelId: selectedChannel !== "all" ? Number(selectedChannel) : undefined,
@@ -161,7 +348,6 @@ export default function PurchasesPage() {
     if (!exportPending) return;
     if (exportFetching) return;
     if (!exportData) {
-      // refetch completed but no data returned (error case)
       setExportPending(false);
       toast.error("Не удалось получить данные для экспорта");
       return;
@@ -386,7 +572,11 @@ export default function PurchasesPage() {
       ) : (
         <div className="space-y-2">
           {filteredRecords.map((r) => (
-            <div key={r.id} className="glass rounded-xl p-3.5 group">
+            <div
+              key={r.id}
+              className="glass rounded-xl p-3.5 group cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all"
+              onClick={(e) => { if ((e.target as HTMLElement).closest('button, a')) return; setViewRecord(r); }}
+            >
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -453,44 +643,47 @@ export default function PurchasesPage() {
                       )}
                     </div>
                   )}
-                  <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => duplicateMutation.mutate({ id: r.id })}
-                      title="Дублировать"
-                      className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => openEdit(r)}
-                      title="Редактировать"
-                      className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    {deleteConfirmId === r.id ? (
-                      <>
-                        <button
-                          onClick={() => { deleteMutation.mutate({ id: r.id }); setDeleteConfirmId(null); }}
-                          className="p-1.5 rounded-lg bg-destructive/15 hover:bg-destructive/25 transition-colors text-destructive"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(null)}
-                          className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </>
-                    ) : (
+                  <div className="flex items-center gap-1">
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" />
+                    <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => setDeleteConfirmId(r.id)}
-                        className="p-1.5 rounded-lg hover:bg-destructive/15 transition-colors text-muted-foreground hover:text-destructive"
+                        onClick={() => duplicateMutation.mutate({ id: r.id })}
+                        title="Дублировать"
+                        className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Copy className="w-3.5 h-3.5" />
                       </button>
-                    )}
+                      <button
+                        onClick={() => openEdit(r)}
+                        title="Редактировать"
+                        className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      {deleteConfirmId === r.id ? (
+                        <>
+                          <button
+                            onClick={() => { deleteMutation.mutate({ id: r.id }); setDeleteConfirmId(null); }}
+                            className="p-1.5 rounded-lg bg-destructive/15 hover:bg-destructive/25 transition-colors text-destructive"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="p-1.5 rounded-lg hover:bg-accent transition-colors text-muted-foreground"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirmId(r.id)}
+                          className="p-1.5 rounded-lg hover:bg-destructive/15 transition-colors text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -510,6 +703,19 @@ export default function PurchasesPage() {
         isPending={isPending}
         suggestions={suggestions}
       />
+
+      {/* Detail Drawer */}
+      {viewRecord && (
+        <PurchaseDetailDrawer
+          record={viewRecord}
+          channelMap={channelMap}
+          onClose={() => setViewRecord(null)}
+          onEdit={() => {
+            openEdit(viewRecord);
+            setViewRecord(null);
+          }}
+        />
+      )}
     </div>
   );
 }
