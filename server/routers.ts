@@ -732,6 +732,183 @@ ${channelsList}
       const digest = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
       return { digest, data: ctx_data };
     }),
+
+  /** Weekly performance stats — current week vs previous week */
+  weeklyStats: protectedProcedure
+    .input(z.object({ referenceDate: z.date().optional() }))
+    .query(async ({ ctx, input }) => {
+      const now = input.referenceDate ?? new Date();
+      // Get Monday of current week
+      const dayOfWeek = now.getDay() === 0 ? 6 : now.getDay() - 1; // Mon=0
+      const curMonStart = new Date(now);
+      curMonStart.setHours(0, 0, 0, 0);
+      curMonStart.setDate(curMonStart.getDate() - dayOfWeek);
+      const curSunEnd = new Date(curMonStart);
+      curSunEnd.setDate(curSunEnd.getDate() + 6);
+      curSunEnd.setHours(23, 59, 59, 999);
+      // Previous week
+      const prevMonStart = new Date(curMonStart);
+      prevMonStart.setDate(prevMonStart.getDate() - 7);
+      const prevSunEnd = new Date(curMonStart);
+      prevSunEnd.setDate(prevSunEnd.getDate() - 1);
+      prevSunEnd.setHours(23, 59, 59, 999);
+
+      const toISO = (d: Date) => d.toISOString().slice(0, 10);
+
+      const [curSched, prevSched] = await Promise.all([
+        getScheduleData(ctx.user.id, toISO(curMonStart), toISO(curSunEnd)),
+        getScheduleData(ctx.user.id, toISO(prevMonStart), toISO(prevSunEnd)),
+      ]);
+
+      const sumCost = (arr: Array<{ cost?: string | number | null }>) =>
+        arr.reduce((s, r) => s + (parseFloat(String(r.cost ?? 0)) || 0), 0);
+
+      const curSales = sumCost(curSched.sales);
+      const curPurchases = sumCost(curSched.purchases);
+      const prevSales = sumCost(prevSched.sales);
+      const prevPurchases = sumCost(prevSched.purchases);
+
+      // Expenses: use month-based data for current month (no week-level date on expenses)
+      const curMonth = `${curMonStart.getFullYear()}-${String(curMonStart.getMonth() + 1).padStart(2, '0')}`;
+      const prevMonth = `${prevMonStart.getFullYear()}-${String(prevMonStart.getMonth() + 1).padStart(2, '0')}`;
+      const [curExpSummary, prevExpSummary] = await Promise.all([
+        getExpenseSummary(ctx.user.id, curMonth),
+        getExpenseSummary(ctx.user.id, prevMonth),
+      ]);
+      // Pro-rate monthly expenses to weekly (divide by ~4.33 weeks per month)
+      const curExpenses = (curExpSummary.total ?? 0) / 4.33;
+      const prevExpenses = (prevExpSummary.total ?? 0) / 4.33;
+
+      const curProfit = curSales - curPurchases - curExpenses;
+      const prevProfit = prevSales - prevPurchases - prevExpenses;
+
+      const pct = (cur: number, prev: number) =>
+        prev === 0 ? null : Math.round(((cur - prev) / Math.abs(prev)) * 100);
+
+      return {
+        currentWeek: {
+          start: toISO(curMonStart),
+          end: toISO(curSunEnd),
+          sales: Math.round(curSales),
+          purchases: Math.round(curPurchases),
+          expenses: Math.round(curExpenses),
+          profit: Math.round(curProfit),
+          salesCount: curSched.sales.length,
+          purchasesCount: curSched.purchases.length,
+        },
+        previousWeek: {
+          start: toISO(prevMonStart),
+          end: toISO(prevSunEnd),
+          sales: Math.round(prevSales),
+          purchases: Math.round(prevPurchases),
+          expenses: Math.round(prevExpenses),
+          profit: Math.round(prevProfit),
+          salesCount: prevSched.sales.length,
+          purchasesCount: prevSched.purchases.length,
+        },
+        trends: {
+          salesPct: pct(curSales, prevSales),
+          purchasesPct: pct(curPurchases, prevPurchases),
+          profitPct: pct(curProfit, prevProfit),
+        },
+      };
+    }),
+
+  /** AI weekly analysis with motivating recommendations */
+  weeklyAnalysis: protectedProcedure
+    .input(z.object({ referenceDate: z.date().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const now = input.referenceDate ?? new Date();
+      const dayOfWeek = now.getDay() === 0 ? 6 : now.getDay() - 1;
+      const curMonStart = new Date(now);
+      curMonStart.setHours(0, 0, 0, 0);
+      curMonStart.setDate(curMonStart.getDate() - dayOfWeek);
+      const curSunEnd = new Date(curMonStart);
+      curSunEnd.setDate(curSunEnd.getDate() + 6);
+      curSunEnd.setHours(23, 59, 59, 999);
+      const prevMonStart = new Date(curMonStart);
+      prevMonStart.setDate(prevMonStart.getDate() - 7);
+      const prevSunEnd = new Date(curMonStart);
+      prevSunEnd.setDate(prevSunEnd.getDate() - 1);
+      prevSunEnd.setHours(23, 59, 59, 999);
+      const toISO = (d: Date) => d.toISOString().slice(0, 10);
+      const sumCost = (arr: Array<{ cost?: string | number | null }>) =>
+        arr.reduce((s, r) => s + (parseFloat(String(r.cost ?? 0)) || 0), 0);
+
+      const [curSched, prevSched] = await Promise.all([
+        getScheduleData(ctx.user.id, toISO(curMonStart), toISO(curSunEnd)),
+        getScheduleData(ctx.user.id, toISO(prevMonStart), toISO(prevSunEnd)),
+      ]);
+
+      const curSales = sumCost(curSched.sales);
+      const curPurchases = sumCost(curSched.purchases);
+      const prevSales = sumCost(prevSched.sales);
+      const prevPurchases = sumCost(prevSched.purchases);
+
+      const curMonth = `${curMonStart.getFullYear()}-${String(curMonStart.getMonth() + 1).padStart(2, '0')}`;
+      const prevMonth = `${prevMonStart.getFullYear()}-${String(prevMonStart.getMonth() + 1).padStart(2, '0')}`;
+      const [curExpSummary, prevExpSummary] = await Promise.all([
+        getExpenseSummary(ctx.user.id, curMonth),
+        getExpenseSummary(ctx.user.id, prevMonth),
+      ]);
+      const curExpenses = (curExpSummary.total ?? 0) / 4.33;
+      const prevExpenses = (prevExpSummary.total ?? 0) / 4.33;
+      const curProfit = curSales - curPurchases - curExpenses;
+      const prevProfit = prevSales - prevPurchases - prevExpenses;
+
+      const fmt = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽';
+      const pct = (cur: number, prev: number) =>
+        prev === 0 ? 'нет данных за прошлую неделю' : `${cur >= prev ? '+' : ''}${Math.round(((cur - prev) / Math.abs(prev)) * 100)}% к прошлой неделе`;
+
+      const weekLabel = (s: Date, e: Date) =>
+        `${s.getDate()}.${String(s.getMonth() + 1).padStart(2, '0')}–${e.getDate()}.${String(e.getMonth() + 1).padStart(2, '0')}`;
+
+      const prompt = `Ты — бизнес-наставник для владельца рекламного бизнеса в мессенджере Макс.
+Проведи недельный анализ и дай мотивирующие, конкретные рекомендации.
+
+ТЕКУЩАЯ НЕДЕЛЯ (${weekLabel(curMonStart, curSunEnd)}):
+- Продажи: ${fmt(curSales)} (${curSched.sales.length} сделок)
+- Закуп: ${fmt(curPurchases)} (${curSched.purchases.length} сделок)
+- Расходы (≈ за неделю): ${fmt(curExpenses)}
+- Чистая прибыль: ${fmt(curProfit)}
+
+ПРОШЛАЯ НЕДЕЛЯ (${weekLabel(prevMonStart, prevSunEnd)}):
+- Продажи: ${fmt(prevSales)} (${prevSched.sales.length} сделок)
+- Закуп: ${fmt(prevPurchases)} (${prevSched.purchases.length} сделок)
+- Расходы (≈ за неделю): ${fmt(prevExpenses)}
+- Чистая прибыль: ${fmt(prevProfit)}
+
+ТРЕНДЫ:
+- Продажи: ${pct(curSales, prevSales)}
+- Закуп: ${pct(curPurchases, prevPurchases)}
+- Прибыль: ${pct(curProfit, prevProfit)}
+
+ЗАДАНИЕ — напиши анализ в 4 блоках:
+
+## 📊 Итог недели
+Один абзац: что произошло, ключевые цифры, общий вектор.
+
+## 💪 Что работает хорошо
+2–3 конкретных факта с цифрами. Даже если неделя в минусе — найди позитивное.
+
+## 🚀 Как улучшить результат на следующей неделе
+3 конкретных действия с ожидаемым эффектом в рублях или процентах. Если прибыль отрицательная — дай план выхода в плюс с конкретными шагами.
+
+## 🎯 Главный фокус на неделю
+Одно самое важное действие, которое даст максимальный результат.
+
+ТОН: мотивирующий, деловой, с цифрами. Никакой катастрофы — только факты и действия.`;
+
+      const result = await invokeLLM({
+        messages: [
+          { role: "system", content: "Ты — опытный бизнес-наставник для владельцев рекламных каналов в Макс. Пиши конкретно, с цифрами, мотивирующе. Даже при отрицательной прибыли — фокус на действиях, а не на проблемах." },
+          { role: "user", content: prompt },
+        ],
+      });
+      const content = result.choices?.[0]?.message?.content;
+      const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
+      return { analysis };
+    }),
 });
 // ─── Admin procedure guard ─────────────────────────────────────────────────────────────────────────────
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {

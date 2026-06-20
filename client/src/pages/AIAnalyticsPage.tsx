@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sparkles, TrendingUp, TrendingDown, AlertTriangle, RefreshCw,
-  Brain, FileText, Users, BarChart2,
+  Brain, FileText, Users, BarChart2, Calendar, ArrowUp, ArrowDown, Minus,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import {
@@ -663,6 +663,10 @@ export default function AIAnalyticsPage() {
             <FileText className="w-3.5 h-3.5" />
             Дайджест
           </TabsTrigger>
+          <TabsTrigger value="weekly" className="gap-1.5">
+            <Calendar className="w-3.5 h-3.5" />
+            Неделя
+          </TabsTrigger>
         </TabsList>
 
         {/* Profitability Tab */}
@@ -955,7 +959,148 @@ export default function AIAnalyticsPage() {
             </div>
           )}
         </TabsContent>
+
+        {/* Weekly Analysis Tab */}
+        <TabsContent value="weekly" className="mt-4">
+          <WeeklyAnalysisTab />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function TrendBadge({ pct }: { pct: number | null | undefined }) {
+  if (pct == null) return <span className="text-xs text-muted-foreground">нет данных</span>;
+  if (pct > 0) return <span className="flex items-center gap-0.5 text-xs text-emerald-400"><ArrowUp className="w-3 h-3" />+{pct}%</span>;
+  if (pct < 0) return <span className="flex items-center gap-0.5 text-xs text-red-400"><ArrowDown className="w-3 h-3" />{pct}%</span>;
+  return <span className="flex items-center gap-0.5 text-xs text-muted-foreground"><Minus className="w-3 h-3" />0%</span>;
+}
+
+function WeeklyAnalysisTab() {
+  const weeklyStats = trpc.ai.weeklyStats.useQuery({});
+  const weeklyAnalysisMutation = trpc.ai.weeklyAnalysis.useMutation();
+
+  const stats = weeklyStats.data;
+  const cur = stats?.currentWeek;
+  const prev = stats?.previousWeek;
+  const trends = stats?.trends;
+
+  const profitPositive = cur ? cur.profit >= 0 : true;
+
+  return (
+    <div className="space-y-4">
+      {/* Date range */}
+      {cur && (
+        <div className="text-sm text-muted-foreground">
+          Текущая неделя: <span className="text-foreground font-medium">{cur.start} – {cur.end}</span>
+          {prev && <span className="ml-3">Прошлая: {prev.start} – {prev.end}</span>}
+        </div>
+      )}
+
+      {/* KPI Cards */}
+      {weeklyStats.isLoading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="glass rounded-xl p-4 animate-pulse h-24" />
+          ))}
+        </div>
+      ) : cur ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="glass rounded-xl p-4 space-y-1">
+            <div className="text-xs text-muted-foreground">Продажи</div>
+            <div className="text-lg font-bold text-emerald-400">{formatCurrency(cur.sales)}</div>
+            <div className="text-xs text-muted-foreground">{cur.salesCount} сделок</div>
+            <TrendBadge pct={trends?.salesPct} />
+          </div>
+          <div className="glass rounded-xl p-4 space-y-1">
+            <div className="text-xs text-muted-foreground">Закуп</div>
+            <div className="text-lg font-bold text-blue-400">{formatCurrency(cur.purchases)}</div>
+            <div className="text-xs text-muted-foreground">{cur.purchasesCount} сделок</div>
+            <TrendBadge pct={trends?.purchasesPct} />
+          </div>
+          <div className="glass rounded-xl p-4 space-y-1">
+            <div className="text-xs text-muted-foreground">Расходы (≈)</div>
+            <div className="text-lg font-bold text-orange-400">{formatCurrency(cur.expenses)}</div>
+            <div className="text-xs text-muted-foreground">прорация за неделю</div>
+          </div>
+          <div className="glass rounded-xl p-4 space-y-1">
+            <div className="text-xs text-muted-foreground">Чистая прибыль</div>
+            <div className={`text-lg font-bold ${profitPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+              {formatCurrency(cur.profit)}
+            </div>
+            <TrendBadge pct={trends?.profitPct} />
+          </div>
+        </div>
+      ) : null}
+
+      {/* Comparison bars */}
+      {cur && prev && (
+        <div className="glass rounded-xl p-4">
+          <div className="text-sm font-medium mb-3">Сравнение с прошлой неделей</div>
+          <div className="space-y-3 text-sm">
+            {([
+              { label: 'Продажи', cur: cur.sales, prev: prev.sales, color: 'bg-emerald-500' },
+              { label: 'Закуп', cur: cur.purchases, prev: prev.purchases, color: 'bg-blue-500' },
+              { label: 'Прибыль', cur: cur.profit, prev: prev.profit, color: cur.profit >= 0 ? 'bg-emerald-500' : 'bg-red-500' },
+            ] as const).map(row => {
+              const maxVal = Math.max(Math.abs(row.cur), Math.abs(row.prev), 1);
+              const curW = Math.abs(row.cur) / maxVal * 100;
+              const prevW = Math.abs(row.prev) / maxVal * 100;
+              return (
+                <div key={row.label} className="flex items-center gap-3">
+                  <div className="w-20 text-muted-foreground shrink-0 text-xs">{row.label}</div>
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 rounded-full ${row.color}`} style={{ width: `${curW}%`, minWidth: 2 }} />
+                      <span className="text-xs">{formatCurrency(row.cur)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 rounded-full bg-muted" style={{ width: `${prevW}%`, minWidth: 2 }} />
+                      <span className="text-xs text-muted-foreground">{formatCurrency(row.prev)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-full bg-emerald-500 inline-block" />Текущая</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-full bg-muted inline-block" />Прошлая</span>
+          </div>
+        </div>
+      )}
+
+      {/* AI Analysis button */}
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={() => weeklyAnalysisMutation.mutate({})}
+          disabled={weeklyAnalysisMutation.isPending}
+          className="gap-2"
+        >
+          {weeklyAnalysisMutation.isPending ? (
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          ) : (
+            <Sparkles className="w-4 h-4" />
+          )}
+          {weeklyAnalysisMutation.isPending ? "Анализирую..." : "Недельный AI-анализ"}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {!profitPositive
+            ? "🚨 Неделя в минусе — AI поможет найти выход"
+            : "Получи мотивирующий анализ и рекомендации"}
+        </span>
+      </div>
+
+      {weeklyAnalysisMutation.data?.analysis && (
+        <div className="glass rounded-xl p-5 prose prose-invert prose-sm max-w-none">
+          <Streamdown>{weeklyAnalysisMutation.data.analysis}</Streamdown>
+        </div>
+      )}
+      {weeklyAnalysisMutation.isError && (
+        <div className="glass rounded-xl p-4 border border-red-500/30 text-red-400 text-sm">
+          Ошибка: {weeklyAnalysisMutation.error.message}
+        </div>
+      )}
     </div>
   );
 }
