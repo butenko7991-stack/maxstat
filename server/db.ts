@@ -1615,12 +1615,15 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
 
   // ── CPF analytics ─────────────────────────────────────────────────────────
   const cpfRows = await getCpfAnalytics(userId, userChannels.map(c => c.id));
-  const cpfByChannel = new Map<number, { cpfs: number[]; totalGrowth: number }>();
+  const cpfByChannel = new Map<number, { cpfs: number[]; totalGrowth: number; firstCount: number | null; lastCount: number | null }>();
   for (const row of cpfRows) {
-    if (!cpfByChannel.has(row.channelId)) cpfByChannel.set(row.channelId, { cpfs: [], totalGrowth: 0 });
+    if (!cpfByChannel.has(row.channelId)) cpfByChannel.set(row.channelId, { cpfs: [], totalGrowth: 0, firstCount: null, lastCount: null });
     const e = cpfByChannel.get(row.channelId)!;
     if (row.cpf !== null) e.cpfs.push(row.cpf);
     e.totalGrowth += row.growth;
+    // Track first and last subscriber counts across all CPF rows (sorted by weekStart)
+    if (e.firstCount === null) e.firstCount = row.subscribersBefore;
+    e.lastCount = row.subscribersAfter;
   }
 
   // ── Mutual deals ──────────────────────────────────────────────────────────
@@ -1733,7 +1736,10 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     if (cpf.cpfs.length > 0) {
       e.avgCpf = Math.round((cpf.cpfs.reduce((a, b) => a + b, 0) / cpf.cpfs.length) * 100) / 100;
     }
-    if (e.subscribersGained === 0) e.subscribersGained = cpf.totalGrowth;
+    // subscribersGained: use first→last snapshot diff (not sum of weekly deltas which double-counts)
+    if (e.subscribersGained === 0 && cpf.firstCount !== null && cpf.lastCount !== null) {
+      e.subscribersGained = cpf.lastCount - cpf.firstCount;
+    }
   }
 
   // Finalize profit/ROI
