@@ -209,14 +209,33 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+/**
+ * Determines which LLM backend to use:
+ * 1. If GOOGLE_GEMINI_API_KEY is set → use Google Gemini OpenAI-compatible API
+ * 2. Otherwise → use Manus Forge API (only works inside Manus sandbox)
+ */
+const useGoogleGemini = () => !!ENV.googleGeminiApiKey;
+
+const resolveApiUrl = () => {
+  if (useGoogleGemini()) {
+    return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+  }
+  return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
     : "https://forge.manus.im/v1/chat/completions";
+};
+
+const resolveApiKey = () => {
+  if (useGoogleGemini()) {
+    return ENV.googleGeminiApiKey;
+  }
+  return ENV.forgeApiKey;
+};
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  const key = resolveApiKey();
+  if (!key) {
+    throw new Error("LLM API key is not configured (set GOOGLE_GEMINI_API_KEY or BUILT_IN_FORGE_API_KEY)");
   }
 };
 
@@ -279,8 +298,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  // Use gemini-3.5-flash-lite for Google Gemini (gemini-2.5-flash is deprecated for new users)
+  const model = useGoogleGemini() ? "gemini-3.5-flash-lite" : "gemini-2.5-flash";
+
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model,
     messages: messages.map(normalizeMessage),
   };
 
@@ -312,11 +334,16 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
+  // For Google Gemini, remove unsupported 'thinking' field
+  if (useGoogleGemini()) {
+    delete payload.thinking;
+  }
+
   const response = await fetch(resolveApiUrl(), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${resolveApiKey()}`,
     },
     body: JSON.stringify(payload),
   });
