@@ -10,6 +10,7 @@ import { createContext } from "./context";
 // serveStatic lives in its own file with NO vite/vite.config imports,
 // so esbuild never pulls devDependencies into the production bundle.
 import { serveStatic } from "./serveStatic";
+import { externalReminderHandler } from "../scheduledHandlers";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,6 +40,28 @@ async function startServer() {
 
   registerStorageProxy(app);
   registerLocalAuthRoutes(app);
+
+  // Scheduled job endpoints (called by Heartbeat cron)
+  app.post("/api/scheduled/external-reminder", externalReminderHandler);
+
+  // LLM Proxy endpoint - allows VPS (which can't reach Forge/OpenRouter from Russia) to proxy LLM calls
+  app.post("/api/llm-proxy", async (req, res) => {
+    const proxySecret = process.env.LLM_PROXY_SECRET;
+    if (!proxySecret) {
+      return res.status(503).json({ error: "LLM proxy not configured" });
+    }
+    const authHeader = req.headers["x-proxy-secret"];
+    if (authHeader !== proxySecret) {
+      return res.status(403).json({ error: "Invalid proxy secret" });
+    }
+    try {
+      const { invokeLLM } = await import("./llm");
+      const result = await invokeLLM(req.body);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   app.use(
     "/api/trpc",

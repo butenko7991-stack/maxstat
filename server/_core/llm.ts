@@ -210,13 +210,18 @@ const normalizeToolChoice = (
 };
 
 /**
- * Determines which LLM backend to use:
- * 1. If GOOGLE_GEMINI_API_KEY is set → use Google Gemini OpenAI-compatible API
- * 2. Otherwise → use Manus Forge API (only works inside Manus sandbox)
+ * LLM routing priority:
+ * 1. LLM_PROXY_URL + LLM_PROXY_SECRET → proxy through Manus-hosted app (for VPS in Russia)
+ * 2. GOOGLE_GEMINI_API_KEY → Google Gemini OpenAI-compatible API
+ * 3. BUILT_IN_FORGE_API_URL + BUILT_IN_FORGE_API_KEY → Manus Forge API (Manus sandbox only)
  */
-const useGoogleGemini = () => !!ENV.googleGeminiApiKey;
+const useLlmProxy = () => !!ENV.llmProxyUrl && !!ENV.llmProxySecret;
+const useGoogleGemini = () => !useLlmProxy() && !!ENV.googleGeminiApiKey;
 
 const resolveApiUrl = () => {
+  if (useLlmProxy()) {
+    return ENV.llmProxyUrl;
+  }
   if (useGoogleGemini()) {
     return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
   }
@@ -226,6 +231,9 @@ const resolveApiUrl = () => {
 };
 
 const resolveApiKey = () => {
+  if (useLlmProxy()) {
+    return ENV.llmProxySecret; // used as x-proxy-secret header
+  }
   if (useGoogleGemini()) {
     return ENV.googleGeminiApiKey;
   }
@@ -233,9 +241,10 @@ const resolveApiKey = () => {
 };
 
 const assertApiKey = () => {
+  if (useLlmProxy()) return; // proxy uses secret, not API key
   const key = resolveApiKey();
   if (!key) {
-    throw new Error("LLM API key is not configured (set GOOGLE_GEMINI_API_KEY or BUILT_IN_FORGE_API_KEY)");
+    throw new Error("LLM API key is not configured (set LLM_PROXY_URL+LLM_PROXY_SECRET, GOOGLE_GEMINI_API_KEY, or BUILT_IN_FORGE_API_KEY)");
   }
 };
 
@@ -286,6 +295,27 @@ const normalizeResponseFormat = ({
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
+
+  // If using LLM proxy, forward the entire params object to the proxy
+  if (useLlmProxy()) {
+    const response = await fetch(ENV.llmProxyUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-proxy-secret": ENV.llmProxySecret,
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `LLM proxy invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+      );
+    }
+
+    return (await response.json()) as InvokeResult;
+  }
 
   const {
     messages,
