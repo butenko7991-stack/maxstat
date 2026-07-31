@@ -15,10 +15,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2, Sparkles, XCircle, Zap } from "lucide-react";
 import { AutocompleteInput } from "./AutocompleteInput";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
 export type TimeSlot = string;
@@ -40,8 +41,15 @@ export interface PurchaseFormData {
   month: string;
   notes: string;
   timeSlot: string;
-  bookingSlot: "утро" | "обед" | "вечер" | "";
+  bookingSlot: "утро" | "обед" | "вечер" | "ночной топ" | "";
   sourceSubscribers: string; // approx size of source channel (optional)
+  // ВП fields
+  isMutual: boolean;
+  partnerChannel: string;
+  ourReach: string;
+  partnerReach: string;
+  dopDirection: "we_pay" | "they_pay" | "none";
+  dopAmount: string;
 }
 
 export interface SaleFormData {
@@ -50,7 +58,7 @@ export interface SaleFormData {
   admin: string;
   link: string;
   timeSlot: string;
-  bookingSlot: "утро" | "обед" | "вечер" | "";
+  bookingSlot: "утро" | "обед" | "вечер" | "ночной топ" | "";
   tariff: string;
   platform: string;
   spm: string;
@@ -59,6 +67,7 @@ export interface SaleFormData {
   paymentStatus: PaymentStatus;
   month: string;
   postNotNeeded: boolean;
+  isExternal: boolean;
   buyerSubscribers: string; // approx size of buyer channel (optional)
   // ВП fields
   isMutual: boolean;
@@ -126,6 +135,114 @@ export function PurchaseFormModal({
   const [ocrStatus, setOcrStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [ocrPreview, setOcrPreview] = useState<string | null>(null);
   const recognizeMutation = trpc.ocr.recognizePurchaseScreenshot.useMutation();
+
+  // ── ВП auto-link by admin name ─────────────────────────────────────────
+  const adminForSearch = useMemo(() => form.admin.trim(), [form.admin]);
+  const linkedByAdminQuery = trpc.purchases.findLinkedByAdmin.useQuery(
+    { admin: adminForSearch },
+    { enabled: form.isMutual && adminForSearch.length >= 2 }
+  );
+
+  // ── Link analysis state ──────────────────────────────────────────────────
+  const [linkAnalyzeStatus, setLinkAnalyzeStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [linkAnalyzeError, setLinkAnalyzeError] = useState("");
+  const [linkAnalyzeResult, setLinkAnalyzeResult] = useState<any>(null);
+
+  const analyzeLinkMutation = trpc.ocr.analyzeLink.useMutation({
+    onSuccess: (data) => {
+      setLinkAnalyzeResult(data);
+      setLinkAnalyzeStatus("done");
+      // Pick best available reach: 24h > 48h > 72h > summary
+      function pickReach(post: any): string | null {
+        const v = post?.views24h ?? post?.views48h ?? post?.views72h
+          ?? data.summary?.views24h ?? data.summary?.views48h ?? data.summary?.views72h;
+        return v != null ? String(v) : null;
+      }
+      function pickSubs(post: any): string | null {
+        const v = post?.channelSubs ?? data.summary?.subscribersTotal;
+        return v != null ? String(v) : null;
+      }
+      // Auto-fill: for multi-channel links try to match by selected channel name
+      if (data.posts && data.posts.length >= 1) {
+        const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
+        const autoPost = data.posts.length > 1 && selectedChannelName
+          ? (data.posts.find((p: any) =>
+              p.channelTitle && (
+                p.channelTitle.toLowerCase().includes(selectedChannelName) ||
+                selectedChannelName.includes(p.channelTitle.toLowerCase())
+              )
+            ) ?? data.posts[0])
+          : data.posts[0];
+        const post = autoPost;
+        const reach = pickReach(post);
+        const subs = pickSubs(post);
+        setForm((f) => ({
+          ...f,
+          ...(reach ? { reach } : {}),
+          ...(subs ? { subscribersGained: subs } : {}),
+          ...(data.publishedAt ? { date: data.publishedAt.slice(0, 10), month: data.publishedAt.slice(0, 7) } : {}),
+        }));
+        const channelCount = data.posts.length;
+        if (channelCount > 1) {
+          const matched = autoPost !== data.posts[0] || selectedChannelName;
+          toast.success(`Найдено ${channelCount} канала`, {
+            description: matched && autoPost.channelTitle
+              ? `Автовыбран канал «${autoPost.channelTitle}». Можно изменить ниже`
+              : "Выберите нужный канал в панели ниже",
+            duration: 4000,
+          });
+        } else {
+          const reachVal = reach ? parseInt(reach).toLocaleString() : null;
+          toast.success("Охват извлечён", {
+            description: reachVal ? `Охваты: ${reachVal}${subs ? ` · Подписчики: ${parseInt(subs).toLocaleString()}` : ""}` : "Поля заполнены",
+            duration: 3000,
+          });
+        }
+      } else {
+        toast.info("Данные не найдены", { description: "Страница загружена, но статистика не обнаружена", duration: 4000 });
+      }
+    },
+    onError: (err) => {
+      setLinkAnalyzeStatus("error");
+      setLinkAnalyzeError(err.message);
+      toast.error("Ошибка анализа", {
+        description: err.message,
+        duration: 5000,
+      });
+    },
+  });
+
+  function handleAnalyzeLinkPurchase() {
+    const url = form.link.trim();
+    if (!url.startsWith("http")) return;
+    setLinkAnalyzeStatus("loading");
+    setLinkAnalyzeError("");
+    setLinkAnalyzeResult(null);
+    analyzeLinkMutation.mutate({ url });
+  }
+
+  function applyPostDataPurchase(post: any, publishedAt: string | null) {
+    const reach = post.views24h ?? post.views48h ?? post.views72h;
+    const subs = post.channelSubs;
+    setForm((f) => ({
+      ...f,
+      ...(reach != null ? { reach: String(reach) } : {}),
+      ...(subs != null ? { subscribersGained: String(subs) } : {}),
+      ...(publishedAt ? { date: publishedAt.slice(0, 10), month: publishedAt.slice(0, 7) } : {}),
+    }));
+  }
+
+  // ── Auto-extract from link when status changes to paid ─────────────────
+  function handlePaymentStatusChangePurchase(v: PaymentStatus) {
+    setForm((f) => ({ ...f, paymentStatus: v }));
+    // Always re-fetch reach when switching TO paid and link exists
+    if (v === "paid" && form.link.trim().startsWith("http")) {
+      setLinkAnalyzeStatus("loading");
+      setLinkAnalyzeError("");
+      setLinkAnalyzeResult(null);
+      analyzeLinkMutation.mutate({ url: form.link.trim() });
+    }
+  }
 
   const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -270,9 +387,7 @@ export function PurchaseFormModal({
               <Label>Статус оплаты</Label>
               <Select
                 value={form.paymentStatus}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, paymentStatus: v as PaymentStatus }))
-                }
+                onValueChange={(v) => handlePaymentStatusChangePurchase(v as PaymentStatus)}
               >
                 <SelectTrigger className="bg-input border-border">
                   <SelectValue />
@@ -311,6 +426,18 @@ export function PurchaseFormModal({
               <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
                 <Calculator className="w-3.5 h-3.5" />
                 Расчёт по СПМ: Охваты × СПМ / 1000
+                {linkAnalyzeStatus === "loading" && (
+                  <span className="ml-auto flex items-center gap-1 text-violet-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Получаю охват...</span>
+                  </span>
+                )}
+                {linkAnalyzeStatus === "done" && (
+                  <span className="ml-auto flex items-center gap-1 text-emerald-400">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Охват обновлён</span>
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="space-y-1.5">
@@ -320,8 +447,9 @@ export function PurchaseFormModal({
                     value={form.reach}
                     onChange={(e) => setForm((f) => ({ ...f, reach: e.target.value }))}
                     placeholder="500"
-                    className="bg-input border-border"
+                    className={`bg-input border-border ${linkAnalyzeStatus === "loading" ? "opacity-60" : ""}`}
                     min={0}
+                    disabled={linkAnalyzeStatus === "loading"}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -354,12 +482,116 @@ export function PurchaseFormModal({
 
             <div className="space-y-1.5 col-span-2">
               <Label>Ссылка</Label>
-              <Input
-                value={form.link}
-                onChange={(e) => setForm((f) => ({ ...f, link: e.target.value }))}
-                placeholder="https://iimax.ru/..."
-                className="bg-input border-border"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={form.link}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, link: e.target.value }));
+                    if (linkAnalyzeStatus !== "idle") { setLinkAnalyzeStatus("idle"); setLinkAnalyzeResult(null); }
+                  }}
+                  placeholder="https://iimax.ru/..."
+                  className="bg-input border-border flex-1"
+                />
+                {form.link.startsWith("http") && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className={`shrink-0 gap-1.5 transition-all duration-300 ${
+                      linkAnalyzeStatus === "loading"
+                        ? "bg-violet-500/20 border-violet-400/60 text-violet-300 animate-pulse cursor-wait"
+                        : linkAnalyzeStatus === "done"
+                        ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20"
+                        : linkAnalyzeStatus === "error"
+                        ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20"
+                        : "bg-transparent border-violet-500/40 text-violet-400 hover:bg-violet-500/10 hover:text-violet-300"
+                    }`}
+                    onClick={handleAnalyzeLinkPurchase}
+                    disabled={linkAnalyzeStatus === "loading"}
+                    title="Извлечь данные из ссылки"
+                  >
+                    {linkAnalyzeStatus === "loading" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : linkAnalyzeStatus === "done" ? (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    ) : linkAnalyzeStatus === "error" ? (
+                      <XCircle className="w-3.5 h-3.5" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    <span className="text-xs hidden sm:inline">
+                      {linkAnalyzeStatus === "loading" ? "Анализ..." : linkAnalyzeStatus === "done" ? "Готово" : linkAnalyzeStatus === "error" ? "Повтор" : "Извлечь"}
+                    </span>
+                  </Button>
+                )}
+              </div>
+              {/* Loading overlay */}
+              {linkAnalyzeStatus === "loading" && (
+                <div className="mt-2 rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 flex items-center gap-3 animate-in fade-in duration-300">
+                  <div className="relative">
+                    <div className="w-8 h-8 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin" />
+                    <Zap className="w-3.5 h-3.5 text-violet-400 absolute inset-0 m-auto" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-violet-300">Анализирую ссылку...</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Извлекаю статистику поста</p>
+                  </div>
+                </div>
+              )}
+              {/* Error */}
+              {linkAnalyzeStatus === "error" && (
+                <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 flex items-center gap-2 animate-in fade-in duration-300">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <div>
+                    <p className="text-xs font-medium text-red-400">Ошибка анализа</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{linkAnalyzeError}</p>
+                  </div>
+                </div>
+              )}
+              {/* Result panel */}
+              {linkAnalyzeStatus === "done" && linkAnalyzeResult && (
+                <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-xs font-medium text-emerald-400">Данные извлечены</span>
+                    {linkAnalyzeResult.draftName && (
+                      <span className="text-xs text-muted-foreground truncate ml-auto">{linkAnalyzeResult.draftName}</span>
+                    )}
+                  </div>
+                  {linkAnalyzeResult.posts && linkAnalyzeResult.posts.length > 1 ? (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">Выберите канал для заполнения:</p>
+                      {linkAnalyzeResult.posts.map((post: any, i: number) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => { applyPostDataPurchase(post, linkAnalyzeResult.publishedAt); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
+                          className="w-full text-left rounded-md border border-emerald-500/20 bg-card px-3 py-2.5 text-xs hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all duration-200 active:scale-[0.98]"
+                        >
+                          <div className="font-medium text-foreground">{post.channelTitle ?? `Канал ${i + 1}`}</div>
+                          <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-2">
+                            {post.channelSubs != null && <span>👥 {post.channelSubs.toLocaleString()}</span>}
+                            {post.views24h != null && <span>👁 {post.views24h.toLocaleString()}</span>}
+                            {post.er24h != null && <span>ER {post.er24h}%</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : linkAnalyzeResult.posts && linkAnalyzeResult.posts.length === 1 ? (
+                    <div className="text-xs space-y-1">
+                      {linkAnalyzeResult.posts[0].channelTitle && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">Канал</span><span className="text-foreground font-medium">{linkAnalyzeResult.posts[0].channelTitle}</span></div>
+                      )}
+                      {linkAnalyzeResult.posts[0].views24h != null && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">Охваты 24ч</span><span className="text-foreground font-medium">{linkAnalyzeResult.posts[0].views24h.toLocaleString()}</span></div>
+                      )}
+                      {linkAnalyzeResult.posts[0].er24h != null && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">ER 24ч</span><span className="text-foreground font-medium">{linkAnalyzeResult.posts[0].er24h}%</span></div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -438,7 +670,7 @@ export function PurchaseFormModal({
               <Label>Слот бронирования</Label>
               <Select
                 value={form.bookingSlot || "none"}
-                onValueChange={(v) => setForm((f) => ({ ...f, bookingSlot: v === "none" ? "" : v as "" | "утро" | "обед" | "вечер" }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, bookingSlot: v === "none" ? "" : v as "" | "утро" | "обед" | "вечер" | "ночной топ" }))}
               >
                 <SelectTrigger className="bg-input border-border">
                   <SelectValue placeholder="Выберите слот..." />
@@ -448,12 +680,13 @@ export function PurchaseFormModal({
                   <SelectItem value="утро">Утро</SelectItem>
                   <SelectItem value="обед">Обед</SelectItem>
                   <SelectItem value="вечер">Вечер</SelectItem>
+                  <SelectItem value="ночной топ">Ночной топ</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Время (свободный формат)</Label>
+                <div className="space-y-1.5">
+                  <Label>Время (свободный формат)</Label>
               <Input
                 value={form.timeSlot}
                 onChange={(e) => setForm((f) => ({ ...f, timeSlot: e.target.value }))}
@@ -461,6 +694,126 @@ export function PurchaseFormModal({
                 className="bg-input border-border"
               />
             </div>
+
+            {/* ВП checkbox */}
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.isMutual}
+                  onChange={(e) => setForm((f) => ({ ...f, isMutual: e.target.checked }))}
+                  className="h-4 w-4 rounded border-border accent-violet-500"
+                />
+                <span className="text-sm font-medium text-violet-400">Взаимная подписка (ВП)</span>
+              </label>
+            </div>
+
+            {/* ВП conditional fields */}
+            {form.isMutual && (
+              <>
+                {/* Auto-link suggestion panel */}
+                {adminForSearch.length >= 2 && (
+                  <div className="col-span-2 rounded-lg border border-violet-500/30 bg-violet-950/20 p-3 space-y-2">
+                    <p className="text-xs font-medium text-violet-400">Связанные записи по админу «{adminForSearch}»</p>
+                    {linkedByAdminQuery.isLoading && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />Поиск...
+                      </div>
+                    )}
+                    {linkedByAdminQuery.data && (
+                      <div className="space-y-1.5">
+                        {linkedByAdminQuery.data.sales.length > 0 && (
+                          <div>
+                            <p className="text-xs text-emerald-400 font-medium mb-1">Продажи:</p>
+                            {linkedByAdminQuery.data.sales.map((s) => (
+                              <div key={s.id} className="flex items-center justify-between gap-2 text-xs bg-emerald-950/30 border border-emerald-500/20 rounded px-2 py-1.5">
+                                <span className="text-emerald-300 flex-1">
+                                  #{s.id} • {s.date ? new Date(s.date).toLocaleDateString("ru-RU") : ""} • {s.cost ? `${s.cost}₽` : "без цены"}{s.isMutual ? " • ВП" : ""}
+                                </span>
+                                <button type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setForm((f) => ({ ...f, partnerChannel: s.admin ?? "" })); }}
+                                  className="shrink-0 cursor-pointer rounded bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-medium px-2 py-0.5 select-none"
+                                >Использовать</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {linkedByAdminQuery.data.purchases.length > 0 && (
+                          <div>
+                            <p className="text-xs text-blue-400 font-medium mb-1">Другие закупы:</p>
+                            {linkedByAdminQuery.data.purchases.map((p) => (
+                              <div key={p.id} className="flex items-center justify-between gap-2 text-xs bg-blue-950/30 border border-blue-500/20 rounded px-2 py-1.5">
+                                <span className="text-blue-300 flex-1">
+                                  #{p.id} • {p.date ? new Date(p.date).toLocaleDateString("ru-RU") : ""} • {p.cost ? `${p.cost}₽` : "без цены"}{p.isMutual ? " • ВП" : ""}
+                                </span>
+                                <button type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setForm((f) => ({ ...f, partnerChannel: p.admin ?? "" })); }}
+                                  className="shrink-0 cursor-pointer rounded bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-medium px-2 py-0.5 select-none"
+                                >Использовать</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {linkedByAdminQuery.data.sales.length === 0 && linkedByAdminQuery.data.purchases.length === 0 && (
+                          <p className="text-xs text-muted-foreground">Связанных записей не найдено</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Канал-партнёр</Label>
+                  <Input
+                    value={form.partnerChannel}
+                    onChange={(e) => setForm((f) => ({ ...f, partnerChannel: e.target.value }))}
+                    placeholder="Название канала партнёра"
+                    className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Наши охваты</Label>
+                  <Input type="number" value={form.ourReach}
+                    onChange={(e) => setForm((f) => ({ ...f, ourReach: e.target.value }))}
+                    placeholder="Например: 5000" className="bg-input border-border" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Охваты партнёра</Label>
+                  <Input type="number" value={form.partnerReach}
+                    onChange={(e) => setForm((f) => ({ ...f, partnerReach: e.target.value }))}
+                    placeholder="Например: 3000" className="bg-input border-border" />
+                </div>
+                {form.ourReach && form.partnerReach && (
+                  <div className="col-span-2 rounded-lg bg-violet-500/10 border border-violet-500/20 px-3 py-2">
+                    <p className="text-xs text-violet-300">
+                      Разница охватов: {Math.abs(Number(form.ourReach) - Number(form.partnerReach)).toLocaleString("ru-RU")}
+                      {Number(form.ourReach) > Number(form.partnerReach) ? " — партнёр должен доплатить"
+                        : Number(form.ourReach) < Number(form.partnerReach) ? " — мы доплачиваем" : " — охваты равны"}
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Доплата</Label>
+                  <Select value={form.dopDirection}
+                    onValueChange={(v) => setForm((f) => ({ ...f, dopDirection: v as "we_pay" | "they_pay" | "none" }))}>
+                    <SelectTrigger className="bg-input border-border"><SelectValue placeholder="Тип доплаты" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Без доплаты</SelectItem>
+                      <SelectItem value="we_pay">Мы платим</SelectItem>
+                      <SelectItem value="they_pay">Нам платят</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {form.dopDirection !== "none" && (
+                  <div className="space-y-1.5 col-span-2">
+                    <Label>Сумма доплаты (₽)</Label>
+                    <Input type="number" value={form.dopAmount}
+                      onChange={(e) => setForm((f) => ({ ...f, dopAmount: e.target.value }))}
+                      placeholder="0" className="bg-input border-border" />
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="space-y-1.5 col-span-2">
               <Label>Заметки</Label>
@@ -524,6 +877,13 @@ export function SaleFormModal({
   onClearConflict,
   bulkSlotsSummary,
 }: SaleFormModalProps) {
+  // ── ВП auto-link by admin name ─────────────────────────────────────────
+  const adminForSearch = useMemo(() => form.admin.trim(), [form.admin]);
+  const linkedByAdminQuery = trpc.purchases.findLinkedByAdmin.useQuery(
+    { admin: adminForSearch },
+    { enabled: form.isMutual && adminForSearch.length >= 2 }
+  );
+
   // ── Link analysis state ──────────────────────────────────────────────────
   const [linkAnalyzeStatus, setLinkAnalyzeStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [linkAnalyzeError, setLinkAnalyzeError] = useState("");
@@ -533,20 +893,62 @@ export function SaleFormModal({
     onSuccess: (data) => {
       setLinkAnalyzeResult(data);
       setLinkAnalyzeStatus("done");
-      // If single-channel report — auto-fill fields immediately
-      if (data.posts && data.posts.length === 1) {
-        const post = data.posts[0];
+      // Pick best available reach: 24h > 48h > 72h > summary
+      function pickReach(post: any): string | null {
+        const v = post?.views24h ?? post?.views48h ?? post?.views72h
+          ?? data.summary?.views24h ?? data.summary?.views48h ?? data.summary?.views72h;
+        return v != null ? String(v) : null;
+      }
+      function pickSubs(post: any): string | null {
+        const v = post?.channelSubs ?? data.summary?.subscribersTotal;
+        return v != null ? String(v) : null;
+      }
+      // Auto-fill: for multi-channel links try to match by selected channel name
+      if (data.posts && data.posts.length >= 1) {
+        const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
+        const autoPost = data.posts.length > 1 && selectedChannelName
+          ? (data.posts.find((p: any) =>
+              p.channelTitle && (
+                p.channelTitle.toLowerCase().includes(selectedChannelName) ||
+                selectedChannelName.includes(p.channelTitle.toLowerCase())
+              )
+            ) ?? data.posts[0])
+          : data.posts[0];
+        const post = autoPost;
+        const reach = pickReach(post);
+        const subs = pickSubs(post);
         setForm((f) => ({
           ...f,
-          reach: post.views24h != null ? String(post.views24h) : f.reach,
-          buyerSubscribers: post.channelSubs != null ? String(post.channelSubs) : f.buyerSubscribers,
+          ...(reach ? { reach } : {}),
+          ...(subs ? { buyerSubscribers: subs } : {}),
           ...(data.publishedAt ? { date: data.publishedAt.slice(0, 10), month: data.publishedAt.slice(0, 7) } : {}),
         }));
+        const channelCount = data.posts.length;
+        if (channelCount > 1) {
+          toast.success(`Найдено ${channelCount} канала`, {
+            description: autoPost.channelTitle
+              ? `Автовыбран канал «${autoPost.channelTitle}». Можно изменить ниже`
+              : "Выберите нужный канал в панели ниже",
+            duration: 4000,
+          });
+        } else {
+          const reachVal = reach ? parseInt(reach).toLocaleString() : null;
+          toast.success("Охват извлечён", {
+            description: reachVal ? `Охваты: ${reachVal}${subs ? ` · Подписчики: ${parseInt(subs).toLocaleString()}` : ""}` : "Поля заполнены",
+            duration: 3000,
+          });
+        }
+      } else {
+        toast.info("Данные не найдены", { description: "Страница загружена, но статистика не обнаружена", duration: 4000 });
       }
     },
     onError: (err) => {
       setLinkAnalyzeStatus("error");
       setLinkAnalyzeError(err.message);
+      toast.error("Ошибка анализа", {
+        description: err.message,
+        duration: 5000,
+      });
     },
   });
 
@@ -560,18 +962,20 @@ export function SaleFormModal({
   }
 
   function applyPostData(post: any, publishedAt: string | null) {
+    const reach = post.views24h ?? post.views48h ?? post.views72h;
+    const subs = post.channelSubs;
     setForm((f) => ({
       ...f,
-      reach: post.views24h != null ? String(post.views24h) : f.reach,
-      buyerSubscribers: post.channelSubs != null ? String(post.channelSubs) : f.buyerSubscribers,
+      ...(reach != null ? { reach: String(reach) } : {}),
+      ...(subs != null ? { buyerSubscribers: String(subs) } : {}),
       ...(publishedAt ? { date: publishedAt.slice(0, 10), month: publishedAt.slice(0, 7) } : {}),
     }));
   }
   // ── Auto-extract from link when status changes to paid ─────────────────
   function handlePaymentStatusChange(v: PaymentStatus) {
     setForm((f) => ({ ...f, paymentStatus: v }));
-    // Trigger auto-extract only when switching TO paid and link exists and not already analyzed
-    if (v === "paid" && form.link.startsWith("http") && linkAnalyzeStatus === "idle") {
+    // Always re-fetch reach when switching TO paid and link exists (even if already analyzed)
+    if (v === "paid" && form.link.trim().startsWith("http")) {
       setLinkAnalyzeStatus("loading");
       setLinkAnalyzeError("");
       setLinkAnalyzeResult(null);
@@ -640,7 +1044,7 @@ export function SaleFormModal({
                   <Select
                     value={form.bookingSlot || "none"}
                     onValueChange={(v) =>
-                      setForm((f) => ({ ...f, bookingSlot: (v === "none" ? "" : v) as "утро" | "обед" | "вечер" | "" }))
+                      setForm((f) => ({ ...f, bookingSlot: (v === "none" ? "" : v) as "утро" | "обед" | "вечер" | "ночной топ" | "" }))
                     }
                   >
                     <SelectTrigger className="bg-input border-border">
@@ -651,6 +1055,7 @@ export function SaleFormModal({
                       <SelectItem value="утро">Утро</SelectItem>
                       <SelectItem value="обед">Обед</SelectItem>
                       <SelectItem value="вечер">Вечер</SelectItem>
+                      <SelectItem value="ночной топ">Ночной топ</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -710,6 +1115,18 @@ export function SaleFormModal({
               <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
                 <Calculator className="w-3.5 h-3.5" />
                 Расчёт по СПМ: Охваты × СПМ / 1000
+                {linkAnalyzeStatus === "loading" && (
+                  <span className="ml-auto flex items-center gap-1 text-violet-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Получаю охват...</span>
+                  </span>
+                )}
+                {linkAnalyzeStatus === "done" && (
+                  <span className="ml-auto flex items-center gap-1 text-emerald-400">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Охват обновлён</span>
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="space-y-1.5">
@@ -719,8 +1136,9 @@ export function SaleFormModal({
                     value={form.reach}
                     onChange={(e) => setForm((f) => ({ ...f, reach: e.target.value }))}
                     placeholder="500"
-                    className="bg-input border-border"
+                    className={`bg-input border-border ${linkAnalyzeStatus === "loading" ? "opacity-60" : ""}`}
                     min={0}
+                    disabled={linkAnalyzeStatus === "loading"}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -768,7 +1186,15 @@ export function SaleFormModal({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="shrink-0 gap-1.5 bg-transparent border-violet-500/40 text-violet-400 hover:bg-violet-500/10 hover:text-violet-300"
+                    className={`shrink-0 gap-1.5 transition-all duration-300 ${
+                      linkAnalyzeStatus === "loading"
+                        ? "bg-violet-500/20 border-violet-400/60 text-violet-300 animate-pulse cursor-wait"
+                        : linkAnalyzeStatus === "done"
+                        ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20"
+                        : linkAnalyzeStatus === "error"
+                        ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20"
+                        : "bg-transparent border-violet-500/40 text-violet-400 hover:bg-violet-500/10 hover:text-violet-300"
+                    }`}
                     onClick={handleAnalyzeLink}
                     disabled={linkAnalyzeStatus === "loading"}
                     title="Извлечь данные из ссылки"
@@ -776,28 +1202,51 @@ export function SaleFormModal({
                     {linkAnalyzeStatus === "loading" ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : linkAnalyzeStatus === "done" ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    ) : linkAnalyzeStatus === "error" ? (
+                      <XCircle className="w-3.5 h-3.5" />
                     ) : (
                       <Sparkles className="w-3.5 h-3.5" />
                     )}
                     <span className="text-xs hidden sm:inline">
-                      {linkAnalyzeStatus === "loading" ? "Загрузка..." : linkAnalyzeStatus === "done" ? "Готово" : "Извлечь"}
+                      {linkAnalyzeStatus === "loading" ? "Анализ..." : linkAnalyzeStatus === "done" ? "Готово" : linkAnalyzeStatus === "error" ? "Повтор" : "Извлечь"}
                     </span>
                   </Button>
                 )}
               </div>
+              {/* Loading overlay */}
+              {linkAnalyzeStatus === "loading" && (
+                <div className="mt-2 rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 flex items-center gap-3 animate-in fade-in duration-300">
+                  <div className="relative">
+                    <div className="w-8 h-8 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin" />
+                    <Zap className="w-3.5 h-3.5 text-violet-400 absolute inset-0 m-auto" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-violet-300">Анализирую ссылку...</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Извлекаю статистику поста</p>
+                  </div>
+                </div>
+              )}
               {/* Error */}
               {linkAnalyzeStatus === "error" && (
-                <p className="text-xs text-destructive flex items-center gap-1 mt-1">
-                  <AlertCircle className="w-3 h-3" />{linkAnalyzeError}
-                </p>
+                <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 flex items-center gap-2 animate-in fade-in duration-300">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <div>
+                    <p className="text-xs font-medium text-red-400">Ошибка анализа</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{linkAnalyzeError}</p>
+                  </div>
+                </div>
               )}
               {/* Result panel */}
               {linkAnalyzeStatus === "done" && linkAnalyzeResult && (
-                <div className="mt-2 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3 space-y-2">
-                  {linkAnalyzeResult.draftName && (
-                    <p className="text-xs font-medium text-violet-300 truncate">{linkAnalyzeResult.draftName}</p>
-                  )}
+                <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-xs font-medium text-emerald-400">Данные извлечены</span>
+                    {linkAnalyzeResult.draftName && (
+                      <span className="text-xs text-muted-foreground truncate ml-auto">{linkAnalyzeResult.draftName}</span>
+                    )}
+                  </div>
                   {linkAnalyzeResult.posts && linkAnalyzeResult.posts.length > 1 ? (
                     <div className="space-y-1.5">
                       <p className="text-xs text-muted-foreground">Выберите канал для заполнения:</p>
@@ -805,30 +1254,29 @@ export function SaleFormModal({
                         <button
                           key={i}
                           type="button"
-                          onClick={() => applyPostData(post, linkAnalyzeResult.publishedAt)}
-                          className="w-full text-left rounded-md border border-violet-500/20 bg-card px-3 py-2 text-xs hover:bg-violet-500/10 transition-colors"
+                          onClick={() => { applyPostData(post, linkAnalyzeResult.publishedAt); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
+                          className="w-full text-left rounded-md border border-emerald-500/20 bg-card px-3 py-2.5 text-xs hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all duration-200 active:scale-[0.98]"
                         >
-                          <div className="font-medium text-foreground">{post.channelTitle ?? "Канал"}</div>
-                          <div className="text-muted-foreground mt-0.5">
-                            {post.channelSubs != null && <span>{post.channelSubs.toLocaleString()} подп. · </span>}
-                            {post.views24h != null && <span>24ч: {post.views24h.toLocaleString()} </span>}
-                            {post.er24h != null && <span>· ER: {post.er24h}%</span>}
+                          <div className="font-medium text-foreground">{post.channelTitle ?? `Канал ${i + 1}`}</div>
+                          <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-2">
+                            {post.channelSubs != null && <span>👥 {post.channelSubs.toLocaleString()}</span>}
+                            {post.views24h != null && <span>👁 {post.views24h.toLocaleString()}</span>}
+                            {post.er24h != null && <span>ER {post.er24h}%</span>}
                           </div>
                         </button>
                       ))}
                     </div>
                   ) : linkAnalyzeResult.posts && linkAnalyzeResult.posts.length === 1 ? (
-                    <div className="text-xs text-muted-foreground space-y-0.5">
+                    <div className="text-xs space-y-1">
                       {linkAnalyzeResult.posts[0].channelTitle && (
-                        <div>Канал: <span className="text-foreground">{linkAnalyzeResult.posts[0].channelTitle}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Канал</span><span className="text-foreground font-medium">{linkAnalyzeResult.posts[0].channelTitle}</span></div>
                       )}
                       {linkAnalyzeResult.posts[0].views24h != null && (
-                        <div>Охваты 24ч: <span className="text-foreground">{linkAnalyzeResult.posts[0].views24h.toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Охваты 24ч</span><span className="text-foreground font-medium">{linkAnalyzeResult.posts[0].views24h.toLocaleString()}</span></div>
                       )}
                       {linkAnalyzeResult.posts[0].er24h != null && (
-                        <div>ER 24ч: <span className="text-foreground">{linkAnalyzeResult.posts[0].er24h}%</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">ER 24ч</span><span className="text-foreground font-medium">{linkAnalyzeResult.posts[0].er24h}%</span></div>
                       )}
-                      <p className="text-emerald-400 mt-1">✓ Поля заполнены автоматически</p>
                     </div>
                   ) : null}
                 </div>
@@ -871,6 +1319,18 @@ export function SaleFormModal({
                 <span className="text-sm text-muted-foreground">Пост не нужен (автобот)</span>
               </label>
             </div>
+            {/* External advertiser checkbox */}
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.isExternal}
+                  onChange={(e) => setForm((f) => ({ ...f, isExternal: e.target.checked }))}
+                  className="h-4 w-4 rounded border-border accent-orange-500"
+                />
+                <span className="text-sm font-medium text-orange-400">Внешка (внешний рекламодатель)</span>
+              </label>
+            </div>
 
             {/* ВП checkbox */}
             <div className="col-span-2">
@@ -888,6 +1348,59 @@ export function SaleFormModal({
             {/* ВП conditional fields */}
             {form.isMutual && (
               <>
+                {/* Auto-link suggestion panel */}
+                {adminForSearch.length >= 2 && (
+                  <div className="col-span-2 rounded-lg border border-violet-500/30 bg-violet-950/20 p-3 space-y-2">
+                    <p className="text-xs font-medium text-violet-400">Связанные записи по админу «{adminForSearch}»</p>
+                    {linkedByAdminQuery.isLoading && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />Поиск...
+                      </div>
+                    )}
+                    {linkedByAdminQuery.data && (
+                      <div className="space-y-1.5">
+                        {linkedByAdminQuery.data.sales.length > 0 && (
+                          <div>
+                            <p className="text-xs text-emerald-400 font-medium mb-1">Продажи:</p>
+                            {linkedByAdminQuery.data.sales.map((s) => (
+                              <div key={s.id} className="flex items-center justify-between gap-2 text-xs bg-emerald-950/30 border border-emerald-500/20 rounded px-2 py-1.5">
+                                <span className="text-emerald-300 flex-1">
+                                  #{s.id} • {s.date ? new Date(s.date).toLocaleDateString("ru-RU") : ""} • {s.cost ? `${s.cost}₽` : "без цены"}{s.isMutual ? " • ВП" : ""}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setForm((f) => ({ ...f, partnerChannel: s.admin ?? "" })); }}
+                                  className="shrink-0 cursor-pointer rounded bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-medium px-2 py-0.5 select-none"
+                                >Использовать</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {linkedByAdminQuery.data.purchases.length > 0 && (
+                          <div>
+                            <p className="text-xs text-blue-400 font-medium mb-1">Другие закупы:</p>
+                            {linkedByAdminQuery.data.purchases.map((p) => (
+                              <div key={p.id} className="flex items-center justify-between gap-2 text-xs bg-blue-950/30 border border-blue-500/20 rounded px-2 py-1.5">
+                                <span className="text-blue-300 flex-1">
+                                  #{p.id} • {p.date ? new Date(p.date).toLocaleDateString("ru-RU") : ""} • {p.cost ? `${p.cost}₽` : "без цены"}{p.isMutual ? " • ВП" : ""}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setForm((f) => ({ ...f, partnerChannel: p.admin ?? "" })); }}
+                                  className="shrink-0 cursor-pointer rounded bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-medium px-2 py-0.5 select-none"
+                                >Использовать</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {linkedByAdminQuery.data.sales.length === 0 && linkedByAdminQuery.data.purchases.length === 0 && (
+                          <p className="text-xs text-muted-foreground">Связанных записей не найдено</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-1.5 col-span-2">
                   <Label>Канал-партнёр</Label>
                   <Input

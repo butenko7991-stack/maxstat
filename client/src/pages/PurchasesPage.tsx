@@ -314,11 +314,17 @@ export default function PurchasesPage() {
         { url: record.link },
         {
           onSuccess: (data) => {
-            const post = data.posts?.[0];
-            if (!post) return;
+            // For multi-channel links: match post by channel name, fall back to first post
+            const recordChannelName = (channelMap[record.channelId] ?? "").toLowerCase();
+            const matchedPost = (data.posts ?? []).find((p: any) =>
+              p.channelTitle && recordChannelName &&
+              (p.channelTitle.toLowerCase().includes(recordChannelName) ||
+               recordChannelName.includes(p.channelTitle.toLowerCase()))
+            ) ?? data.posts?.[0];
+            if (!matchedPost) return;
             const updatePayload: Record<string, unknown> = { id: record.id };
-            if (post.views24h != null) updatePayload.reach = post.views24h;
-            if (post.channelSubs != null) updatePayload.subscribersGained = post.channelSubs;
+            if (matchedPost.views24h != null) updatePayload.reach = matchedPost.views24h;
+            if (matchedPost.channelSubs != null) updatePayload.subscribersGained = matchedPost.channelSubs;
             if (data.publishedAt) {
               updatePayload.date = data.publishedAt.slice(0, 10);
               updatePayload.month = data.publishedAt.slice(0, 7);
