@@ -305,7 +305,7 @@ export default function SchedulePage() {
       const s = saleByIdQuery.data;
       setEditSaleForm({
         channelId: String(s.channelId),
-        date: s.date ? s.date.slice(0, 10) : "",
+        date: s.date ? toIso(new Date(s.date)) : "",
         admin: s.admin ?? "",
         link: s.link ?? "",
         timeSlot: (s.timeSlot ?? "") as any,
@@ -337,7 +337,7 @@ export default function SchedulePage() {
       const p = purchaseByIdQuery.data;
       setEditPurchaseForm({
         channelId: String(p.channelId),
-        date: p.date ? p.date.slice(0, 10) : "",
+        date: p.date ? toIso(new Date(p.date)) : "",
         admin: p.admin ?? "",
         link: p.link ?? "",
         targetChannels: p.targetChannels ?? "",
@@ -379,7 +379,7 @@ export default function SchedulePage() {
     for (const s of scheduleData.sales) {
       if (!s.isMutual) continue;
       const cid = s.channelId;
-      const dateStr = s.date ? s.date.slice(0, 10) : "";
+      const dateStr = s.date ? toIso(new Date(s.date)) : "";
       if (!dateStr) continue;
       // Use bookingSlot/timeSlot; if missing fall back to "__any__" so it shows in all slots
       const slot = ((s.bookingSlot ?? (s as any).timeSlot) ?? "").toLowerCase() || "__any__";
@@ -398,7 +398,7 @@ export default function SchedulePage() {
     for (const p of scheduleData.purchases) {
       if (!p.isMutual) continue;
       const cid = p.channelId;
-      const dateStr = p.date ? p.date.slice(0, 10) : "";
+      const dateStr = p.date ? toIso(new Date(p.date)) : "";
       if (!dateStr) continue;
       const slot = ((p.bookingSlot ?? p.timeSlot) ?? "").toLowerCase() || "__any__";
       if (!map[cid]) map[cid] = {};
@@ -415,7 +415,7 @@ export default function SchedulePage() {
     if (!scheduleData) return map;
     for (const p of scheduleData.purchases) {
       const cid = p.channelId;
-      const dateStr = p.date ? p.date.slice(0, 10) : "";
+      const dateStr = p.date ? toIso(new Date(p.date)) : "";
       const slot = ((p.bookingSlot ?? p.timeSlot) ?? "").toLowerCase();
       if (!map[cid]) map[cid] = {};
       if (!map[cid][dateStr]) map[cid][dateStr] = {};
@@ -431,7 +431,7 @@ export default function SchedulePage() {
     if (!scheduleData) return map;
     for (const s of scheduleData.sales) {
       const cid = s.channelId;
-      const dateStr = s.date ? s.date.slice(0, 10) : "";
+      const dateStr = s.date ? toIso(new Date(s.date)) : "";
       // Prefer bookingSlot for grid placement; fall back to timeSlot for legacy records
       const slot = ((s.bookingSlot ?? s.timeSlot) ?? "").toLowerCase();
       if (!map[cid]) map[cid] = {};
@@ -448,7 +448,7 @@ export default function SchedulePage() {
     if (!scheduleData?.purchases) return map;
     for (const p of scheduleData.purchases) {
       const cid = p.channelId;
-      const dateStr = p.date ? p.date.slice(0, 10) : "";
+      const dateStr = p.date ? toIso(new Date(p.date)) : "";
       if (!map[cid]) map[cid] = {};
       if (!map[cid][dateStr]) map[cid][dateStr] = { count: 0, admins: [] };
       map[cid][dateStr].count += 1;
