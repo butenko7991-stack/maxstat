@@ -24,7 +24,7 @@ import { PostAnalyticsBadge } from "@/components/PostAnalyticsBadge";
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
-  month: currentMonth(), postNotNeeded: false,
+  month: currentMonth(), postNotNeeded: false, isExternal: false,
   buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
   notes: "",
@@ -252,9 +252,10 @@ export default function SalesPage() {
     setForm({
       channelId: String(r.channelId), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : todayIso(),
       admin: r.admin ?? "", link: r.link ?? "", timeSlot: (r.timeSlot as TimeSlot) ?? "",
-      bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер") ?? "",
+      bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер" | "ночной топ") ?? "",
       tariff: r.tariff ?? "", platform: r.platform ?? "",      spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       month: r.month, postNotNeeded: r.postNotNeeded ?? false,
+      isExternal: (r as Record<string, unknown>).isExternal === true,
       isMutual: r.isMutual ?? false, partnerChannel: r.partnerChannel ?? "",
       ourReach: r.ourReach ? String(r.ourReach) : "", partnerReach: r.partnerReach ? String(r.partnerReach) : "",
       dopDirection: (r.dopDirection as "we_pay" | "they_pay" | "none") ?? "none", dopAmount: r.dopAmount ?? "",
@@ -271,13 +272,14 @@ export default function SalesPage() {
       channelId: Number(form.channelId), date: form.date,
       admin: form.admin || undefined, link: form.link || undefined,
       timeSlot: (form.timeSlot || undefined) as TimeSlot | undefined,
-      bookingSlot: (form.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+      bookingSlot: (form.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
       tariff: form.tariff || undefined, platform: form.platform || undefined,
       spm: form.spm || undefined,
       reach: form.reach ? Number(form.reach) : undefined,
       cost: form.cost || undefined,
       paymentStatus: form.paymentStatus, month: form.month,
       postNotNeeded: form.postNotNeeded,
+      isExternal: form.isExternal,
       isMutual: form.isMutual,
       partnerChannel: form.partnerChannel || undefined,
       ourReach: form.ourReach ? Number(form.ourReach) : undefined,
@@ -450,6 +452,11 @@ export default function SalesPage() {
                     {r.timeSlot && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TIME_SLOT_COLORS[r.timeSlot] ?? "text-muted-foreground bg-muted"}`}>
                         {r.timeSlot}
+                      </span>
+                    )}
+                    {(r as Record<string, unknown>).isExternal === true && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                        🌐 Внешка
                       </span>
                     )}
                     {r.isMutual && (

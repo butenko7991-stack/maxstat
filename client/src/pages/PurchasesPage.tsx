@@ -26,6 +26,7 @@ const EMPTY_FORM: PurchaseFormData = {
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   subscribersGained: "", month: currentMonth(), notes: "",
   timeSlot: "", bookingSlot: "", sourceSubscribers: "",
+  isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
 };
 
 const PAYMENT_CYCLE: Record<PaymentStatus, PaymentStatus> = {
@@ -118,7 +119,7 @@ function PurchaseDetailDrawer({ record, channelMap, onClose, onEdit }: { record:
               <div className="glass rounded-xl p-3 space-y-0.5">
                 <p className="text-xs text-muted-foreground flex items-center gap-1"><Users className="w-3 h-3" /> Привлечено</p>
                 <p className="text-sm font-semibold text-emerald-400">+{r.subscribersGained} подп.</p>
-                {r.cost && <p className="text-xs text-muted-foreground">{Math.round(parseFloat(r.cost) / r.subscribersGained)} ₽/подп.</p>}
+                {r.cost && (() => { const cpf = Math.round(parseFloat(r.cost) / r.subscribersGained); return <p className={`text-xs font-medium ${cpf <= 30 ? 'text-emerald-400' : cpf <= 50 ? 'text-amber-400' : 'text-red-400'}`}>{cpf} ₽/подп.</p>; })()}
               </div>
             )}
             {r.tariff && (
@@ -281,6 +282,14 @@ export default function PurchasesPage() {
     onSuccess: () => { utils.purchases.list.invalidate(); utils.summary.financial.invalidate(); toast.success("Запись удалена"); },
     onError: (e) => toast.error(e.message),
   });
+  const autoSaveStatsMutation = trpc.purchases.update.useMutation({
+    onSettled: () => { utils.purchases.list.invalidate(); },
+    onError: () => { /* silent background operation */ },
+  });
+  const autoExtractMutation = trpc.ocr.analyzeLink.useMutation({
+    onError: () => { /* silent — background operation */ },
+  });
+
   const quickPayMutation = trpc.purchases.quickUpdatePayment.useMutation({
     onMutate: async ({ id, paymentStatus }) => {
       await utils.purchases.list.cancel(listInput);
@@ -296,6 +305,33 @@ export default function PurchasesPage() {
     },
     onSettled: () => { utils.purchases.list.invalidate(); utils.summary.financial.invalidate(); },
   });
+  function handleQuickPay(record: NonNullable<typeof records>[number]) {
+    const nextStatus = PAYMENT_CYCLE[record.paymentStatus as PaymentStatus] ?? "unpaid";
+    quickPayMutation.mutate({ id: record.id, paymentStatus: nextStatus });
+    // Auto-extract stats when switching to paid and link exists
+    if (nextStatus === "paid" && record.link?.startsWith("http")) {
+      autoExtractMutation.mutate(
+        { url: record.link },
+        {
+          onSuccess: (data) => {
+            const post = data.posts?.[0];
+            if (!post) return;
+            const updatePayload: Record<string, unknown> = { id: record.id };
+            if (post.views24h != null) updatePayload.reach = post.views24h;
+            if (post.channelSubs != null) updatePayload.subscribersGained = post.channelSubs;
+            if (data.publishedAt) {
+              updatePayload.date = data.publishedAt.slice(0, 10);
+              updatePayload.month = data.publishedAt.slice(0, 7);
+            }
+            if (Object.keys(updatePayload).length > 1) {
+              autoSaveStatsMutation.mutate(updatePayload as any);
+            }
+          },
+        }
+      );
+    }
+  }
+
   const duplicateMutation = trpc.purchases.duplicate.useMutation({
     onSuccess: () => { utils.purchases.list.invalidate(); utils.summary.financial.invalidate(); toast.success("Запись скопирована"); },
     onError: (e) => toast.error(e.message),
@@ -394,8 +430,14 @@ export default function PurchasesPage() {
       spm: r.spm ?? "", reach: r.reach ? String(r.reach) : "", cost: r.cost ?? "", paymentStatus: (r.paymentStatus as PaymentStatus) ?? "unpaid",
       subscribersGained: r.subscribersGained ? String(r.subscribersGained) : "",
       month: r.month, notes: r.notes ?? "",
-      timeSlot: r.timeSlot ?? "", bookingSlot: (r.bookingSlot ?? "") as "утро" | "обед" | "вечер" | "",
+      timeSlot: r.timeSlot ?? "", bookingSlot: (r.bookingSlot ?? "") as "утро" | "обед" | "вечер" | "ночной топ" | "",
       sourceSubscribers: (r as Record<string, unknown>).sourceSubscribers ? String((r as Record<string, unknown>).sourceSubscribers) : "",
+      isMutual: Boolean((r as Record<string, unknown>).isMutual),
+      partnerChannel: String((r as Record<string, unknown>).partnerChannel ?? ""),
+      ourReach: (r as Record<string, unknown>).ourReach ? String((r as Record<string, unknown>).ourReach) : "",
+      partnerReach: (r as Record<string, unknown>).partnerReach ? String((r as Record<string, unknown>).partnerReach) : "",
+      dopDirection: ((r as Record<string, unknown>).dopDirection as "we_pay" | "they_pay" | "none") ?? "none",
+      dopAmount: String((r as Record<string, unknown>).dopAmount ?? ""),
     });
     setDialogOpen(true);
   }
@@ -585,10 +627,7 @@ export default function PurchasesPage() {
                     </span>
                     <button
                       title="Нажмите для смены статуса оплаты"
-                      onClick={() => quickPayMutation.mutate({
-                        id: r.id,
-                        paymentStatus: PAYMENT_CYCLE[r.paymentStatus as PaymentStatus] ?? "unpaid",
-                      })}
+                      onClick={() => handleQuickPay(r)}
                       className={PAYMENT_CLASSES[r.paymentStatus] ?? PAYMENT_CLASSES.unpaid}
                     >
                       {PAYMENT_LABELS[r.paymentStatus] ?? r.paymentStatus}
@@ -636,11 +675,7 @@ export default function PurchasesPage() {
                       <span className="text-xs text-emerald-400 font-medium">
                         +{r.subscribersGained} подп.
                       </span>
-                      {r.cost && (
-                        <span className="text-xs text-muted-foreground">
-                          {Math.round(parseFloat(r.cost) / r.subscribersGained)} ₽/подп.
-                        </span>
-                      )}
+                      {r.cost && (() => { const cpf = Math.round(parseFloat(r.cost) / r.subscribersGained); return <span className={`text-xs font-medium ${cpf <= 30 ? 'text-emerald-400' : cpf <= 50 ? 'text-amber-400' : 'text-red-400'}`}>{cpf} ₽/подп.</span>; })()}
                     </div>
                   )}
                   <div className="flex items-center gap-1">

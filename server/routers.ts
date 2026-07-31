@@ -8,6 +8,7 @@ import {
   createChannel,
   createPurchaseRecord,
   createSaleRecord,
+  countChannelRecords,
   deleteChannel,
   deletePurchaseRecord,
   deleteSaleRecord,
@@ -60,7 +61,22 @@ import {
   upsertPostAnalytics,
   getPostAnalyticsByRecord,
   getPostAnalyticsByUser,
+  listClients,
+  getClientById,
+  createClient,
+  updateClient,
+  deleteClient,
+  setClientChannels,
+  autoImportClients,
+  getClientStats,
+  getClientPurchases,
+  getClientSales,
+  getClientAttributedCpf,
+  getExternalSalesAnalytics,
+  getDb,
 } from "./db";
+import { sql, and, eq } from "drizzle-orm";
+import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
@@ -86,6 +102,7 @@ const channelsRouter = router({
         id: z.number().int().positive(),
         name: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
+        isVisible: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -93,9 +110,25 @@ const channelsRouter = router({
       await updateChannel(id, ctx.user.id, rest);
       return { success: true };
     }),
-  delete: protectedProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+  setVisibility: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), isVisible: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
+      await updateChannel(input.id, ctx.user.id, { isVisible: input.isVisible });
+      return { success: true };
+    }),
+  delete: protectedProcedure
+    .input(z.object({ id: z.number().int().positive(), force: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!input.force) {
+        const counts = await countChannelRecords(input.id, ctx.user.id);
+        if (counts.purchases > 0 || counts.sales > 0) {
+          // Encode counts in message as JSON so frontend can parse them
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: JSON.stringify({ type: 'CHANNEL_HAS_RECORDS', purchases: counts.purchases, sales: counts.sales }),
+          });
+        }
+      }
       await deleteChannel(input.id, ctx.user.id);
       return { success: true };
     }),
@@ -126,8 +159,14 @@ const purchaseInput = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
   notes: z.string().optional(),
   timeSlot: timeSlotEnum.optional(),
-  bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+  bookingSlot: z.enum(["утро", "обед", "вечер", "ночной топ"]).optional(),
   sourceSubscribers: z.number().int().nonnegative().optional(),
+  isMutual: z.boolean().optional(),
+  partnerChannel: z.string().max(255).optional(),
+  ourReach: z.number().int().nonnegative().optional(),
+  partnerReach: z.number().int().nonnegative().optional(),
+  dopDirection: z.enum(["we_pay", "they_pay", "none"]).optional(),
+  dopAmount: z.string().optional(),
 });
 const purchasesRouter = router({
   list: protectedProcedure
@@ -166,6 +205,12 @@ const purchasesRouter = router({
       timeSlot: input.timeSlot ?? null,
       bookingSlot: input.bookingSlot ?? deriveBookingSlot(input.timeSlot),
       sourceSubscribers: input.sourceSubscribers ?? null,
+      isMutual: input.isMutual ?? false,
+      partnerChannel: input.partnerChannel ?? null,
+      ourReach: input.ourReach ?? null,
+      partnerReach: input.partnerReach ?? null,
+      dopDirection: input.dopDirection ?? "none",
+      dopAmount: input.dopAmount ?? null,
     });
     return { id };
   }),
@@ -221,7 +266,7 @@ const purchasesRouter = router({
       slots: z.array(z.object({
         channelId: z.number().int().positive(),
         date: z.string(),
-        bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+        bookingSlot: z.enum(["утро", "обед", "вечер", "ночной топ"]).optional(),
         timeSlot: timeSlotEnum.optional(),
         month: z.string().regex(/^\d{4}-\d{2}$/),
       })),
@@ -287,6 +332,48 @@ const purchasesRouter = router({
       if (!record) throw new TRPCError({ code: "NOT_FOUND" });
       return record;
     }),
+  /** Find related sale + purchase records by admin name for ВП auto-linking */
+  findLinkedByAdmin: protectedProcedure
+    .input(z.object({ admin: z.string().min(1), excludeId: z.number().int().optional() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { sales: [], purchases: [] };
+      const adminLike = `%${input.admin.trim()}%`;
+      const [sales, purchases] = await Promise.all([
+        db.select({
+          id: saleRecords.id,
+          admin: saleRecords.admin,
+          date: saleRecords.date,
+          channelId: saleRecords.channelId,
+          cost: saleRecords.cost,
+          isMutual: saleRecords.isMutual,
+          month: saleRecords.month,
+        }).from(saleRecords)
+          .where(and(
+            eq(saleRecords.userId, ctx.user.id),
+            sql`${saleRecords.admin} LIKE ${adminLike}`
+          ))
+          .orderBy(sql`${saleRecords.date} DESC`)
+          .limit(10),
+        db.select({
+          id: purchaseRecordsTable.id,
+          admin: purchaseRecordsTable.admin,
+          date: purchaseRecordsTable.date,
+          channelId: purchaseRecordsTable.channelId,
+          cost: purchaseRecordsTable.cost,
+          isMutual: purchaseRecordsTable.isMutual,
+          month: purchaseRecordsTable.month,
+        }).from(purchaseRecordsTable)
+          .where(and(
+            eq(purchaseRecordsTable.userId, ctx.user.id),
+            sql`${purchaseRecordsTable.admin} LIKE ${adminLike}`,
+            input.excludeId ? sql`${purchaseRecordsTable.id} != ${input.excludeId}` : sql`1=1`
+          ))
+          .orderBy(sql`${purchaseRecordsTable.date} DESC`)
+          .limit(10),
+      ]);
+      return { sales, purchases };
+    }),
 });
 // ─── Sales router ─────────────────────────────────────────────────────────────
 
@@ -294,19 +381,21 @@ const purchasesRouter = router({
  * Maps time values to утро/обед/вечер based on hour of day.
  * Also handles direct text values like "утро", "обед", "вечер".
  */
-function deriveBookingSlot(timeSlot: string | undefined | null): "утро" | "обед" | "вечер" | null {
+function deriveBookingSlot(timeSlot: string | undefined | null): "утро" | "обед" | "вечер" | "ночной топ" | null {
   if (!timeSlot) return null;
   const lower = timeSlot.toLowerCase().trim();
   if (lower === "утро" || lower === "утром") return "утро";
   if (lower === "обед" || lower === "днём" || lower === "день") return "обед";
   if (lower === "вечер" || lower === "вечером") return "вечер";
+  if (lower === "ночной топ" || lower === "ночь" || lower === "ночью") return "ночной топ";
   // Try to parse HH:MM or HH.MM format
   const match = lower.match(/^(\d{1,2})[:\.](\d{2})/);
   if (match) {
     const hour = parseInt(match[1], 10);
     if (hour < 12) return "утро";
     if (hour < 17) return "обед";
-    return "вечер";
+    if (hour < 22) return "вечер";
+    return "ночной топ";
   }
   return null;
 }
@@ -324,9 +413,12 @@ const saleInput = z.object({
   cost: z.string().optional(),
   paymentStatus: paymentStatusEnum.optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
-  bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+  bookingSlot: z.enum(["утро", "обед", "вечер", "ночной топ"]).optional(),
+  notes: z.string().optional(),
   postNotNeeded: z.boolean().optional(),
   buyerSubscribers: z.number().int().nonnegative().optional(),
+  // External advertiser flag
+  isExternal: z.boolean().optional(),
   // ВП fields
   isMutual: z.boolean().optional(),
   partnerChannel: z.string().max(255).optional(),
@@ -334,7 +426,6 @@ const saleInput = z.object({
   partnerReach: z.number().int().nonnegative().optional(),
   dopDirection: z.enum(["we_pay", "they_pay", "none"]).optional(),
   dopAmount: z.string().optional(),
-  notes: z.string().optional(),
 });
 const salesRouter = router({
   list: protectedProcedure
@@ -377,6 +468,7 @@ const salesRouter = router({
       paymentStatus: input.paymentStatus ?? "unpaid",
       month: input.month,
       postNotNeeded: input.postNotNeeded ?? false,
+      isExternal: input.isExternal ?? false,
       isMutual: input.isMutual ?? false,
       partnerChannel: input.partnerChannel ?? null,
       ourReach: input.ourReach ?? null,
@@ -453,7 +545,7 @@ const salesRouter = router({
       slots: z.array(z.object({
         channelId: z.number().int().positive(),
         date: z.string(),
-        bookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+        bookingSlot: z.enum(["утро", "обед", "вечер", "ночной топ"]).optional(),
         timeSlot: timeSlotEnum.optional(),
         month: z.string().regex(/^\d{4}-\d{2}$/),
       })),
@@ -567,7 +659,10 @@ const aiRouter = router({
         const lines: string[] = [`### ${c.channelName}`];
         // Subscribers & reach
         if (c.currentSubscribers !== null) {
-          lines.push(`- 👥 Подписчики: ${c.currentSubscribers.toLocaleString('ru-RU')}${c.weeklyGrowth != null ? ` (нед. прирост: ${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth})` : ''}`);
+          const growthStr = c.weeklyGrowth != null
+            ? ` (нед. прирост: ${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth})`
+            : '';
+          lines.push(`- 👥 Подписчики: ${c.currentSubscribers.toLocaleString('ru-RU')}${growthStr}`);
         }
         if (c.er24 !== null) {
           lines.push(`- 📊 ER24: ${c.er24.toFixed(2)}% | Охваты: 24ч=${c.views24h ?? '—'}, 48ч=${c.views48h ?? '—'}, 72ч=${c.views72h ?? '—'}`);
@@ -597,6 +692,14 @@ const aiRouter = router({
         return lines.join('\n');
       }).join('\n\n');
 
+      // Pre-compute expense lines to avoid nested template literals
+      const avgCpfLine = ctx_data.overallAvgCpf !== null ? `- Средний CPF: ${ctx_data.overallAvgCpf}₽` : '';
+      const expensesLine = ctx_data.totalExpenses > 0
+        ? `- Операционные расходы: ${ctx_data.totalExpenses.toLocaleString('ru-RU')}₽ (${Object.entries(ctx_data.expensesByCategory).map(([k, v]) => k + ': ' + (v as number).toLocaleString('ru-RU') + '₽').join(', ')})`
+        : '';
+      const netProfitLine = ctx_data.totalExpenses > 0
+        ? `- Чистая прибыль: ${ctx_data.netProfit.toLocaleString('ru-RU')}₽`
+        : '';
       const mutualBlock = ctx_data.mutual.total > 0 ? `
 ВЗАИМКИ (ВП):
 - Всего сделок: ${ctx_data.mutual.total} (завершено: ${ctx_data.mutual.completed}, активных: ${ctx_data.mutual.active})
@@ -607,15 +710,22 @@ ${ctx_data.mutual.avgPartnerReach !== null ? `- Ср. охват партнёр�
 
       // Fetch post analytics for context
       const allPostAnalytics = await getPostAnalyticsByUser(ctx.user.id);
-      const postAnalyticsBlock = allPostAnalytics.length > 0 ? `
-АНАЛИТИКА ПОСТОВ (из Trustat, ${allPostAnalytics.length} записей):
-${allPostAnalytics.slice(0, 20).map(pa => {
+      const postAnalyticsLines = allPostAnalytics.slice(0, 20).map(pa => {
         const channels_data = (() => { try { return JSON.parse(pa.channelsJson ?? '[]'); } catch { return []; } })();
-        const chList = channels_data.map((ch: { channelTitle: string; currentViews: number; err24h: number | null }) =>
-          `${ch.channelTitle}: ${ch.currentViews} просм.${ch.err24h != null ? ` ERR=${ch.err24h.toFixed(1)}%` : ''}`
-        ).join(', ');
-        return `- [${pa.recordType === 'sale' ? 'Продажа' : 'Закуп'}] ${pa.postTitle ?? 'Без названия'}: ${pa.totalViews ?? 0} просм. всего, 24ч=${pa.views24h ?? '—'}, ERR24=${pa.err24h != null ? parseFloat(String(pa.err24h)).toFixed(1) + '%' : '—'}, подп.=${pa.totalSubscribers ?? '—'}${chList ? ` | ${chList}` : ''}`;
-      }).join('\n')}` : '';
+        const chList = channels_data
+          .map((ch: { channelTitle: string; currentViews: number; err24h: number | null }) => {
+            const errStr = ch.err24h != null ? ` ERR=${ch.err24h.toFixed(1)}%` : '';
+            return `${ch.channelTitle}: ${ch.currentViews} просм.${errStr}`;
+          })
+          .join(', ');
+        const recordLabel = pa.recordType === 'sale' ? 'Продажа' : 'Закуп';
+        const err24Str = pa.err24h != null ? parseFloat(String(pa.err24h)).toFixed(1) + '%' : '—';
+        const chListStr = chList ? ` | ${chList}` : '';
+        return `- [${recordLabel}] ${pa.postTitle ?? 'Без названия'}: ${pa.totalViews ?? 0} просм. всего, 24ч=${pa.views24h ?? '—'}, ERR24=${err24Str}, подп.=${pa.totalSubscribers ?? '—'}${chListStr}`;
+      });
+      const postAnalyticsBlock = allPostAnalytics.length > 0
+        ? `\nАНАЛИТИКА ПОСТОВ (из Trustat, ${allPostAnalytics.length} записей):\n${postAnalyticsLines.join('\n')}`
+        : '';
       const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
       const prompt = `Ты — эксперт по экономике рекламных каналов в Макс/Телеграм. Анализируй ${periodLabel}.
 
@@ -632,11 +742,11 @@ ${allPostAnalytics.slice(0, 20).map(pa => {
 - Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.salesCount, 0)} продаж)
 - Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.purchasesCount, 0)} закупок)
 - Прибыль (до расходов): ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
-${ctx_data.totalExpenses > 0 ? `- Операционные расходы: ${ctx_data.totalExpenses.toLocaleString('ru-RU')}₽ (${Object.entries(ctx_data.expensesByCategory).map(([k,v]) => `${k}: ${(v as number).toLocaleString('ru-RU')}₽`).join(', ')})` : ''}
-${ctx_data.totalExpenses > 0 ? `- Чистая прибыль: ${ctx_data.netProfit.toLocaleString('ru-RU')}₽` : ''}
+${expensesLine}
+${netProfitLine}
 - Подписчиков сейчас: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')}
 - Привлечено за период: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}
-${ctx_data.overallAvgCpf !== null ? `- Средний CPF: ${ctx_data.overallAvgCpf}₽` : ''}
+${avgCpfLine}
 ${mutualBlock}
 ${postAnalyticsBlock}
 ПО КАНАЛАМ:
@@ -690,7 +800,10 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
         const parts = [
           `**${c.channelName}**: доход ${c.salesTotal.toLocaleString('ru-RU')}₽ / расход ${c.purchasesTotal.toLocaleString('ru-RU')}₽ / прибыль ${c.profit.toLocaleString('ru-RU')}₽ / ROI ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`,
         ];
-        if (c.currentSubscribers !== null) parts.push(`подписчики: ${c.currentSubscribers.toLocaleString('ru-RU')}${c.weeklyGrowth != null ? ` (${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth} нед.)` : ''}`);
+        if (c.currentSubscribers !== null) {
+          const wgStr = c.weeklyGrowth != null ? ` (${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth} нед.)` : '';
+          parts.push(`подписчики: ${c.currentSubscribers.toLocaleString('ru-RU')}${wgStr}`);
+        }
         if (c.avgCpf !== null) parts.push(`CPF: ${c.avgCpf}₽`);
         if (c.er24 !== null) parts.push(`ER24: ${c.er24.toFixed(1)}%`);
         if (c.topDirections.length > 0) parts.push(`ниши: ${c.topDirections.slice(0, 3).join(', ')}`);
@@ -699,32 +812,39 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
         return parts.join(' | ');
       }).join('\n');
 
+      // Pre-compute to avoid nested template literals
+      const digestExpenseLine = ctx_data.totalExpenses > 0
+        ? `\n- Операц. расходы: ${ctx_data.totalExpenses.toLocaleString('ru-RU')}₽ | Чистая прибыль: ${ctx_data.netProfit.toLocaleString('ru-RU')}₽`
+        : '';
+      const digestCpfLine = ctx_data.overallAvgCpf !== null ? ` | Ср. CPF: ${ctx_data.overallAvgCpf}₽` : '';
       const mutualLine = ctx_data.mutual.total > 0
         ? `\nВзаимки: ${ctx_data.mutual.total} сделок (завершено: ${ctx_data.mutual.completed}), доплата нам: ${ctx_data.mutual.totalDopReceived.toLocaleString('ru-RU')}₽`
         : '';
 
       const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
-      const prompt = `Составь краткий бизнес-дайджест ${periodLabel} для владельца рекламных каналов в Макс/Телеграм.
+      const profitSign = ctx_data.totalProfit >= 0 ? '+' : '';
+      const prompt = `Составь мотивирующий бизнес-дайджест ${periodLabel} для владельца рекламных каналов в Макс/Телеграм. Обращайсь на «ты».
 
 ДАННЫЕ:
-- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%${ctx_data.totalExpenses > 0 ? `\n- Операц. расходы: ${ctx_data.totalExpenses.toLocaleString('ru-RU')}₽ | Чистая прибыль: ${ctx_data.netProfit.toLocaleString('ru-RU')}₽` : ''}
-- Подписчиков: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')} | Привлечено: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}${ctx_data.overallAvgCpf !== null ? ` | Ср. CPF: ${ctx_data.overallAvgCpf}₽` : ''}${mutualLine}
+- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${profitSign}${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%${digestExpenseLine}
+- Подписчиков: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')} | Привлечено: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}${digestCpfLine}${mutualLine}
 
 По каналам:
 ${channelsList}
 
-Напиши на русском языке краткую сводку (200–300 слов) в формате markdown:
-- 🔑 Ключевые метрики периода (с цифрами)
-- 📈 Что выросло / упало
-- 🏆 Главные достижения
-- ⚠️ Точки внимания и риски
-- 🎯 2–3 приоритетных действия на следующий период
+Напиши на русском языке живой дайджест (200–300 слов) в формате markdown. Обращайсь на «ты», говори как наставник-друг:
 
-Стиль: деловой, конкретный, с цифрами. Используй эмодзи для акцентов.`;
+- 🔥 Главное за период — один абзац, энергично, с ключевыми цифрами
+- 🏆 Чем можно гордиться — реальные достижения с цифрами, даже если небольшие
+- 📈 Что выросло, что просело — честно, без паники
+- ⚠️ На что обратить внимание — риски и точки роста как возможности
+- 🎯 Три шага на следующий период — конкретные действия с ожидаемым эффектом в рублях
+
+Стиль: живой, личный, с цифрами. Никакой корпоративной воды. Используй эмодзи для акцентов.`;
 
       const result = await invokeLLM({
         messages: [
-          { role: "system", content: "Ты — опытный бизнес-наставник, составляющий дайджесты для владельцев рекламного бизнеса в Макс/Телеграм. Пиши в мотивирующем тоне: любую проблему формулируй как возможность, каждое действие — с конкретными цифрами и ожидаемым результатом. Никакой катастрофы, провала или ужасных результатов — только факты, цифры и действия." },
+          { role: "system", content: "Ты — опытный бизнес-наставник, составляющий дайджесты для владельцев рекламного бизнеса в Макс/Телеграм. Обращайся на «ты», говори как друг-наставник: искренно радуйся успехам, честно указывай на проблемы, зажигай на действия. Любую проблему формулируй как возможность, каждое действие — с конкретными цифрами. Никакой корпоративной воды — только факты, цифры и действия." },
           { role: "user", content: prompt },
         ],
       });
@@ -863,14 +983,18 @@ ${channelsList}
       const weekLabel = (s: Date, e: Date) =>
         `${s.getDate()}.${String(s.getMonth() + 1).padStart(2, '0')}–${e.getDate()}.${String(e.getMonth() + 1).padStart(2, '0')}`;
 
-      const prompt = `Ты — бизнес-наставник для владельца рекламного бизнеса в мессенджере Макс.
-Проведи недельный анализ и дай мотивирующие, конкретные рекомендации.
+      const profitEmoji = curProfit >= 0 ? '🟢' : '🔴';
+      const salesTrend = pct(curSales, prevSales);
+      const profitTrend = pct(curProfit, prevProfit);
+
+      const prompt = `Ты — личный бизнес-тренер владельца рекламного бизнеса в мессенджере Макс.
+Твоя задача — дать живой, энергичный разбор недели: похвалить за реальные достижения, честно указать на точки роста и зажечь на следующую неделю.
 
 ТЕКУЩАЯ НЕДЕЛЯ (${weekLabel(curMonStart, curSunEnd)}):
 - Продажи: ${fmt(curSales)} (${curSched.sales.length} сделок)
 - Закуп: ${fmt(curPurchases)} (${curSched.purchases.length} сделок)
 - Расходы (≈ за неделю): ${fmt(curExpenses)}
-- Чистая прибыль: ${fmt(curProfit)}
+- Чистая прибыль: ${fmt(curProfit)} ${profitEmoji}
 
 ПРОШЛАЯ НЕДЕЛЯ (${weekLabel(prevMonStart, prevSunEnd)}):
 - Продажи: ${fmt(prevSales)} (${prevSched.sales.length} сделок)
@@ -879,35 +1003,40 @@ ${channelsList}
 - Чистая прибыль: ${fmt(prevProfit)}
 
 ТРЕНДЫ:
-- Продажи: ${pct(curSales, prevSales)}
+- Продажи: ${salesTrend}
 - Закуп: ${pct(curPurchases, prevPurchases)}
-- Прибыль: ${pct(curProfit, prevProfit)}
+- Прибыль: ${profitTrend}
 
-ЗАДАНИЕ — напиши анализ в 4 блоках:
+Напиши живой разбор в 4 блоках. Обращайся на «ты», говори как наставник другу:
 
 ## 📊 Итог недели
-Один абзац: что произошло, ключевые цифры, общий вектор.
+Один абзац — честно и по-человечески: что случилось, ключевые цифры, общее ощущение от недели. Если рост — отметь это с энергией. Если спад — скажи прямо, но без драмы.
 
-## 💪 Что работает хорошо
-2–3 конкретных факта с цифрами. Даже если неделя в минусе — найди позитивное.
+## 💪 Молодец, вот что сработало
+2–3 конкретных момента с цифрами. Ищи позитив даже в сложной неделе — любой прогресс важен. Говори искренне, не формально.
 
-## 🚀 Как улучшить результат на следующей неделе
-3 конкретных действия с ожидаемым эффектом в рублях или процентах. Если прибыль отрицательная — дай план выхода в плюс с конкретными шагами.
+## 🚀 Вот что сделать на следующей неделе
+3 конкретных действия с ожидаемым эффектом в рублях или %. Пиши как план, не как совет. Если прибыль отрицательная — дай чёткий план выхода в плюс с шагами и цифрами.
 
-## 🎯 Главный фокус на неделю
-Одно самое важное действие, которое даст максимальный результат.
+## 🎯 Главный фокус — одно действие
+Самое важное, что принесёт максимум результата. Одно предложение, максимально конкретное.
 
-ТОН: мотивирующий, деловой, с цифрами. Никакой катастрофы — только факты и действия.`;
+ТОН: живой, личный, энергичный — как разговор с другом-наставником. Цифры обязательны. Никакой корпоративной воды.`;
 
       const result = await invokeLLM({
         messages: [
-          { role: "system", content: "Ты — опытный бизнес-наставник для владельцев рекламных каналов в Макс. Пиши конкретно, с цифрами, мотивирующе. Даже при отрицательной прибыли — фокус на действиях, а не на проблемах." },
+          { role: "system", content: "Ты — опытный бизнес-наставник для владельцев рекламных каналов в Макс. Обращайся на «ты», говори как друг-наставник: искренно радуйся успехам, честно указывай на проблемы, зажигай на действия. Пиши конкретно, с цифрами, без корпоративной воды. Даже при отрицательной прибыли — фокус на действиях, а не на проблемах. Никакой катастрофы — только факты и действия." },
           { role: "user", content: prompt },
         ],
       });
       const content = result.choices?.[0]?.message?.content;
       const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
       return { analysis };
+    }),
+  externalAnalytics: protectedProcedure
+    .input(z.object({ months: z.number().int().min(1).max(24).optional() }))
+    .query(async ({ ctx, input }) => {
+      return getExternalSalesAnalytics(ctx.user.id, input.months);
     }),
 });
 // ─── Admin procedure guard ─────────────────────────────────────────────────────────────────────────────
@@ -983,8 +1112,8 @@ const mutualInput = z.object({
   // Per-side dates (replaces single dealDate)
   ourPostDate: z.date().optional(),
   partnerPostDate: z.date().optional(),
-  ourBookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
-  partnerBookingSlot: z.enum(["утро", "обед", "вечер"]).optional(),
+  ourBookingSlot: z.enum(["утро", "обед", "вечер", "ночной топ"]).optional(),
+  partnerBookingSlot: z.enum(["утро", "обед", "вечер", "ночной топ"]).optional(),
   ourReach: z.number().int().optional(),
   partnerReach: z.number().int().optional(),
   ourPostLink: z.string().max(1024).optional(),
@@ -1130,15 +1259,19 @@ const snapshotsRouter = router({
     }),
 
   cpfAnalytics: protectedProcedure
-    .input(z.object({ channelIds: z.array(z.number().int().positive()).optional() }))
+    .input(z.object({
+      channelIds: z.array(z.number().int().positive()).optional(),
+      month: z.string().optional(),
+    }))
     .query(async ({ ctx, input }) => {
       const userChannels = await import("./db").then(m => m.getChannelsByUser(ctx.user.id));
       const ids = input.channelIds ?? userChannels.map((c: { id: number }) => c.id);
-      return getCpfAnalytics(ctx.user.id, ids);
+      return getCpfAnalytics(ctx.user.id, ids, input.month);
     }),
 
   sourceEfficiency: protectedProcedure
-    .query(({ ctx }) => getSourceEfficiency(ctx.user.id)),
+    .input(z.object({ month: z.string().optional() }).optional())
+    .query(({ ctx, input }) => getSourceEfficiency(ctx.user.id, input?.month)),
   channelStats: protectedProcedure
     .input(z.object({ channelId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
@@ -1270,6 +1403,18 @@ const ocrRouter = router({
     }))
     .mutation(async ({ input }) => {
       const { url } = input;
+      // ── SSRF protection: block private/internal IP ranges only ────────────────
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Некорректный URL' });
+      }
+      const hostname = parsedUrl.hostname.toLowerCase();
+      // Block private/internal IP ranges to prevent SSRF
+      if (/^(localhost|127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|0\.0\.0\.0|::1|\[::1\])/.test(hostname)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Доступ к локальным адресам запрещён' });
+      }
 
       // ── Trustat / anypost share link ──────────────────────────────────────
       const trustatMatch = url.match(
@@ -1354,19 +1499,24 @@ const ocrRouter = router({
 
       // ── Generic URL fallback: fetch HTML and ask LLM to extract stats ─────
       let pageText = "";
+      let pageHtml = "";
       try {
         const resp = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
-          signal: AbortSignal.timeout(10_000),
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+          },
+          signal: AbortSignal.timeout(15_000),
         });
-        const html = await resp.text();
-        // Strip tags, keep text
-        pageText = html
+        pageHtml = await resp.text();
+        // Strip tags, keep text - increase limit for multi-channel pages
+        pageText = pageHtml
           .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
           .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
           .replace(/<[^>]+>/g, " ")
           .replace(/\s+/g, " ")
-          .slice(0, 6000);
+          .slice(0, 12000);
       } catch (e: any) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу: ${e.message}` });
       }
@@ -1375,73 +1525,98 @@ const ocrRouter = router({
         messages: [
           {
             role: "system",
-            content: `Ты — ассистент для извлечения статистики рекламных постов из текста страницы.
+            content: `Ты — ассистент для извлечения статистики рекламных постов из текста страницы трекера рекламы (таких как tgstat, telemetr, iimax, amvera и др.).
+Страница может содержать данные по одному или нескольким каналам.
 Извлеки данные и верни JSON. Если поле не найдено — верни null.
-Поля:
-- channelTitle: название канала (строка) или null
-- channelSubs: количество подписчиков (число) или null
-- views24h: просмотры за 24 часа (число) или null
-- views48h: просмотры за 48 часов (число) или null
-- views72h: просмотры за 72 часа (число) или null
-- er24h: ER/ERR за 24 часа в процентах (число) или null
-- postedAt: дата публикации ISO (строка) или null`,
+
+Важно:
+- Если на странице данные по нескольким каналам/постам — заполни массив posts для каждого.
+- Если данные только по одному каналу — помести его в posts[0].
+- views24h/48h/72h: число просмотров за соответствующий период (может быть обозначено как "24ч", "48ч", "72ч", "1 день", "2 дня" и т.д.)
+- channelSubs: количество подписчиков канала (не путать с просмотрами)
+- er24h: процент вовлеченности (ERR/ER) за 24ч
+- postedAt: дата публикации поста в формате ISO 8601`,
           },
           {
             role: "user",
-            content: `Текст страницы:\n${pageText}`,
+            content: `URL: ${url}\n\nТекст страницы:\n${pageText}`,
           },
         ],
         response_format: {
           type: "json_schema",
           json_schema: {
-            name: "link_stats",
+            name: "link_stats_multi",
             strict: true,
             schema: {
               type: "object",
               properties: {
-                channelTitle: { type: ["string", "null"] },
-                channelSubs: { type: ["integer", "null"] },
-                views24h: { type: ["integer", "null"] },
-                views48h: { type: ["integer", "null"] },
-                views72h: { type: ["integer", "null"] },
-                er24h: { type: ["number", "null"] },
                 postedAt: { type: ["string", "null"] },
+                draftName: { type: ["string", "null"] },
+                posts: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      channelTitle: { type: ["string", "null"] },
+                      channelSubs: { type: ["integer", "null"] },
+                      views24h: { type: ["integer", "null"] },
+                      views48h: { type: ["integer", "null"] },
+                      views72h: { type: ["integer", "null"] },
+                      er24h: { type: ["number", "null"] },
+                      postedAt: { type: ["string", "null"] },
+                    },
+                    required: ["channelTitle", "channelSubs", "views24h", "views48h", "views72h", "er24h", "postedAt"],
+                    additionalProperties: false,
+                  },
+                },
               },
-              required: ["channelTitle", "channelSubs", "views24h", "views48h", "views72h", "er24h", "postedAt"],
+              required: ["postedAt", "draftName", "posts"],
               additionalProperties: false,
             },
           },
         },
       });
 
-      let extracted: any = {};
+      let extracted: any = { posts: [], postedAt: null, draftName: null };
       try {
         extracted = JSON.parse(llmResult.choices[0].message.content as string);
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось разобрать ответ AI" });
       }
 
+      const extractedPosts: Array<any> = (extracted.posts ?? []).map((p: any) => ({
+        channelTitle: p.channelTitle ?? null,
+        channelSubs: p.channelSubs ?? null,
+        views24h: p.views24h ?? null,
+        views48h: p.views48h ?? null,
+        views72h: p.views72h ?? null,
+        er24h: p.er24h ?? null,
+        postedAt: p.postedAt ?? extracted.postedAt ?? null,
+        postUrl: url,
+      }));
+
+      // If LLM returned no posts, create a fallback empty post
+      if (extractedPosts.length === 0) {
+        extractedPosts.push({
+          channelTitle: null, channelSubs: null,
+          views24h: null, views48h: null, views72h: null,
+          er24h: null, postedAt: extracted.postedAt ?? null, postUrl: url,
+        });
+      }
+
+      const firstPost = extractedPosts[0];
       return {
         type: "generic" as const,
-        draftName: null,
-        publishedAt: extracted.postedAt ?? null,
+        draftName: extracted.draftName ?? null,
+        publishedAt: extracted.postedAt ?? firstPost.postedAt ?? null,
         summary: {
-          views24h: extracted.views24h ?? null,
-          views48h: extracted.views48h ?? null,
-          views72h: extracted.views72h ?? null,
-          er24h: extracted.er24h ?? null,
-          subscribersTotal: extracted.channelSubs ?? null,
+          views24h: firstPost.views24h ?? null,
+          views48h: firstPost.views48h ?? null,
+          views72h: firstPost.views72h ?? null,
+          er24h: firstPost.er24h ?? null,
+          subscribersTotal: firstPost.channelSubs ?? null,
         },
-        posts: [{
-          channelTitle: extracted.channelTitle ?? null,
-          channelSubs: extracted.channelSubs ?? null,
-          views24h: extracted.views24h ?? null,
-          views48h: extracted.views48h ?? null,
-          views72h: extracted.views72h ?? null,
-          er24h: extracted.er24h ?? null,
-          postedAt: extracted.postedAt ?? null,
-          postUrl: url,
-        }],
+        posts: extractedPosts,
       };
     }),
 
@@ -1640,6 +1815,187 @@ const postAnalyticsRouter = router({
     }),
 });
 
+// ─── Clients router ─────────────────────────────────────────────────────────
+const clientChannelSchema = z.object({
+  channelName: z.string().min(1).max(255),
+  channelUrl: z.string().max(1024).optional().nullable(),
+  subscribers: z.number().int().optional().nullable(),
+});
+
+const clientsRouter = router({
+  list: protectedProcedure.query(({ ctx }) => listClients(ctx.user.id)),
+
+  getById: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .query(({ ctx, input }) => getClientById(input.id, ctx.user.id)),
+
+  create: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(255),
+      maxNick: z.string().max(255).optional().nullable(),
+      type: z.enum(["продаём", "закупаем", "оба"]).default("оба"),
+      niche: z.string().max(255).optional().nullable(),
+      notes: z.string().optional().nullable(),
+      channels: z.array(clientChannelSchema).default([]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { channels, ...clientData } = input;
+      const id = await createClient({ ...clientData, userId: ctx.user.id });
+      if (channels.length > 0) await setClientChannels(id, channels);
+      return { id };
+    }),
+
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number().int(),
+      name: z.string().min(1).max(255).optional(),
+      maxNick: z.string().max(255).optional().nullable(),
+      type: z.enum(["продаём", "закупаем", "оба"]).optional(),
+      niche: z.string().max(255).optional().nullable(),
+      notes: z.string().optional().nullable(),
+      channels: z.array(clientChannelSchema).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, channels, ...data } = input;
+      await updateClient(id, ctx.user.id, data);
+      if (channels !== undefined) await setClientChannels(id, channels);
+      return { success: true };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(({ ctx, input }) => deleteClient(input.id, ctx.user.id)),
+
+  autoImport: protectedProcedure
+    .mutation(({ ctx }) => autoImportClients(ctx.user.id)),
+
+  getStats: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .query(({ ctx, input }) => getClientStats(input.id, ctx.user.id)),
+
+  getPurchases: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .query(async ({ ctx, input }) => {
+      const purchases = await getClientPurchases(input.id, ctx.user.id);
+      const userChannels = await getChannelsByUser(ctx.user.id);
+      const channelNameMap = new Map(userChannels.map((c) => [c.id, c.name]));
+      return purchases.map((p) => {
+        const cost = parseFloat(String(p.cost ?? "0")) || 0;
+        const subs = p.subscribersGained ?? 0;
+        return {
+          ...p,
+          channelName: channelNameMap.get(p.channelId) ?? null,
+          costPerFollower: subs > 0 ? Math.round((cost / subs) * 100) / 100 : null,
+          postUrl: p.link ?? null,
+        };
+      });
+    }),
+
+  getSales: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .query(({ ctx, input }) => getClientSales(input.id, ctx.user.id)),
+  analyze: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const stats = await getClientStats(input.id, ctx.user.id);
+      if (!stats) throw new TRPCError({ code: "NOT_FOUND", message: "Клиент не найден" });
+
+      // Attributed CPF data (algorithm C: reach if available, else cost)
+      const attributedPurchases = await getClientAttributedCpf(input.id, ctx.user.id);
+      const sales = await getClientSales(input.id, ctx.user.id);
+
+      // Build channelId -> name map
+      const userChannels = await getChannelsByUser(ctx.user.id);
+      const channelMap = new Map(userChannels.map(c => [c.id, c.name]));
+
+      // Aggregate attributed CPF stats
+      const purchasesWithCpf = attributedPurchases.filter(p => p.cpf !== null);
+      const avgAttrCpf = purchasesWithCpf.length
+        ? purchasesWithCpf.reduce((s, p) => s + p.cpf!, 0) / purchasesWithCpf.length
+        : null;
+      const totalAttrSubs = attributedPurchases.reduce((s, p) => s + (p.growthAttributed ?? 0), 0);
+      const coverageCount = attributedPurchases.filter(p => p.method !== "none").length;
+      const coveragePct = attributedPurchases.length > 0
+        ? Math.round((coverageCount / attributedPurchases.length) * 100)
+        : 0;
+
+      // Build purchases summary with attributed CPF
+      const purchaseLines = attributedPurchases.slice(0, 30).map(p => {
+        const cpfStr = p.cpf !== null ? `CPF ${p.cpf.toFixed(1)}₽` : `CPF —`;
+        const subsStr = p.growthAttributed !== null ? `+${p.growthAttributed} подп.` : `+? подп.`;
+        const reachStr = p.reach ? `охват ${p.reach.toLocaleString('ru-RU')}` : "";
+        const methodStr = p.method === "reach" ? "[по охвату]" : p.method === "cost" ? "[по стоимости]" : "[без снапшота]";
+        const date = p.date.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
+        return `  • ${date} | ${p.channelName} | ${p.cost.toLocaleString('ru-RU')}₽ | ${subsStr} | ${cpfStr} | ${reachStr} ${methodStr}`;
+      }).join('\n');
+
+      // Build sales summary
+      const saleLines = sales.slice(0, 30).map(s => {
+        const cost = parseFloat(String(s.cost ?? "0")) || 0;
+        const reach = s.reach ? `охват ${s.reach.toLocaleString('ru-RU')}` : "";
+        const date = s.date ? new Date(s.date).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' }) : "";
+        const slot = s.timeSlot ?? "";
+        const chName = channelMap.get(s.channelId) ?? '?';
+        return `  • ${date} | ${chName} | ${cost.toLocaleString('ru-RU')}₽ | ${slot} | ${reach}`;
+      }).join('\n');
+
+      const channelsList = stats.channels.map(ch =>
+        `${ch.channelName}${ch.subscribers ? ` (${ch.subscribers.toLocaleString('ru-RU')} подп.)` : ''}`
+      ).join(', ') || 'не указаны';
+      const cpfStr = avgAttrCpf != null ? `${avgAttrCpf.toFixed(1)}₽ (атрибуция, покрытие ${coveragePct}%)` : 'нет данных';
+      const avgPurchReach = stats.avgPurchaseReach != null ? stats.avgPurchaseReach.toLocaleString('ru-RU') : 'нет данных';
+      const avgSaleReach = stats.avgSaleReach != null ? stats.avgSaleReach.toLocaleString('ru-RU') : 'нет данных';
+      const balance = stats.totalSaleRevenue - stats.totalPurchaseCost;
+      const balanceStr = balance >= 0 ? `+${balance.toLocaleString('ru-RU')}₽` : `${balance.toLocaleString('ru-RU')}₽`;
+
+      const prompt = `Ты анализируешь конкретного рекламного клиента/партнёра.
+КЛИЕНТ: ${stats.clientName}${stats.maxNick ? ` (@${stats.maxNick})` : ''}
+Тип: ${stats.type} | Ниша: ${stats.niche ?? 'не указана'}
+Каналы клиента: ${channelsList}
+
+СТАТИСТИКА:
+- Закупов у клиента: ${stats.purchaseCount} на сумму ${stats.totalPurchaseCost.toLocaleString('ru-RU')}₽
+- Продаж клиенту: ${stats.saleCount} на сумму ${stats.totalSaleRevenue.toLocaleString('ru-RU')}₽
+- Оборот: ${stats.totalTurnover.toLocaleString('ru-RU')}₽ | Баланс: ${balanceStr}
+- Атрибутированных подписчиков: ${totalAttrSubs.toLocaleString('ru-RU')} (по недельному росту канала)
+- Средний CPF: ${cpfStr}
+- Метод атрибуции: пропорционально охвату (если есть) или стоимости закупов в неделю
+- Средний охват (закуп): ${avgPurchReach}
+- Средний охват (продажа): ${avgSaleReach}
+${stats.notes ? `- Заметки: ${stats.notes}` : ''}
+
+ПОСЛЕДНИЕ ЗАКУПЫ с атрибуцией (до 30):
+${purchaseLines || '  Нет данных'}
+
+ПОСЛЕДНИЕ ПРОДАЖИ (до 30):
+${saleLines || '  Нет данных'}
+
+ЗАДАНИЕ: Дай развёрнутый анализ этого клиента на русском языке в формате markdown.
+Структура ответа:
+## 🧑‍💼 Портрет клиента
+Кратко: кто это, какой тип сотрудничества, насколько активен, общий оборот и баланс.
+## 📦 Анализ закупов
+Если есть закупы — оцени CPF (< 5₽ = отлично, 5–15₽ = норма, > 15₽ = дорого), динамику активности, лучшие и худшие каналы по CPF. Укажи метод атрибуции. Конкретные рекомендации.
+## 💰 Анализ продаж
+Если есть продажи — оцени средний охват, стоимость, частоту. Есть ли потенциал увеличить цену или объём? Конкретные рекомендации.
+## 🤝 Оценка партнёрства
+Выгоден ли этот клиент? Баланс закуп/продажа, надёжность (частота сделок), потенциал роста. Стоит ли развивать сотрудничество?
+## 🎯 Следующие шаги
+2–3 конкретных действия: что предложить клиенту, как изменить условия, что проверить.
+Максимум 500 слов. Используй реальные цифры. Тон — деловой и конструктивный.`;
+
+      const result = await invokeLLM({
+        messages: [
+          { role: "system", content: "Ты — эксперт по рекламному бизнесу в Макс/Телеграм. Анализируешь клиентов и партнёров, даёшь конкретные деловые рекомендации на русском языке." },
+          { role: "user", content: prompt },
+        ],
+      });
+      const content = result.choices?.[0]?.message?.content;
+      const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
+      return { analysis };
+    }),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -1661,5 +2017,6 @@ export const appRouter = router({system: systemRouter,  auth: router({
   ocr: ocrRouter,
    expenses: expensesRouter,
   postAnalytics: postAnalyticsRouter,
+  clients: clientsRouter,
 });
 export type AppRouter = typeof appRouter;
