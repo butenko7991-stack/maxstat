@@ -22,19 +22,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SaleFormModal, PurchaseFormModal, type PurchaseFormData, type SaleFormData } from "@/components/RecordFormModal";
 import { toast } from "sonner";
 
-const SLOTS = ["утро", "обед", "вечер"] as const;
+const SLOTS = ["утро", "обед", "вечер", "ночной топ"] as const;
 type Slot = typeof SLOTS[number];
 
 const SLOT_COLORS: Record<Slot, string> = {
   утро: "text-amber-400",
   обед: "text-orange-400",
   вечер: "text-indigo-400",
+  "ночной топ": "text-blue-400",
 };
 
 const SLOT_BG: Record<Slot, string> = {
   утро: "bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20",
   обед: "bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/20",
   вечер: "bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20",
+  "ночной топ": "bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20",
 };
 
 // ВП (mutual deals) cell color
@@ -78,7 +80,11 @@ function getWeekDates(baseDate: Date): Date[] {
 }
 
 function toIso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  // Use local date parts to avoid UTC timezone shift (e.g. UTC+3: midnight local = 21:00 prev day UTC)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function formatDay(d: Date): { weekday: string; day: string; month: string } {
@@ -95,9 +101,9 @@ function isToday(d: Date): boolean {
 }
 
 const EMPTY_SALE_FORM: SaleFormData = {
-  channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер",
+  channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер" | "ночной топ",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
-  month: "", postNotNeeded: false,
+  month: "", postNotNeeded: false, isExternal: false,
   buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
   notes: "",
@@ -108,6 +114,7 @@ const EMPTY_PURCHASE_FORM: PurchaseFormData = {
   direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "",
   paymentStatus: "unpaid", subscribersGained: "",
   month: "", notes: "", timeSlot: "", bookingSlot: "", sourceSubscribers: "",
+  isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
 };
 
 export default function SchedulePage() {
@@ -298,7 +305,7 @@ export default function SchedulePage() {
       const s = saleByIdQuery.data;
       setEditSaleForm({
         channelId: String(s.channelId),
-        date: s.date ? toIso(new Date(s.date)) : "",
+        date: s.date ? s.date.slice(0, 10) : "",
         admin: s.admin ?? "",
         link: s.link ?? "",
         timeSlot: (s.timeSlot ?? "") as any,
@@ -311,6 +318,7 @@ export default function SchedulePage() {
         paymentStatus: (s.paymentStatus ?? "unpaid") as any,
         month: s.month ?? "",
         postNotNeeded: s.postNotNeeded ?? false,
+        isExternal: (s as Record<string, unknown>).isExternal === true,
         isMutual: s.isMutual ?? false,
         partnerChannel: s.partnerChannel ?? "",
         ourReach: s.ourReach != null ? String(s.ourReach) : "",
@@ -329,7 +337,7 @@ export default function SchedulePage() {
       const p = purchaseByIdQuery.data;
       setEditPurchaseForm({
         channelId: String(p.channelId),
-        date: p.date ? toIso(new Date(p.date)) : "",
+        date: p.date ? p.date.slice(0, 10) : "",
         admin: p.admin ?? "",
         link: p.link ?? "",
         targetChannels: p.targetChannels ?? "",
@@ -346,14 +354,21 @@ export default function SchedulePage() {
         timeSlot: (p.timeSlot ?? "") as any,
         bookingSlot: (p.bookingSlot ?? "") as any,
         sourceSubscribers: (p as Record<string, unknown>).sourceSubscribers != null ? String((p as Record<string, unknown>).sourceSubscribers) : "",
+        isMutual: Boolean((p as Record<string, unknown>).isMutual),
+        partnerChannel: String((p as Record<string, unknown>).partnerChannel ?? ""),
+        ourReach: (p as Record<string, unknown>).ourReach != null ? String((p as Record<string, unknown>).ourReach) : "",
+        partnerReach: (p as Record<string, unknown>).partnerReach != null ? String((p as Record<string, unknown>).partnerReach) : "",
+        dopDirection: ((p as Record<string, unknown>).dopDirection as "we_pay" | "they_pay" | "none") ?? "none",
+        dopAmount: String((p as Record<string, unknown>).dopAmount ?? ""),
       });
       setEditPurchaseOpen(true);
     }
   }, [purchaseByIdQuery.data, editPurchaseId]);
 
   const visibleChannels = useMemo(() => {
-    if (channelFilter === "all") return channels;
-    return channels.filter((c) => String(c.id) === channelFilter);
+    const onlyVisible = channels.filter((c) => c.isVisible !== false);
+    if (channelFilter === "all") return onlyVisible;
+    return onlyVisible.filter((c) => String(c.id) === channelFilter);
   }, [channels, channelFilter]);
 
   // Build mutual deal lookup from sale_records.isMutual: channelId -> date -> slot -> sales[]
@@ -364,7 +379,7 @@ export default function SchedulePage() {
     for (const s of scheduleData.sales) {
       if (!s.isMutual) continue;
       const cid = s.channelId;
-      const dateStr = s.date ? toIso(new Date(s.date)) : "";
+      const dateStr = s.date ? s.date.slice(0, 10) : "";
       if (!dateStr) continue;
       // Use bookingSlot/timeSlot; if missing fall back to "__any__" so it shows in all slots
       const slot = ((s.bookingSlot ?? (s as any).timeSlot) ?? "").toLowerCase() || "__any__";
@@ -383,7 +398,7 @@ export default function SchedulePage() {
     for (const p of scheduleData.purchases) {
       if (!p.isMutual) continue;
       const cid = p.channelId;
-      const dateStr = p.date ? toIso(new Date(p.date)) : "";
+      const dateStr = p.date ? p.date.slice(0, 10) : "";
       if (!dateStr) continue;
       const slot = ((p.bookingSlot ?? p.timeSlot) ?? "").toLowerCase() || "__any__";
       if (!map[cid]) map[cid] = {};
@@ -400,7 +415,7 @@ export default function SchedulePage() {
     if (!scheduleData) return map;
     for (const p of scheduleData.purchases) {
       const cid = p.channelId;
-      const dateStr = p.date ? toIso(new Date(p.date)) : "";
+      const dateStr = p.date ? p.date.slice(0, 10) : "";
       const slot = ((p.bookingSlot ?? p.timeSlot) ?? "").toLowerCase();
       if (!map[cid]) map[cid] = {};
       if (!map[cid][dateStr]) map[cid][dateStr] = {};
@@ -416,7 +431,7 @@ export default function SchedulePage() {
     if (!scheduleData) return map;
     for (const s of scheduleData.sales) {
       const cid = s.channelId;
-      const dateStr = s.date ? toIso(new Date(s.date)) : "";
+      const dateStr = s.date ? s.date.slice(0, 10) : "";
       // Prefer bookingSlot for grid placement; fall back to timeSlot for legacy records
       const slot = ((s.bookingSlot ?? s.timeSlot) ?? "").toLowerCase();
       if (!map[cid]) map[cid] = {};
@@ -433,7 +448,7 @@ export default function SchedulePage() {
     if (!scheduleData?.purchases) return map;
     for (const p of scheduleData.purchases) {
       const cid = p.channelId;
-      const dateStr = p.date ? toIso(new Date(p.date)) : "";
+      const dateStr = p.date ? p.date.slice(0, 10) : "";
       if (!map[cid]) map[cid] = {};
       if (!map[cid][dateStr]) map[cid][dateStr] = { count: 0, admins: [] };
       map[cid][dateStr].count += 1;
@@ -470,7 +485,7 @@ export default function SchedulePage() {
       channelId: String(channelId),
       date: dateStr,
       timeSlot: slot,
-      bookingSlot: slot as "" | "утро" | "обед" | "вечер",
+      bookingSlot: slot as "" | "утро" | "обед" | "вечер" | "ночной топ",
       month,
     });
     setPurchaseDialogOpen(true);
@@ -1060,7 +1075,7 @@ export default function SchedulePage() {
                 month: f.month,
                 notes: f.notes || undefined,
                 timeSlot: f.timeSlot || undefined,
-                bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+                bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
               });
             }}
             isPending={createPurchaseMutation.isPending}
@@ -1087,7 +1102,7 @@ export default function SchedulePage() {
                 channelId: Number(f.channelId), date: f.date,
                 admin: f.admin || undefined, link: f.link || undefined,
                 timeSlot: f.timeSlot || undefined,
-                bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+                bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
                 tariff: f.tariff || undefined, platform: f.platform || undefined,
                 spm: f.spm || undefined,
                 reach: f.reach ? Number(f.reach) : undefined,
@@ -1095,6 +1110,7 @@ export default function SchedulePage() {
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
                 month: f.month,
                 postNotNeeded: f.postNotNeeded,
+                isExternal: f.isExternal,
                 isMutual: f.isMutual,
                 partnerChannel: f.partnerChannel || undefined,
                 ourReach: f.ourReach ? Number(f.ourReach) : undefined,
@@ -1202,7 +1218,7 @@ export default function SchedulePage() {
                 slots: selectedSlots.map((s) => ({
                   channelId: s.channelId,
                   date: s.dateStr,
-                  bookingSlot: s.slot as "утро" | "обед" | "вечер",
+                  bookingSlot: s.slot as "утро" | "обед" | "вечер" | "ночной топ",
                   timeSlot: s.slot,
                   month: s.dateStr.slice(0, 7),
                 })),
@@ -1251,7 +1267,7 @@ export default function SchedulePage() {
                 slots: selectedSlots.map((s) => ({
                   channelId: s.channelId,
                   date: s.dateStr,
-                  bookingSlot: s.slot as "утро" | "обед" | "вечер",
+                  bookingSlot: s.slot as "утро" | "обед" | "вечер" | "ночной топ",
                   timeSlot: s.slot,
                   month: s.dateStr.slice(0, 7),
                 })),
@@ -1375,7 +1391,7 @@ export default function SchedulePage() {
               channelId: Number(f.channelId), date: f.date,
               admin: f.admin || undefined, link: f.link || undefined,
               timeSlot: f.timeSlot || undefined,
-              bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+              bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
               tariff: f.tariff || undefined, platform: f.platform || undefined,
               spm: f.spm || undefined,
               reach: f.reach ? Number(f.reach) : undefined,
@@ -1383,6 +1399,7 @@ export default function SchedulePage() {
               paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
               month: f.month,
               postNotNeeded: f.postNotNeeded,
+              isExternal: f.isExternal,
               isMutual: f.isMutual,
               partnerChannel: f.partnerChannel || undefined,
               ourReach: f.ourReach ? Number(f.ourReach) : undefined,
@@ -1472,7 +1489,7 @@ export default function SchedulePage() {
               month: f.month,
               notes: f.notes || undefined,
               timeSlot: f.timeSlot || undefined,
-              bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | undefined,
+              bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
               sourceSubscribers: f.sourceSubscribers ? Number(f.sourceSubscribers) : undefined,
             });
           }}
