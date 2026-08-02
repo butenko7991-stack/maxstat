@@ -1463,6 +1463,7 @@ const ocrRouter = router({
         const posts: Array<{
           channelTitle: string;
           channelSubs: number | null;
+          currentViews: number | null;
           views24h: number | null;
           views48h: number | null;
           views72h: number | null;
@@ -1472,6 +1473,7 @@ const ocrRouter = router({
         }> = (reportData.posts ?? []).map((p: any) => ({
           channelTitle: p.channel_title ?? null,
           channelSubs: p.channel_subs ?? null,
+          currentViews: p.current_views ?? p.views ?? null,
           views24h: p.views_24h ?? null,
           views48h: p.views_48h ?? null,
           views72h: p.views_72h ?? null,
@@ -1485,6 +1487,7 @@ const ocrRouter = router({
           draftName: reportData.draft_name ?? null,
           publishedAt: reportData.published_at ?? null,
           summary: {
+            currentViews: reportData.summary?.current_views ?? null,
             views24h: reportData.summary?.views_24h ?? null,
             views48h: reportData.summary?.views_48h ?? null,
             views72h: reportData.summary?.views_72h ?? null,
@@ -1492,6 +1495,74 @@ const ocrRouter = router({
               ? Math.round(reportData.summary.err_24h * 10) / 10
               : null,
             subscribersTotal: reportData.summary?.subscribers_total_known ?? null,
+          },
+          posts,
+        };
+      }
+
+      // ── Otlozhka / Marketly analytics link ─────────────────────────────────
+      const otlozhkaMatch = url.match(/otlozhka\.marketly\.ru\/analytics\/stats\/([a-f0-9-]+)/i);
+      if (otlozhkaMatch) {
+        const resp = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9",
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!resp.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу otlozhka: ${resp.status}` });
+        }
+        const html = await resp.text();
+
+        // Extract targetsData JSON from the HTML
+        const targetsMatch = html.match(/var targetsData = (\[.*?\]);/);
+        if (!targetsMatch) {
+          // Session expired or no data - fall through to LLM
+          throw new TRPCError({ code: "NOT_FOUND", message: "Данные otlozhka не найдены. Возможно, ссылка устарела (сессия истекла)." });
+        }
+
+        let targets: any[];
+        try {
+          targets = JSON.parse(targetsMatch[1]);
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось разобрать данные otlozhka" });
+        }
+
+        const posts = targets.map((t: any) => {
+          // statistics is an object {"minutes": views}, compute views at 24h (1440min), 48h (2880min), 72h (4320min)
+          const stats: Record<string, number> = t.statistics ?? {};
+          const getViews = (minutes: number): number | null => {
+            // Find the closest key <= minutes
+            const keys = Object.keys(stats).map(Number).filter(k => k <= minutes).sort((a, b) => b - a);
+            return keys.length > 0 ? stats[String(keys[0])] ?? null : null;
+          };
+          return {
+            channelTitle: t.channel_title ?? null,
+            channelSubs: t.subscribers_count ?? null,
+            currentViews: t.current_views ?? null,
+            views24h: getViews(1440),
+            views48h: getViews(2880),
+            views72h: getViews(4320),
+            er24h: null,
+            postedAt: t.published_at ?? null,
+            postUrl: url,
+          };
+        });
+
+        const firstPost = posts[0] ?? { channelTitle: null, channelSubs: null, currentViews: null, views24h: null, views48h: null, views72h: null, er24h: null, postedAt: null, postUrl: url };
+        return {
+          type: "generic" as const,
+          draftName: null,
+          publishedAt: firstPost.postedAt ?? null,
+          summary: {
+            currentViews: posts.reduce((s: number, p: any) => s + (p.currentViews ?? 0), 0) || null,
+            views24h: posts.reduce((s: number, p: any) => s + (p.views24h ?? 0), 0) || null,
+            views48h: posts.reduce((s: number, p: any) => s + (p.views48h ?? 0), 0) || null,
+            views72h: posts.reduce((s: number, p: any) => s + (p.views72h ?? 0), 0) || null,
+            er24h: null,
+            subscribersTotal: posts.reduce((s: number, p: any) => s + (p.channelSubs ?? 0), 0) || null,
           },
           posts,
         };
@@ -1559,13 +1630,14 @@ const ocrRouter = router({
                     properties: {
                       channelTitle: { type: ["string", "null"] },
                       channelSubs: { type: ["integer", "null"] },
+                      currentViews: { type: ["integer", "null"] },
                       views24h: { type: ["integer", "null"] },
                       views48h: { type: ["integer", "null"] },
                       views72h: { type: ["integer", "null"] },
                       er24h: { type: ["number", "null"] },
                       postedAt: { type: ["string", "null"] },
                     },
-                    required: ["channelTitle", "channelSubs", "views24h", "views48h", "views72h", "er24h", "postedAt"],
+                    required: ["channelTitle", "channelSubs", "currentViews", "views24h", "views48h", "views72h", "er24h", "postedAt"],
                     additionalProperties: false,
                   },
                 },
@@ -1587,6 +1659,7 @@ const ocrRouter = router({
       const extractedPosts: Array<any> = (extracted.posts ?? []).map((p: any) => ({
         channelTitle: p.channelTitle ?? null,
         channelSubs: p.channelSubs ?? null,
+        currentViews: p.currentViews ?? null,
         views24h: p.views24h ?? null,
         views48h: p.views48h ?? null,
         views72h: p.views72h ?? null,
@@ -1598,7 +1671,7 @@ const ocrRouter = router({
       // If LLM returned no posts, create a fallback empty post
       if (extractedPosts.length === 0) {
         extractedPosts.push({
-          channelTitle: null, channelSubs: null,
+          channelTitle: null, channelSubs: null, currentViews: null,
           views24h: null, views48h: null, views72h: null,
           er24h: null, postedAt: extracted.postedAt ?? null, postUrl: url,
         });
@@ -1610,6 +1683,7 @@ const ocrRouter = router({
         draftName: extracted.draftName ?? null,
         publishedAt: extracted.postedAt ?? firstPost.postedAt ?? null,
         summary: {
+          currentViews: firstPost.currentViews ?? null,
           views24h: firstPost.views24h ?? null,
           views48h: firstPost.views48h ?? null,
           views72h: firstPost.views72h ?? null,
