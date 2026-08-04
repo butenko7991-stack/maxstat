@@ -80,7 +80,7 @@ function getWeekDates(baseDate: Date): Date[] {
 }
 
 function toIso(d: Date): string {
-  // Use local date parts to avoid UTC timezone shift (e.g. UTC+3: midnight local = 21:00 prev day UTC)
+  // Use local date parts to avoid UTC timezone shift (e.g. UTC+5: midnight local = 19:00 prev day UTC)
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -1076,6 +1076,12 @@ export default function SchedulePage() {
                 notes: f.notes || undefined,
                 timeSlot: f.timeSlot || undefined,
                 bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
+                isMutual: f.isMutual,
+                partnerChannel: f.partnerChannel || undefined,
+                ourReach: f.ourReach ? Number(f.ourReach) : undefined,
+                partnerReach: f.partnerReach ? Number(f.partnerReach) : undefined,
+                dopDirection: f.dopDirection !== "none" ? f.dopDirection : undefined,
+                dopAmount: f.dopAmount || undefined,
               });
             }}
             isPending={createPurchaseMutation.isPending}
@@ -1491,6 +1497,12 @@ export default function SchedulePage() {
               timeSlot: f.timeSlot || undefined,
               bookingSlot: (f.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
               sourceSubscribers: f.sourceSubscribers ? Number(f.sourceSubscribers) : undefined,
+              isMutual: f.isMutual,
+              partnerChannel: f.partnerChannel || undefined,
+              ourReach: f.ourReach ? Number(f.ourReach) : undefined,
+              partnerReach: f.partnerReach ? Number(f.partnerReach) : undefined,
+              dopDirection: f.dopDirection !== "none" ? f.dopDirection : undefined,
+              dopAmount: f.dopAmount || undefined,
             });
           }}
           isPending={updatePurchaseMutation.isPending}
