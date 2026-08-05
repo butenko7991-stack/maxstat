@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sparkles, TrendingUp, TrendingDown, AlertTriangle, RefreshCw,
-  Brain, FileText, Users, BarChart2, Calendar, ArrowUp, ArrowDown, Minus,
+  Brain, FileText, Users, BarChart2, Calendar, ArrowUp, ArrowDown, Minus, Globe,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import {
@@ -34,48 +34,62 @@ function formatK(n: number): string {
 }
 
 // ─── Subscribers Tab ──────────────────────────────────────────────────────────
-function SubscribersTab() {
+function SubscribersTab({ month }: { month?: string }) {
   const { data: channels } = trpc.channels.list.useQuery();
   const [selectedChannelId, setSelectedChannelId] = useState<string>("all");
 
+  const visibleChannels = useMemo(() => channels?.filter((c) => c.isVisible !== false) ?? [], [channels]);
   const channelIds = useMemo(() => {
-    if (!channels) return [];
-    if (selectedChannelId === "all") return channels.map((c) => c.id);
+    if (!visibleChannels.length) return [];
+    if (selectedChannelId === "all") return visibleChannels.map((c) => c.id);
     const id = Number(selectedChannelId);
     return isNaN(id) ? [] : [id];
-  }, [channels, selectedChannelId]);
+  }, [visibleChannels, selectedChannelId]);
 
   const { data: cpfData, isLoading: cpfLoading, isError: cpfError } = trpc.snapshots.cpfAnalytics.useQuery(
-    { channelIds },
+    { channelIds, month },
     { enabled: channelIds.length > 0, refetchOnWindowFocus: false }
   );
 
   const { data: effData, isLoading: effLoading, isError: effError } = trpc.snapshots.sourceEfficiency.useQuery(
-    undefined,
+    { month },
     { refetchOnWindowFocus: false }
   );
 
   // Aggregate CPF chart data: group by weekLabel, sum growth and cost, compute cpf
   const cpfChartData = useMemo(() => {
     if (!cpfData || cpfData.length === 0) return [];
-    const map = new Map<string, { weekStart: string; growth: number; cost: number }>();
+    const map = new Map<string, { weekStart: string; growth: number; cost: number; directSubs: number }>();
     for (const row of cpfData) {
       const existing = map.get(row.weekLabel);
       if (existing) {
         existing.growth += row.growth;
         existing.cost += row.purchaseCost;
+        existing.directSubs += (row.directSubscribersGained ?? 0);
       } else {
-        map.set(row.weekLabel, { weekStart: row.weekStart, growth: row.growth, cost: row.purchaseCost });
+        map.set(row.weekLabel, {
+          weekStart: row.weekStart,
+          growth: row.growth,
+          cost: row.purchaseCost,
+          directSubs: row.directSubscribersGained ?? 0,
+        });
       }
     }
     return Array.from(map.entries())
       .sort((a, b) => a[1].weekStart.localeCompare(b[1].weekStart))
-      .map(([weekLabel, d]) => ({
-        week: weekLabel.replace(/^\d{4}-/, ""), // e.g. "W20"
-        growth: d.growth,
-        cost: Math.round(d.cost),
-        cpf: d.growth > 0 ? Math.round((d.cost / d.growth) * 100) / 100 : null,
-      }));
+      .map(([weekLabel, d]) => {
+        // Prefer direct subscribersGained (from purchase records) over snapshot diff
+        const effectiveSubs = d.directSubs > 0 ? d.directSubs : d.growth;
+        return {
+          week: weekLabel.replace(/^\d{4}-/, ""), // e.g. "W20"
+          growth: d.growth,
+          directSubs: d.directSubs,
+          cost: Math.round(d.cost),
+          // CPF uses direct data when available (higher confidence)
+          cpf: effectiveSubs > 0 ? Math.round((d.cost / effectiveSubs) * 100) / 100 : null,
+          cpfSnapshot: d.growth > 0 ? Math.round((d.cost / d.growth) * 100) / 100 : null,
+        };
+      });
   }, [cpfData]);
 
   // Subscriber growth chart: per-channel snapshots
@@ -114,11 +128,15 @@ function SubscribersTab() {
     return Array.from(latestByChannel.values()).reduce((s, v) => s + v.subscriberCount, 0);
   }, [allSnapshots]);
 
+  // Weighted CPF: prefer direct subscribersGained data, fallback to snapshot growth
   const avgCpf = useMemo(() => {
     if (!cpfChartData.length) return null;
-    const valid = cpfChartData.filter((d) => d.cpf !== null);
-    if (!valid.length) return null;
-    return valid.reduce((s, d) => s + (d.cpf ?? 0), 0) / valid.length;
+    const totalCost = cpfChartData.reduce((s, d) => s + d.cost, 0);
+    const totalDirectSubs = cpfChartData.reduce((s, d) => s + d.directSubs, 0);
+    const totalGrowth = cpfChartData.reduce((s, d) => s + d.growth, 0);
+    // Use direct data if available (higher confidence), else snapshot diff
+    const effectiveSubs = totalDirectSubs > 0 ? totalDirectSubs : totalGrowth;
+    return effectiveSubs > 0 ? Math.round((totalCost / effectiveSubs) * 100) / 100 : null;
   }, [cpfChartData]);
 
   const totalGrowth = useMemo(() => {
@@ -217,7 +235,7 @@ function SubscribersTab() {
           </SelectTrigger>
           <SelectContent className="bg-popover border-border">
             <SelectItem value="all">Все каналы</SelectItem>
-            {channels?.map((c) => (
+            {visibleChannels.map((c) => (
               <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
             ))}
           </SelectContent>
@@ -453,9 +471,10 @@ function SubscribersTab() {
                   <th className="text-left py-2 pr-3 font-medium">Канал</th>
                   <th className="text-right py-2 px-2 font-medium">Подписчики</th>
                   <th className="text-right py-2 px-2 font-medium">Прирост</th>
+                  <th className="text-right py-2 px-2 font-medium">Пришло</th>
+                  <th className="text-right py-2 px-2 font-medium">Расход</th>
+                  <th className="text-right py-2 px-2 font-medium">CPF</th>
                   <th className="text-right py-2 px-2 font-medium">Охваты 24ч</th>
-                  <th className="text-right py-2 px-2 font-medium">Охваты 48ч</th>
-                  <th className="text-right py-2 px-2 font-medium">Охваты 72ч</th>
                   <th className="text-right py-2 pl-2 font-medium">ER24</th>
                 </tr>
               </thead>
@@ -484,6 +503,13 @@ function SubscribersTab() {
                     const prev = prevByChannel.get(chId);
                     const growth = prev ? snap.subscriberCount - prev.subscriberCount : null;
                     const er24 = snap.er24 != null ? parseFloat(String(snap.er24)) : null;
+                    // CPF data for this channel from cpfData
+                    const chCpfRows = cpfData?.filter((r) => r.channelId === chId) ?? [];
+                    const chTotalCost = chCpfRows.reduce((s, r) => s + r.purchaseCost, 0);
+                    const chDirectSubs = chCpfRows.reduce((s, r) => s + (r.directSubscribersGained ?? 0), 0);
+                    const chSnapshotGrowth = chCpfRows.reduce((s, r) => s + r.growth, 0);
+                    const chEffSubs = chDirectSubs > 0 ? chDirectSubs : chSnapshotGrowth;
+                    const chCpf = chEffSubs > 0 && chTotalCost > 0 ? Math.round((chTotalCost / chEffSubs) * 100) / 100 : null;
                     return (
                       <tr key={chId} className="hover:bg-muted/20 transition-colors">
                         <td className="py-2 pr-3 font-medium text-foreground">{ch?.name ?? `Канал ${chId}`}</td>
@@ -495,9 +521,22 @@ function SubscribersTab() {
                             </span>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
+                        <td className="text-right py-2 px-2">
+                          {chDirectSubs > 0 ? (
+                            <span className="text-emerald-400">+{chDirectSubs.toLocaleString("ru-RU")}</span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="text-right py-2 px-2 text-red-400">
+                          {chTotalCost > 0 ? `${Math.round(chTotalCost).toLocaleString("ru-RU")} ₽` : "—"}
+                        </td>
+                        <td className="text-right py-2 px-2">
+                          {chCpf !== null ? (
+                            <span className={chCpf <= 30 ? "text-emerald-400 font-semibold" : chCpf <= 50 ? "text-amber-400 font-semibold" : "text-red-400 font-semibold"}>
+                              {chCpf} ₽
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className="text-right py-2 px-2 text-cyan-400">{snap.views24h != null ? snap.views24h.toLocaleString("ru-RU") : "—"}</td>
-                        <td className="text-right py-2 px-2 text-cyan-300">{snap.views48h != null ? snap.views48h.toLocaleString("ru-RU") : "—"}</td>
-                        <td className="text-right py-2 px-2 text-cyan-200">{snap.views72h != null ? snap.views72h.toLocaleString("ru-RU") : "—"}</td>
                         <td className="text-right py-2 pl-2 font-semibold">
                           {er24 !== null ? (
                             <span className={er24 >= 15 ? "text-emerald-400" : er24 >= 8 ? "text-amber-400" : "text-red-400"}>
@@ -600,19 +639,17 @@ export default function AIAnalyticsPage() {
           </div>
         </div>
 
-        {activeTab !== "subscribers" && (
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-[160px] bg-input border-border">
-              <SelectValue placeholder="Период" />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
-              <SelectItem value="all">Всё время</SelectItem>
-              {sortedMonths.map((m) => (
-                <SelectItem key={m} value={m}>{formatMonth(m)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+          <SelectTrigger className="w-[160px] bg-input border-border">
+            <SelectValue placeholder="Период" />
+          </SelectTrigger>
+          <SelectContent className="bg-popover border-border">
+            <SelectItem value="all">Всё время</SelectItem>
+            {sortedMonths.map((m) => (
+              <SelectItem key={m} value={m}>{formatMonth(m)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Summary cards — only on profitability tab */}
@@ -666,6 +703,10 @@ export default function AIAnalyticsPage() {
           <TabsTrigger value="weekly" className="gap-1.5">
             <Calendar className="w-3.5 h-3.5" />
             Неделя
+          </TabsTrigger>
+          <TabsTrigger value="external" className="gap-1.5">
+            <Globe className="w-3.5 h-3.5" />
+            Внешка
           </TabsTrigger>
         </TabsList>
 
@@ -738,7 +779,7 @@ export default function AIAnalyticsPage() {
 
         {/* Subscribers Tab */}
         <TabsContent value="subscribers" className="mt-4">
-          <SubscribersTab />
+          <SubscribersTab month={monthParam} />
         </TabsContent>
 
           {/* AI Analysis Tab */}
@@ -816,7 +857,7 @@ export default function AIAnalyticsPage() {
                           <span className="text-muted-foreground">🎯 Привлечено: <span className="text-emerald-400 font-medium">+{(c.subscribersGained as number).toLocaleString('ru-RU')}</span></span>
                         )}
                         {c.avgCpf !== null && (
-                          <span className="text-muted-foreground">CPF: <span className={`font-medium ${(c.avgCpf as number) <= 5 ? "text-emerald-400" : (c.avgCpf as number) <= 15 ? "text-yellow-400" : "text-red-400"}`}>{c.avgCpf}₽</span></span>
+                          <span className="text-muted-foreground">CPF: <span className={`font-medium ${(c.avgCpf as number) <= 30 ? "text-emerald-400" : (c.avgCpf as number) <= 50 ? "text-yellow-400" : "text-red-400"}`}>{c.avgCpf}₽</span></span>
                         )}
                         {c.avgPurchaseReach !== null && (
                           <span className="text-muted-foreground">Ср. охват закупа: <span className="text-foreground">{(c.avgPurchaseReach as number).toLocaleString('ru-RU')}</span></span>
@@ -853,7 +894,10 @@ export default function AIAnalyticsPage() {
                         <span key={p} className="text-[10px] bg-amber-500/15 text-amber-300 rounded-full px-2 py-0.5">{p}</span>
                       ))}
                       {c.mutualSalesCount > 0 && (
-                        <span className="text-[10px] bg-pink-500/15 text-pink-300 rounded-full px-2 py-0.5">🤝 ВП: {c.mutualSalesCount}</span>
+                        <span className="text-[10px] bg-pink-500/15 text-pink-300 rounded-full px-2 py-0.5">🤝 ВП-прод: {c.mutualSalesCount}</span>
+                      )}
+                      {(c as any).mutualPurchasesCount > 0 && (
+                        <span className="text-[10px] bg-purple-500/15 text-purple-300 rounded-full px-2 py-0.5">🤝 ВП-зак: {(c as any).mutualPurchasesCount}</span>
                       )}
                     </div>
                     {(c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) && (
@@ -900,6 +944,21 @@ export default function AIAnalyticsPage() {
                       </div>
                     </div>
                   )}
+                  {(() => {
+                    const totalVpPurchases = (ctx?.channels ?? []).reduce((s: number, c: any) => s + (c.mutualPurchasesCount ?? 0), 0);
+                    const totalVpPurchasesAmt = (ctx?.channels ?? []).reduce((s: number, c: any) => s + (c.mutualPurchasesTotal ?? 0), 0);
+                    if (totalVpPurchases === 0) return null;
+                    return (
+                      <div className="glass rounded-xl p-3 space-y-1.5">
+                        <p className="text-xs font-medium text-foreground">🤝 ВП-закупки</p>
+                        <div className="space-y-0.5 text-xs text-muted-foreground">
+                          <p>Закупок: <span className="text-foreground">{totalVpPurchases}</span></p>
+                          {totalVpPurchasesAmt > 0 && <p>Доплата: <span className="text-red-400">{formatCurrency(totalVpPurchasesAmt)}</span></p>}
+                          {totalVpPurchasesAmt === 0 && <p className="text-emerald-400">Без доплаты</p>}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {Object.keys(platformCount).length > 0 && (
                     <div className="glass rounded-xl p-3 space-y-2">
                       <p className="text-xs font-medium text-foreground">📱 Платформы продаж</p>
@@ -964,6 +1023,10 @@ export default function AIAnalyticsPage() {
         <TabsContent value="weekly" className="mt-4">
           <WeeklyAnalysisTab />
         </TabsContent>
+        {/* External Advertisers Tab */}
+        <TabsContent value="external" className="mt-4">
+          <ExternalAnalyticsTab />
+        </TabsContent>
       </Tabs>
     </div>
   );
@@ -986,14 +1049,32 @@ function WeeklyAnalysisTab() {
   const trends = stats?.trends;
 
   const profitPositive = cur ? cur.profit >= 0 : true;
+  const hasAnalysis = !!weeklyAnalysisMutation.data?.analysis;
+
+  // Motivational header message based on performance
+  const motivationalMessage = cur
+    ? cur.profit > 0
+      ? { emoji: "🔥", text: `Отличная неделя! Чистая прибыль ${formatCurrency(cur.profit)} — ты на верном пути.`, color: "text-emerald-400" }
+      : cur.profit === 0
+      ? { emoji: "⚡", text: "Нулевой результат — есть куда расти. Разберём вместе.", color: "text-yellow-400" }
+      : { emoji: "💪", text: `Неделя в минусе ${formatCurrency(cur.profit)} — это временно. Все исправим.`, color: "text-orange-400" }
+    : null;
 
   return (
     <div className="space-y-4">
-      {/* Date range */}
-      {cur && (
-        <div className="text-sm text-muted-foreground">
-          Текущая неделя: <span className="text-foreground font-medium">{cur.start} – {cur.end}</span>
-          {prev && <span className="ml-3">Прошлая: {prev.start} – {prev.end}</span>}
+      {/* Motivational header */}
+      {motivationalMessage && (
+        <div className={`glass rounded-xl p-4 border border-white/5 flex items-center gap-3`}>
+          <span className="text-2xl">{motivationalMessage.emoji}</span>
+          <div>
+            <p className={`font-semibold ${motivationalMessage.color}`}>{motivationalMessage.text}</p>
+            {cur && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Неделя {cur.start} – {cur.end}
+                {prev && <span className="ml-2 opacity-60">· прошлая: {prev.start} – {prev.end}</span>}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -1006,25 +1087,25 @@ function WeeklyAnalysisTab() {
         </div>
       ) : cur ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="glass rounded-xl p-4 space-y-1">
-            <div className="text-xs text-muted-foreground">Продажи</div>
+          <div className="glass rounded-xl p-4 space-y-1 border border-emerald-500/10">
+            <div className="text-xs text-muted-foreground">💰 Продажи</div>
             <div className="text-lg font-bold text-emerald-400">{formatCurrency(cur.sales)}</div>
             <div className="text-xs text-muted-foreground">{cur.salesCount} сделок</div>
             <TrendBadge pct={trends?.salesPct} />
           </div>
-          <div className="glass rounded-xl p-4 space-y-1">
-            <div className="text-xs text-muted-foreground">Закуп</div>
+          <div className="glass rounded-xl p-4 space-y-1 border border-blue-500/10">
+            <div className="text-xs text-muted-foreground">📦 Закуп</div>
             <div className="text-lg font-bold text-blue-400">{formatCurrency(cur.purchases)}</div>
             <div className="text-xs text-muted-foreground">{cur.purchasesCount} сделок</div>
             <TrendBadge pct={trends?.purchasesPct} />
           </div>
-          <div className="glass rounded-xl p-4 space-y-1">
-            <div className="text-xs text-muted-foreground">Расходы (≈)</div>
+          <div className="glass rounded-xl p-4 space-y-1 border border-orange-500/10">
+            <div className="text-xs text-muted-foreground">💸 Расходы (≈)</div>
             <div className="text-lg font-bold text-orange-400">{formatCurrency(cur.expenses)}</div>
             <div className="text-xs text-muted-foreground">прорация за неделю</div>
           </div>
-          <div className="glass rounded-xl p-4 space-y-1">
-            <div className="text-xs text-muted-foreground">Чистая прибыль</div>
+          <div className={`glass rounded-xl p-4 space-y-1 border ${profitPositive ? 'border-emerald-500/20' : 'border-red-500/20'}`}>
+            <div className="text-xs text-muted-foreground">✨ Чистая прибыль</div>
             <div className={`text-lg font-bold ${profitPositive ? 'text-emerald-400' : 'text-red-400'}`}>
               {formatCurrency(cur.profit)}
             </div>
@@ -1036,7 +1117,7 @@ function WeeklyAnalysisTab() {
       {/* Comparison bars */}
       {cur && prev && (
         <div className="glass rounded-xl p-4">
-          <div className="text-sm font-medium mb-3">Сравнение с прошлой неделей</div>
+          <div className="text-sm font-semibold mb-3">📊 Сравнение с прошлой неделей</div>
           <div className="space-y-3 text-sm">
             {([
               { label: 'Продажи', cur: cur.sales, prev: prev.sales, color: 'bg-emerald-500' },
@@ -1051,8 +1132,8 @@ function WeeklyAnalysisTab() {
                   <div className="w-20 text-muted-foreground shrink-0 text-xs">{row.label}</div>
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center gap-2">
-                      <div className={`h-2 rounded-full ${row.color}`} style={{ width: `${curW}%`, minWidth: 2 }} />
-                      <span className="text-xs">{formatCurrency(row.cur)}</span>
+                      <div className={`h-2 rounded-full ${row.color} transition-all duration-500`} style={{ width: `${curW}%`, minWidth: 2 }} />
+                      <span className="text-xs font-medium">{formatCurrency(row.cur)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="h-2 rounded-full bg-muted" style={{ width: `${prevW}%`, minWidth: 2 }} />
@@ -1071,29 +1152,43 @@ function WeeklyAnalysisTab() {
       )}
 
       {/* AI Analysis button */}
-      <div className="flex items-center gap-3">
+      <div className="glass rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <div className="flex-1">
+          <p className="text-sm font-medium">
+            {hasAnalysis ? "🔄 Обновить AI-разбор" : "🤖 Получи личный AI-разбор недели"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {!profitPositive
+              ? "Наставник разберёт цифры, найдёт позитив и даст план выхода в плюс"
+              : "Похвала, честный разбор и конкретные шаги на следующую неделю"}
+          </p>
+        </div>
         <Button
           onClick={() => weeklyAnalysisMutation.mutate({})}
           disabled={weeklyAnalysisMutation.isPending}
-          className="gap-2"
+          className="gap-2 shrink-0"
+          variant={hasAnalysis ? "outline" : "default"}
         >
           {weeklyAnalysisMutation.isPending ? (
             <RefreshCw className="w-4 h-4 animate-spin" />
           ) : (
             <Sparkles className="w-4 h-4" />
           )}
-          {weeklyAnalysisMutation.isPending ? "Анализирую..." : "Недельный AI-анализ"}
+          {weeklyAnalysisMutation.isPending ? "Анализирую..." : hasAnalysis ? "Обновить" : "Получить анализ"}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          {!profitPositive
-            ? "🚨 Неделя в минусе — AI поможет найти выход"
-            : "Получи мотивирующий анализ и рекомендации"}
-        </span>
       </div>
 
       {weeklyAnalysisMutation.data?.analysis && (
-        <div className="glass rounded-xl p-5 prose prose-invert prose-sm max-w-none">
-          <Streamdown>{weeklyAnalysisMutation.data.analysis}</Streamdown>
+        <div className="glass rounded-xl p-5 border border-violet-500/20">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+              <Brain className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-sm font-semibold text-violet-300">AI-разбор недели</span>
+          </div>
+          <div className="prose prose-invert prose-sm max-w-none">
+            <Streamdown>{weeklyAnalysisMutation.data.analysis}</Streamdown>
+          </div>
         </div>
       )}
       {weeklyAnalysisMutation.isError && (
@@ -1101,6 +1196,160 @@ function WeeklyAnalysisTab() {
           Ошибка: {weeklyAnalysisMutation.error.message}
         </div>
       )}
+    </div>
+  );
+}
+
+function ExternalAnalyticsTab() {
+  const [months, setMonths] = useState<string>("3");
+  const { data, isLoading } = trpc.ai.externalAnalytics.useQuery(
+    { months: Number(months) },
+    { refetchOnWindowFocus: false }
+  );
+
+  const monthChartData = data?.byMonth.map((m) => ({
+    month: m.month.slice(5), // MM
+    revenue: m.revenue,
+    count: m.count,
+  })) ?? [];
+
+  return (
+    <div className="space-y-5">
+      {/* Period filter */}
+      <div className="flex items-center gap-3">
+        <Select value={months} onValueChange={setMonths}>
+          <SelectTrigger className="w-[160px] bg-input border-border">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-popover border-border">
+            <SelectItem value="1">1 месяц</SelectItem>
+            <SelectItem value="3">3 месяца</SelectItem>
+            <SelectItem value="6">6 месяцев</SelectItem>
+            <SelectItem value="12">12 месяцев</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground">Аналитика продаж внешним рекламодателям</span>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => <div key={i} className="glass rounded-xl p-4 animate-pulse h-24" />)}
+        </div>
+      ) : data ? (
+        <>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="glass rounded-xl p-4 space-y-1">
+              <p className="text-xs text-muted-foreground">Выручка (внешка)</p>
+              <p className="text-lg font-bold text-orange-400">{formatCurrency(data.totalRevenue)}</p>
+              <p className="text-xs text-muted-foreground">{data.totalCount} сделок</p>
+            </div>
+            <div className="glass rounded-xl p-4 space-y-1">
+              <p className="text-xs text-muted-foreground">Доля в общей выручке</p>
+              <p className="text-lg font-bold text-foreground">{data.externalShare}%</p>
+              <p className="text-xs text-muted-foreground">от всех продаж</p>
+            </div>
+            <div className="glass rounded-xl p-4 space-y-1">
+              <p className="text-xs text-muted-foreground">Ср. чек (внешка)</p>
+              <p className="text-lg font-bold text-orange-300">{formatCurrency(data.avgExternalCost ?? 0)}</p>
+              {data.costPremium != null && (
+                <p className={`text-xs font-medium ${(data.costPremium ?? 0) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {(data.costPremium ?? 0) > 0 ? "+" : ""}{data.costPremium}% к внутренней
+                </p>
+              )}
+            </div>
+            <div className="glass rounded-xl p-4 space-y-1">
+              <p className="text-xs text-muted-foreground">Последняя сделка</p>
+              <p className="text-lg font-bold text-foreground">
+                {data.lastPurchaseDate ? new Date(data.lastPurchaseDate).toLocaleDateString("ru-RU") : "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">дата продажи</p>
+            </div>
+          </div>
+
+          {/* Cost comparison */}
+          {(data.avgInternalCost ?? 0) > 0 && (data.avgExternalCost ?? 0) > 0 && (
+            <div className="glass rounded-xl p-4">
+              <div className="text-sm font-medium mb-3">Сравнение среднего чека: внешка vs внутренняя</div>
+              <div className="space-y-3">
+                {[
+                  { label: "🌐 Внешняя", val: data.avgExternalCost ?? 0, color: "bg-orange-500" },
+                  { label: "🏠 Внутренняя", val: data.avgInternalCost ?? 0, color: "bg-blue-500" },
+                ].map((row) => {
+                  const maxVal = Math.max(data.avgExternalCost ?? 0, data.avgInternalCost ?? 0, 1);
+                  const w = (row.val / maxVal) * 100;
+                  return (
+                    <div key={row.label} className="flex items-center gap-3">
+                      <div className="w-28 text-xs text-muted-foreground shrink-0">{row.label}</div>
+                      <div className="flex-1 flex items-center gap-2">
+                        <div className={`h-3 rounded-full ${row.color}`} style={{ width: `${w}%`, minWidth: 4 }} />
+                        <span className="text-xs font-medium">{formatCurrency(row.val)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {data.costPremium != null && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Внешняя реклама дороже внутренней на{", "}
+                  <span className={`font-bold ${(data.costPremium ?? 0) > 0 ? "text-orange-400" : "text-emerald-400"}`}>
+                    {Math.abs(data.costPremium ?? 0)}%
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Monthly revenue chart */}
+          {monthChartData.length > 1 && (
+            <div className="glass rounded-xl p-4">
+              <div className="text-sm font-medium mb-3">Динамика выручки от внешки по месяцам</div>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={monthChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="month" tick={{ fill: "#9ca3af", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                  <Tooltip
+                    contentStyle={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 8 }}
+                    formatter={(v: number) => [formatCurrency(v), "Выручка"]}
+                  />
+                  <Bar dataKey="revenue" fill="#f97316" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* By channel breakdown */}
+          {data.byChannel.length > 0 && (
+            <div className="glass rounded-xl p-4">
+              <div className="text-sm font-medium mb-3">Внешка по каналам</div>
+              <div className="space-y-2">
+                {data.byChannel.map((ch) => (
+                  <div key={ch.channelId} className="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
+                    <div>
+                      <div className="text-sm font-medium">{ch.channelName}</div>
+                      <div className="text-xs text-muted-foreground">{ch.count} сделок</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-orange-400">{formatCurrency(ch.revenue)}</div>
+                      <div className="text-xs text-muted-foreground">ср. {formatCurrency(ch.avgCost)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {data.totalCount === 0 && (
+            <div className="glass rounded-xl p-8 text-center">
+              <Globe className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
+              <p className="text-muted-foreground">Нет продаж внешним рекламодателям за выбранный период</p>
+              <p className="text-xs text-muted-foreground mt-1">Отметьте галочку «Внешка» при создании продажи</p>
+            </div>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

@@ -24,6 +24,12 @@ import {
   postAnalytics,
   PostAnalytics,
   InsertPostAnalytics,
+  clients,
+  Client,
+  InsertClient,
+  clientChannels,
+  ClientChannel,
+  InsertClientChannel,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -148,10 +154,19 @@ export async function createChannel(data: InsertChannel): Promise<number> {
   return (result[0] as { insertId: number }).insertId;
 }
 
+export async function getVisibleChannelsByUser(userId: number): Promise<Channel[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(channels)
+    .where(and(eq(channels.userId, userId), eq(channels.isVisible, true)))
+    .orderBy(channels.createdAt);
+}
 export async function updateChannel(
   id: number,
   userId: number,
-  data: Partial<Pick<InsertChannel, "name" | "description">>
+  data: Partial<Pick<InsertChannel, "name" | "description" | "isVisible">>
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -159,6 +174,21 @@ export async function updateChannel(
     .update(channels)
     .set(data)
     .where(and(eq(channels.id, id), eq(channels.userId, userId)));
+}
+
+export async function countChannelRecords(channelId: number, userId: number): Promise<{ purchases: number; sales: number }> {
+  const db = await getDb();
+  if (!db) return { purchases: 0, sales: 0 };
+  const [pAgg, sAgg] = await Promise.all([
+    db.select({ count: sql<string>`COUNT(*)` }).from(purchaseRecords)
+      .where(and(eq(purchaseRecords.channelId, channelId), eq(purchaseRecords.userId, userId))),
+    db.select({ count: sql<string>`COUNT(*)` }).from(saleRecords)
+      .where(and(eq(saleRecords.channelId, channelId), eq(saleRecords.userId, userId))),
+  ]);
+  return {
+    purchases: parseInt(pAgg[0]?.count ?? '0'),
+    sales: parseInt(sAgg[0]?.count ?? '0'),
+  };
 }
 
 export async function deleteChannel(id: number, userId: number): Promise<void> {
@@ -295,10 +325,9 @@ export async function getFinancialSummary(
   const db = await getDb();
   if (!db) return [];
 
-  const userChannels = await getChannelsByUser(userId);
+  const userChannels = await getVisibleChannelsByUser(userId);
   if (userChannels.length === 0) return [];
-
-  const summaries: ChannelSummary[] = [];
+  const summaries: ChannelSummary[] = [];;
 
   for (const channel of userChannels) {
     const purchaseConditions = [
@@ -397,6 +426,8 @@ export interface MonthlyStatPoint {
   purchases: number;
   sales: number;
   profit: number;
+  expenses: number;
+  netProfit: number;
 }
 
 export async function getMonthlyStats(
@@ -444,14 +475,33 @@ export async function getMonthlyStats(
     map.set(row.month, entry);
   }
 
+  // Fetch expenses per month (not filtered by channel — expenses are global)
+  const expenseRows = await db
+    .select({
+      month: expenses.month,
+      total: sql<string>`COALESCE(SUM(CAST(${expenses.amount} AS DECIMAL(12,2))), 0)`,
+    })
+    .from(expenses)
+    .where(eq(expenses.userId, userId))
+    .groupBy(expenses.month);
+  const expenseByMonth = new Map<string, number>();
+  for (const row of expenseRows) {
+    expenseByMonth.set(row.month, parseFloat(row.total));
+  }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, { purchases, sales }]) => ({
-      month,
-      purchases,
-      sales,
-      profit: sales - purchases,
-    }));
+    .map(([month, { purchases, sales }]) => {
+      const grossProfit = sales - purchases;
+      const monthExpenses = expenseByMonth.get(month) ?? 0;
+      return {
+        month,
+        purchases,
+        sales,
+        profit: grossProfit,
+        expenses: monthExpenses,
+        netProfit: grossProfit - monthExpenses,
+      };
+    });
 }
 
 // ─── Unpaid debts per channel ─────────────────────────────────────────────────
@@ -659,7 +709,7 @@ export async function checkBookingConflict(
   userId: number,
   channelId: number,
   date: string, // YYYY-MM-DD
-  bookingSlot: "утро" | "обед" | "вечер",
+  bookingSlot: "утро" | "обед" | "вечер" | "ночной топ",
   excludeId?: number
 ): Promise<number | null> {
   const db = await getDb();
@@ -722,14 +772,14 @@ export async function getChannelProfitability(
     };
   }
 
-  // Get user channels
+  // Get user channels (only visible ones for analytics)
   const userChannels = await db
     .select({ id: channels.id, name: channels.name })
     .from(channels)
-    .where(eq(channels.userId, userId));
+    .where(and(eq(channels.userId, userId), eq(channels.isVisible, true)));
   const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
-
-  // Sales aggregation per channel
+  const visibleChannelIds = new Set(userChannels.map((c) => c.id));
+  // Sales aggregation per channell
   const saleConds: any[] = [eq(saleRecords.userId, userId)];
   if (month) saleConds.push(eq(saleRecords.month, month));
 
@@ -792,9 +842,10 @@ export async function getChannelProfitability(
     channelDataMap.set(cid, entry);
   }
 
-  // Calculate profit and ROI
+  // Calculate profit and ROI (only for visible channels)
   const channelsData: ChannelProfitData[] = [];
   for (const entry of Array.from(channelDataMap.values())) {
+    if (!visibleChannelIds.has(entry.channelId)) continue;
     entry.profit = entry.salesTotal - entry.purchasesTotal;
     entry.roi = entry.purchasesTotal > 0
       ? ((entry.salesTotal - entry.purchasesTotal) / entry.purchasesTotal) * 100
@@ -1016,11 +1067,11 @@ export interface CreateMutualDealInput {
   month: string;
   notes?: string | null;
   ourPostDate?: Date | null;
-  ourBookingSlot?: "утро" | "обед" | "вечер" | null;
+  ourBookingSlot?: "утро" | "обед" | "вечер" | "ночной топ" | null;
   ourReach?: number | null;
   ourPostLink?: string | null;
   partnerPostDate?: Date | null;
-  partnerBookingSlot?: "утро" | "обед" | "вечер" | null;
+  partnerBookingSlot?: "утро" | "обед" | "вечер" | "ночной топ" | null;
   partnerReach?: number | null;
   partnerPostLink?: string | null;
   dealType: "без доплаты" | "с доплатой";
@@ -1336,6 +1387,8 @@ export type CpfWeekData = {
   growth: number;
   purchaseCost: number; // total spend on purchases that week
   cpf: number | null; // cost per follower (null if no growth)
+  cpfDirect: number | null; // CPF from direct subscribersGained field (higher confidence)
+  directSubscribersGained: number; // sum of subscribersGained from purchase records in this week
   // Trustat metrics from the "after" snapshot
   views24h: number | null;
   views48h: number | null;
@@ -1347,7 +1400,8 @@ export type CpfWeekData = {
 /** Calculate CPF (Cost Per Follower) analytics per channel per week */
 export async function getCpfAnalytics(
   userId: number,
-  channelIds: number[]
+  channelIds: number[],
+  month?: string
 ): Promise<CpfWeekData[]> {
   const db = await getDb();
   if (!db) return [];
@@ -1366,20 +1420,23 @@ export async function getCpfAnalytics(
     )
     .orderBy(channelSubscriberSnapshots.channelId, channelSubscriberSnapshots.snapshotDate);
 
-  // Get all purchases for these channels
+  // Get all PAID purchases for these channels (only paid ones count for CPF)
   const purchases = await db
     .select({
       channelId: purchaseRecords.channelId,
       date: purchaseRecords.date,
       cost: purchaseRecords.cost,
+      subscribersGained: purchaseRecords.subscribersGained,
     })
     .from(purchaseRecords)
     .where(
       and(
         eq(purchaseRecords.userId, userId),
+        eq(purchaseRecords.paymentStatus, "paid"),
         channelIds.length > 0
           ? sql`${purchaseRecords.channelId} IN (${sql.join(channelIds.map(id => sql`${id}`), sql`, `)})`
-          : sql`1=1`
+          : sql`1=1`,
+        month ? sql`DATE_FORMAT(${purchaseRecords.date}, '%Y-%m') = ${month}` : sql`1=1`
       )
     );
 
@@ -1420,6 +1477,13 @@ export async function getCpfAnalytics(
         return pd >= new Date(prev.snapshotDate) && pd < new Date(curr.snapshotDate);
       });
       const purchaseCost = weekPurchases.reduce((sum, p) => sum + parseFloat(p.cost ?? "0"), 0);
+      // Direct subscriber data from purchase records (higher confidence than snapshot diff)
+      const directSubscribersGained = weekPurchases.reduce((sum, p) => sum + (p.subscribersGained ?? 0), 0);
+
+      // CPF from snapshot growth (secondary source)
+      const cpfFromSnapshot = growth > 0 ? Math.round((purchaseCost / growth) * 100) / 100 : null;
+      // CPF from direct subscribersGained (primary source when available)
+      const cpfDirect = directSubscribersGained > 0 ? Math.round((purchaseCost / directSubscribersGained) * 100) / 100 : null;
 
       result.push({
         weekLabel,
@@ -1430,7 +1494,9 @@ export async function getCpfAnalytics(
         subscribersAfter: curr.subscriberCount ?? 0,
         growth,
         purchaseCost,
-        cpf: growth > 0 ? Math.round((purchaseCost / growth) * 100) / 100 : null,
+        cpf: cpfFromSnapshot,
+        cpfDirect,
+        directSubscribersGained,
         views24h: curr.views24h ?? null,
         views48h: curr.views48h ?? null,
         views72h: curr.views72h ?? null,
@@ -1460,10 +1526,11 @@ export type SourceEfficiencyData = {
 };
 
 /** Analyze purchase efficiency by source channel size */
-export async function getSourceEfficiency(userId: number): Promise<SourceEfficiencyData[]> {
+export async function getSourceEfficiency(userId: number, month?: string): Promise<SourceEfficiencyData[]> {
   const db = await getDb();
   if (!db) return [];
 
+  // Only count PAID purchases for CPF (unpaid skews the numbers)
   const records = await db
     .select({
       sourceSubscribers: purchaseRecords.sourceSubscribers,
@@ -1474,7 +1541,9 @@ export async function getSourceEfficiency(userId: number): Promise<SourceEfficie
     .where(
       and(
         eq(purchaseRecords.userId, userId),
-        sql`${purchaseRecords.sourceSubscribers} IS NOT NULL`
+        eq(purchaseRecords.paymentStatus, "paid"),
+        sql`${purchaseRecords.sourceSubscribers} IS NOT NULL`,
+        month ? sql`DATE_FORMAT(${purchaseRecords.date}, '%Y-%m') = ${month}` : sql`1=1`
       )
     );
 
@@ -1543,6 +1612,8 @@ export interface AiChannelData {
   avgSaleReach: number | null;
   mutualSalesCount: number; // isMutual=true sales
   mutualSalesRevenue: number;
+  mutualPurchasesCount: number; // isMutual=true purchases
+  mutualPurchasesTotal: number; // sum of VP purchase costs
 
   avgBuyerSubscribers: number | null;
 }
@@ -1587,9 +1658,9 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
   };
   if (!db) return empty;
 
-  // ── Channels ──────────────────────────────────────────────────────────────
+  // ── Channels (only visible ones for AI analytics) ────────────────────────
   const userChannels = await db.select({ id: channels.id, name: channels.name })
-    .from(channels).where(eq(channels.userId, userId));
+    .from(channels).where(and(eq(channels.userId, userId), eq(channels.isVisible, true)));
   const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
 
   // ── Sales ─────────────────────────────────────────────────────────────────
@@ -1661,6 +1732,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     topDirections: [], topTariffs: [], avgPurchaseReach: null, avgSpm: null,
     avgSourceSubscribers: null,
     platforms: [], avgSaleReach: null, mutualSalesCount: 0, mutualSalesRevenue: 0,
+    mutualPurchasesCount: 0, mutualPurchasesTotal: 0,
     avgBuyerSubscribers: null,
   });
 
@@ -1688,6 +1760,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     e.purchasesCount += 1;
     if (p.paymentStatus !== "paid") e.unpaidPurchasesTotal += cost;
     if (p.subscribersGained) e.subscribersGained += p.subscribersGained;
+    if (p.isMutual) { e.mutualPurchasesCount += 1; e.mutualPurchasesTotal += cost; }
 
     if (p.direction) {
       const dir = p.direction.trim();
@@ -1729,16 +1802,28 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     e.weeklyGrowth = snap.weeklyGrowth ?? null;
   }
 
-  // Attach CPF data
+  // Attach CPF data — use weighted CPF (total cost / total growth) per channel
   for (const [cid, cpf] of Array.from(cpfByChannel.entries())) {
     if (!channelDataMap.has(cid)) channelDataMap.set(cid, initChannel(cid));
     const e = channelDataMap.get(cid)!;
-    if (cpf.cpfs.length > 0) {
+
+    // Weighted CPF: total spend / total subscriber growth (more accurate than avg-of-weeks)
+    if (cpf.totalGrowth > 0) {
+      // Sum total purchase cost for this channel from cpfRows
+      const totalCostForChannel = cpfRows
+        .filter(r => r.channelId === cid)
+        .reduce((s, r) => s + r.purchaseCost, 0);
+      e.avgCpf = totalCostForChannel > 0
+        ? Math.round((totalCostForChannel / cpf.totalGrowth) * 100) / 100
+        : null;
+    } else if (cpf.cpfs.length > 0) {
+      // Fallback: use average of weekly CPFs if no positive total growth
       e.avgCpf = Math.round((cpf.cpfs.reduce((a, b) => a + b, 0) / cpf.cpfs.length) * 100) / 100;
     }
-    // subscribersGained: use first→last snapshot diff (not sum of weekly deltas which double-counts)
+
+    // subscribersGained: prefer direct purchase records data, then snapshot diff
     if (e.subscribersGained === 0 && cpf.firstCount !== null && cpf.lastCount !== null) {
-      e.subscribersGained = cpf.lastCount - cpf.firstCount;
+      e.subscribersGained = Math.max(0, cpf.lastCount - cpf.firstCount);
     }
   }
 
@@ -1760,9 +1845,11 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
   const overallROI = totalPurchases > 0 ? ((totalSales - totalPurchases) / totalPurchases) * 100 : 0;
   const totalSubscribersGained = channelsList.reduce((s, c) => s + c.subscribersGained, 0);
   const totalCurrentSubscribers = channelsList.reduce((s, c) => s + (c.currentSubscribers ?? 0), 0);
-  const allCpfs = channelsList.filter(c => c.avgCpf !== null).map(c => c.avgCpf as number);
-  const overallAvgCpf = allCpfs.length > 0
-    ? Math.round((allCpfs.reduce((a, b) => a + b, 0) / allCpfs.length) * 100) / 100
+  // Overall weighted CPF: total purchases / total subscribers gained (across all channels)
+  const totalSubsGainedForCpf = channelsList.reduce((s, c) => s + c.subscribersGained, 0);
+  const totalPurchasesForCpf = channelsList.reduce((s, c) => s + c.purchasesTotal, 0);
+  const overallAvgCpf = totalSubsGainedForCpf > 0
+    ? Math.round((totalPurchasesForCpf / totalSubsGainedForCpf) * 100) / 100
     : null;
 
    // ── Expenses ─────────────────────────────────────────────────────────────
@@ -2041,4 +2128,646 @@ export async function getPostAnalyticsByUser(userId: number): Promise<PostAnalyt
     .from(postAnalytics)
     .where(eq(postAnalytics.userId, userId))
     .orderBy(desc(postAnalytics.fetchedAt));
+}
+
+// ─── Clients (CRM) ──────────────────────────────────────────────────────────
+
+export interface ClientWithChannels extends Client {
+  channels: ClientChannel[];
+  purchaseCount: number;
+  saleCount: number;
+  totalPurchaseAmount: number;
+  totalSaleAmount: number;
+  lastDealAt: number | null;
+}
+
+export interface ClientStats {
+  clientId: number;
+  clientName: string;
+  maxNick: string | null;
+  type: string;
+  niche: string | null;
+  notes: string | null;
+  channels: ClientChannel[];
+  purchaseCount: number;
+  saleCount: number;
+  totalPurchaseCost: number;
+  totalSaleRevenue: number;
+  totalTurnover: number;
+  avgPurchaseReach: number | null;
+  avgSaleReach: number | null;
+  avgCpf: number | null;
+  totalSubscribersGained: number;
+  lastDealDate: Date | null;
+  createdAt: Date;
+}
+
+export async function listClients(userId: number): Promise<ClientWithChannels[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(clients)
+    .where(eq(clients.userId, userId))
+    .orderBy(desc(clients.createdAt));
+  if (!rows.length) return [];
+  const channelRows = await db
+    .select()
+    .from(clientChannels)
+    .where(sql`${clientChannels.clientId} IN (${sql.join(rows.map(r => sql`${r.id}`), sql`, `)})`);
+  const channelMap: Record<number, ClientChannel[]> = {};
+  for (const ch of channelRows) {
+    if (!channelMap[ch.clientId]) channelMap[ch.clientId] = [];
+    channelMap[ch.clientId].push(ch);
+  }
+  // Aggregate purchase/sale stats per client name
+  const allPurchases = await db
+    .select({ admin: purchaseRecords.admin, cost: purchaseRecords.cost, date: purchaseRecords.date })
+    .from(purchaseRecords)
+    .where(eq(purchaseRecords.userId, userId));
+  const allSales = await db
+    .select({ admin: saleRecords.admin, cost: saleRecords.cost, date: saleRecords.date })
+    .from(saleRecords)
+    .where(eq(saleRecords.userId, userId));
+  // Build name-keyed maps
+  const purchaseMap: Record<string, { count: number; total: number; lastDate: number | null }> = {};
+  for (const p of allPurchases) {
+    const key = (p.admin ?? "").toLowerCase();
+    if (!purchaseMap[key]) purchaseMap[key] = { count: 0, total: 0, lastDate: null };
+    purchaseMap[key].count++;
+    purchaseMap[key].total += parseFloat(String(p.cost ?? "0")) || 0;
+    const ts = p.date ? new Date(p.date).getTime() : null;
+    if (ts && (!purchaseMap[key].lastDate || ts > purchaseMap[key].lastDate!)) purchaseMap[key].lastDate = ts;
+  }
+  const saleMap: Record<string, { count: number; total: number; lastDate: number | null }> = {};
+  for (const s of allSales) {
+    const key = (s.admin ?? "").toLowerCase();
+    if (!saleMap[key]) saleMap[key] = { count: 0, total: 0, lastDate: null };
+    saleMap[key].count++;
+    saleMap[key].total += parseFloat(String(s.cost ?? "0")) || 0;
+    const ts = s.date ? new Date(s.date).getTime() : null;
+    if (ts && (!saleMap[key].lastDate || ts > saleMap[key].lastDate!)) saleMap[key].lastDate = ts;
+  }
+  return rows.map(r => {
+    const key = r.name.toLowerCase();
+    const ps = purchaseMap[key] ?? { count: 0, total: 0, lastDate: null };
+    const ss = saleMap[key] ?? { count: 0, total: 0, lastDate: null };
+    const lastDealAt = ps.lastDate && ss.lastDate
+      ? Math.max(ps.lastDate, ss.lastDate)
+      : ps.lastDate ?? ss.lastDate ?? null;
+    return {
+      ...r,
+      channels: channelMap[r.id] ?? [],
+      purchaseCount: ps.count,
+      saleCount: ss.count,
+      totalPurchaseAmount: ps.total,
+      totalSaleAmount: ss.total,
+      lastDealAt,
+    };
+  });
+}
+
+export async function getClientById(id: number, userId: number): Promise<ClientWithChannels | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(clients).where(and(eq(clients.id, id), eq(clients.userId, userId))).limit(1);
+  if (!rows[0]) return null;
+  const chRows = await db.select().from(clientChannels).where(eq(clientChannels.clientId, id));
+  return {
+    ...rows[0],
+    channels: chRows,
+    purchaseCount: 0,
+    saleCount: 0,
+    totalPurchaseAmount: 0,
+    totalSaleAmount: 0,
+    lastDealAt: null,
+  };
+}
+
+export async function createClient(data: Omit<InsertClient, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(clients).values(data);
+  return (result[0] as any).insertId as number;
+}
+
+export async function updateClient(id: number, userId: number, data: Partial<Omit<InsertClient, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(clients).set(data).where(and(eq(clients.id, id), eq(clients.userId, userId)));
+}
+
+export async function deleteClient(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(clientChannels).where(eq(clientChannels.clientId, id));
+  await db.delete(clients).where(and(eq(clients.id, id), eq(clients.userId, userId)));
+}
+
+export async function setClientChannels(clientId: number, channels: Omit<InsertClientChannel, "id" | "clientId" | "createdAt">[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(clientChannels).where(eq(clientChannels.clientId, clientId));
+  if (channels.length > 0) {
+    await db.insert(clientChannels).values(channels.map(c => ({ ...c, clientId })));
+  }
+}
+
+/** Extract channel name from iimax.ru or t.me URL */
+function extractChannelFromUrl(url: string): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    // t.me/channelname/123 or t.me/channelname
+    if (u.hostname === "t.me" || u.hostname === "telegram.me") {
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts[0]) return "@" + parts[0];
+    }
+    // iimax.ru/post/channelname/123 or similar
+    if (u.hostname === "iimax.ru" || u.hostname === "www.iimax.ru") {
+      const parts = u.pathname.split("/").filter(Boolean);
+      // Try to find a channel-like segment (starts with @ or is a word after /post/ or /channel/)
+      for (let i = 0; i < parts.length; i++) {
+        if (parts[i] === "post" || parts[i] === "channel" || parts[i] === "p") {
+          if (parts[i + 1]) return "@" + parts[i + 1];
+        }
+      }
+      // Fallback: second segment
+      if (parts[1]) return "@" + parts[1];
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export interface AutoImportResult {
+  created: number;
+  skipped: number;
+  channelsExtracted: number;
+}
+
+/** Auto-import clients from existing purchase_records and sale_records.
+ *  Groups by admin name, extracts channel names from links. */
+export async function autoImportClients(userId: number): Promise<AutoImportResult> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Fetch all existing clients to avoid duplicates
+  const existingClients = await db.select({ name: clients.name }).from(clients).where(eq(clients.userId, userId));
+  const existingNames = new Set(existingClients.map(c => c.name.trim().toLowerCase()));
+
+  // Aggregate admins + links from purchase_records
+  const purchases = await db
+    .select({ admin: purchaseRecords.admin, link: purchaseRecords.link })
+    .from(purchaseRecords)
+    .where(and(eq(purchaseRecords.userId, userId), sql`${purchaseRecords.admin} IS NOT NULL AND ${purchaseRecords.admin} != ''`));
+
+  // Aggregate admins + links from sale_records
+  const sales = await db
+    .select({ admin: saleRecords.admin, link: saleRecords.link })
+    .from(saleRecords)
+    .where(and(eq(saleRecords.userId, userId), sql`${saleRecords.admin} IS NOT NULL AND ${saleRecords.admin} != ''`));
+
+  // Build map: adminName -> Set of channel URLs
+  const adminMap = new Map<string, Set<string>>();
+  for (const row of [...purchases, ...sales]) {
+    if (!row.admin) continue;
+    const key = row.admin.trim();
+    if (!adminMap.has(key)) adminMap.set(key, new Set());
+    if (row.link) adminMap.get(key)!.add(row.link);
+  }
+
+  let created = 0;
+  let skipped = 0;
+  let channelsExtracted = 0;
+
+  for (const [adminName, linkSet] of Array.from(adminMap.entries())) {
+    if (existingNames.has(adminName.toLowerCase())) {
+      skipped++;
+      continue;
+    }
+
+    // Create client
+    const clientId = await createClient({
+      userId,
+      name: adminName,
+      maxNick: null,
+      type: "оба",
+      niche: null,
+      notes: null,
+    });
+    created++;
+
+    // Extract channels from links
+    const channelNames = new Set<string>();
+    for (const url of Array.from(linkSet)) {
+      const ch = extractChannelFromUrl(url);
+      if (ch) channelNames.add(ch);
+    }
+
+    if (channelNames.size > 0) {
+      await setClientChannels(
+        clientId,
+        Array.from(channelNames).map(name => ({ channelName: name, channelUrl: null, subscribers: null }))
+      );
+      channelsExtracted += channelNames.size;
+    }
+  }
+
+  return { created, skipped, channelsExtracted };
+}
+
+export async function getClientStats(clientId: number, userId: number): Promise<ClientStats | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const clientRow = await getClientById(clientId, userId);
+  if (!clientRow) return null;
+
+  // Get all purchases where admin matches client name
+  const purchases = await db
+    .select()
+    .from(purchaseRecords)
+    .where(and(
+      eq(purchaseRecords.userId, userId),
+      sql`LOWER(${purchaseRecords.admin}) = LOWER(${clientRow.name})`
+    ));
+
+  // Get all sales where admin matches client name
+  const sales = await db
+    .select()
+    .from(saleRecords)
+    .where(and(
+      eq(saleRecords.userId, userId),
+      sql`LOWER(${saleRecords.admin}) = LOWER(${clientRow.name})`
+    ));
+
+  const totalPurchaseCost = purchases.reduce((s, r) => s + (parseFloat(String(r.cost ?? "0")) || 0), 0);
+  const totalSaleRevenue = sales.reduce((s, r) => s + (parseFloat(String(r.cost ?? "0")) || 0), 0);
+
+  const purchasesWithReach = purchases.filter(r => r.reach != null && r.reach > 0);
+  const salesWithReach = sales.filter(r => r.reach != null && r.reach > 0);
+  const avgPurchaseReach = purchasesWithReach.length
+    ? purchasesWithReach.reduce((s, r) => s + (r.reach ?? 0), 0) / purchasesWithReach.length
+    : null;
+  const avgSaleReach = salesWithReach.length
+    ? salesWithReach.reduce((s, r) => s + (r.reach ?? 0), 0) / salesWithReach.length
+    : null;
+
+  const totalSubscribersGained = purchases.reduce((s, r) => s + (r.subscribersGained ?? 0), 0);
+  const purchasesWithSubs = purchases.filter(r => (r.subscribersGained ?? 0) > 0);
+  const avgCpf = purchasesWithSubs.length
+    ? purchasesWithSubs.reduce((s, r) => {
+        const cost = parseFloat(String(r.cost ?? "0")) || 0;
+        const subs = r.subscribersGained ?? 0;
+        return s + (subs > 0 ? cost / subs : 0);
+      }, 0) / purchasesWithSubs.length
+    : null;
+
+  const allDates = [
+    ...purchases.map(r => r.date),
+    ...sales.map(r => r.date),
+  ].filter(Boolean) as Date[];
+  const lastDealDate = allDates.length
+    ? new Date(Math.max(...allDates.map(d => d.getTime())))
+    : null;
+
+  return {
+    clientId,
+    clientName: clientRow.name,
+    maxNick: clientRow.maxNick,
+    type: clientRow.type,
+    niche: clientRow.niche,
+    notes: clientRow.notes,
+    channels: clientRow.channels,
+    purchaseCount: purchases.length,
+    saleCount: sales.length,
+    totalPurchaseCost,
+    totalSaleRevenue,
+    totalTurnover: totalPurchaseCost + totalSaleRevenue,
+    avgPurchaseReach: avgPurchaseReach ? Math.round(avgPurchaseReach) : null,
+    avgSaleReach: avgSaleReach ? Math.round(avgSaleReach) : null,
+    avgCpf: avgCpf ? Math.round(avgCpf * 100) / 100 : null,
+    totalSubscribersGained,
+    lastDealDate,
+    createdAt: clientRow.createdAt,
+  };
+}
+
+export async function getClientPurchases(clientId: number, userId: number): Promise<PurchaseRecord[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const clientRow = await getClientById(clientId, userId);
+  if (!clientRow) return [];
+  return db
+    .select()
+    .from(purchaseRecords)
+    .where(and(
+      eq(purchaseRecords.userId, userId),
+      sql`LOWER(${purchaseRecords.admin}) = LOWER(${clientRow.name})`
+    ))
+    .orderBy(desc(purchaseRecords.date));
+}
+
+export async function getClientSales(clientId: number, userId: number): Promise<SaleRecord[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const clientRow = await getClientById(clientId, userId);
+  if (!clientRow) return [];
+  return db
+    .select()
+    .from(saleRecords)
+    .where(and(
+      eq(saleRecords.userId, userId),
+      sql`LOWER(${saleRecords.admin}) = LOWER(${clientRow.name})`
+    ))
+    .orderBy(desc(saleRecords.date));
+}
+
+// ─── Client attributed CPF (combined algorithm C) ─────────────────────────────
+/**
+ * Per-purchase attributed CPF result.
+ * growthAttributed: subscriber growth attributed to this purchase
+ * cpf: cost per attributed follower (null if no growth or no snapshots)
+ * method: "reach" | "cost" | "none"
+ */
+export type AttributedPurchase = {
+  purchaseId: number;
+  channelId: number;
+  channelName: string;
+  date: Date;
+  cost: number;
+  reach: number | null;
+  growthAttributed: number | null;
+  cpf: number | null;
+  method: "reach" | "cost" | "none";
+};
+
+/**
+ * Calculate attributed CPF for all purchases of a given client.
+ *
+ * Algorithm C (combined):
+ *  1. For each purchase, find the snapshot week it falls into
+ *     (between prev snapshot date inclusive and curr snapshot date exclusive).
+ *  2. Collect all purchases for the same channel in that week.
+ *  3. If any purchase in the week has reach > 0 → distribute growth proportionally by reach.
+ *     Otherwise → distribute growth proportionally by cost.
+ *  4. If no snapshots cover the purchase date → fall back to subscribersGained field if set.
+ */
+export async function getClientAttributedCpf(
+  clientId: number,
+  userId: number
+): Promise<AttributedPurchase[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const clientRow = await getClientById(clientId, userId);
+  if (!clientRow) return [];
+
+  // All purchases for this client (matched by admin name)
+  const clientPurchases = await db
+    .select()
+    .from(purchaseRecords)
+    .where(and(
+      eq(purchaseRecords.userId, userId),
+      sql`LOWER(${purchaseRecords.admin}) = LOWER(${clientRow.name})`
+    ))
+    .orderBy(desc(purchaseRecords.date));
+
+  if (clientPurchases.length === 0) return [];
+
+  // Unique channel IDs involved
+  const channelIds = Array.from(new Set(clientPurchases.map(p => p.channelId)));
+
+  // All snapshots for these channels (ordered by channel + date)
+  const snapshots = await db
+    .select()
+    .from(channelSubscriberSnapshots)
+    .where(and(
+      eq(channelSubscriberSnapshots.userId, userId),
+      sql`${channelSubscriberSnapshots.channelId} IN (${sql.join(channelIds.map(id => sql`${id}`), sql`, `)})`
+    ))
+    .orderBy(channelSubscriberSnapshots.channelId, channelSubscriberSnapshots.snapshotDate);
+
+  // All purchases for these channels (to compute week totals)
+  const allChannelPurchases = await db
+    .select()
+    .from(purchaseRecords)
+    .where(and(
+      eq(purchaseRecords.userId, userId),
+      sql`${purchaseRecords.channelId} IN (${sql.join(channelIds.map(id => sql`${id}`), sql`, `)})`
+    ));
+
+  // Channel name map
+  const channelList = await db
+    .select({ id: channels.id, name: channels.name })
+    .from(channels)
+    .where(eq(channels.userId, userId));
+  const channelNameMap = new Map(channelList.map(c => [c.id, c.name]));
+
+  // Group snapshots by channelId
+  const snapsByChannel = new Map<number, typeof snapshots>();
+  for (const s of snapshots) {
+    if (!snapsByChannel.has(s.channelId)) snapsByChannel.set(s.channelId, []);
+    snapsByChannel.get(s.channelId)!.push(s);
+  }
+
+  // Build week intervals per channel: { channelId, prevDate, currDate, growth }
+  type WeekInterval = {
+    channelId: number;
+    prevDate: Date;
+    currDate: Date;
+    growth: number;
+  };
+  const weekIntervals: WeekInterval[] = [];
+  for (const [channelId, snaps] of Array.from(snapsByChannel)) {
+    for (let i = 1; i < snaps.length; i++) {
+      const prev = snaps[i - 1];
+      const curr = snaps[i];
+      const growth = (curr.subscriberCount ?? 0) - (prev.subscriberCount ?? 0);
+      weekIntervals.push({
+        channelId,
+        prevDate: new Date(prev.snapshotDate),
+        currDate: new Date(curr.snapshotDate),
+        growth,
+      });
+    }
+  }
+
+  // For each client purchase, find its week interval and compute attributed CPF
+  const result: AttributedPurchase[] = [];
+
+  for (const p of clientPurchases) {
+    const pDate = new Date(p.date);
+    const pCost = parseFloat(String(p.cost ?? "0")) || 0;
+    const pReach = p.reach ?? null;
+    const chName = channelNameMap.get(p.channelId) ?? `Канал ${p.channelId}`;
+
+    // Find matching week interval for this purchase
+    const interval = weekIntervals.find(
+      w => w.channelId === p.channelId && pDate >= w.prevDate && pDate < w.currDate
+    );
+
+    if (!interval) {
+      // No snapshot coverage — fall back to subscribersGained if available
+      const subs = p.subscribersGained ?? null;
+      result.push({
+        purchaseId: p.id,
+        channelId: p.channelId,
+        channelName: chName,
+        date: pDate,
+        cost: pCost,
+        reach: pReach,
+        growthAttributed: subs,
+        cpf: subs && subs > 0 ? Math.round((pCost / subs) * 100) / 100 : null,
+        method: "none",
+      });
+      continue;
+    }
+
+    if (interval.growth <= 0) {
+      // Negative or zero growth week — CPF undefined
+      result.push({
+        purchaseId: p.id,
+        channelId: p.channelId,
+        channelName: chName,
+        date: pDate,
+        cost: pCost,
+        reach: pReach,
+        growthAttributed: 0,
+        cpf: null,
+        method: interval.growth < 0 ? "none" : "none",
+      });
+      continue;
+    }
+
+    // All purchases for the same channel in this week
+    const weekPurchases = allChannelPurchases.filter(wp => {
+      const wpDate = new Date(wp.date);
+      return wp.channelId === p.channelId && wpDate >= interval.prevDate && wpDate < interval.currDate;
+    });
+
+    // Decide method: use reach if ANY purchase in the week has reach > 0
+    const anyHasReach = weekPurchases.some(wp => (wp.reach ?? 0) > 0);
+    const method: "reach" | "cost" = anyHasReach ? "reach" : "cost";
+
+    let share = 0;
+    if (method === "reach") {
+      const totalReach = weekPurchases.reduce((s, wp) => s + (wp.reach ?? 0), 0);
+      share = totalReach > 0 ? (pReach ?? 0) / totalReach : 0;
+    } else {
+      const totalCost = weekPurchases.reduce((s, wp) => s + (parseFloat(String(wp.cost ?? "0")) || 0), 0);
+      share = totalCost > 0 ? pCost / totalCost : 0;
+    }
+
+    const growthAttributed = Math.round(interval.growth * share);
+    const cpf = growthAttributed > 0 ? Math.round((pCost / growthAttributed) * 100) / 100 : null;
+
+    result.push({
+      purchaseId: p.id,
+      channelId: p.channelId,
+      channelName: chName,
+      date: pDate,
+      cost: pCost,
+      reach: pReach,
+      growthAttributed,
+      cpf,
+      method,
+    });
+  }
+
+  return result;
+}
+
+// ─── External Sales Analytics ──────────────────────────────────────────────────
+export async function getExternalSalesAnalytics(userId: number, months?: number) {
+  const db = await getDb();
+  if (!db) return { summary: [], totalRevenue: 0, totalCount: 0, byChannel: [], byMonth: [] };
+
+  // Get all external sales
+  const allSales = await db
+    .select()
+    .from(saleRecords)
+    .where(and(eq(saleRecords.userId, userId), eq(saleRecords.isExternal, true)))
+    .orderBy(desc(saleRecords.date));
+
+  // Filter by months if specified
+  const cutoff = months
+    ? new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000)
+    : null;
+  const filtered = cutoff
+    ? allSales.filter((r) => r.date && new Date(r.date) >= cutoff)
+    : allSales;
+
+  // Get all sales (including internal) for comparison
+  const allUserSales = await db
+    .select()
+    .from(saleRecords)
+    .where(eq(saleRecords.userId, userId));
+
+  const channels = await getChannelsByUser(userId);
+  const channelMap = Object.fromEntries(channels.map((c) => [c.id, c.name]));
+
+  // Total revenue from external sales
+  const totalRevenue = filtered.reduce((s, r) => s + (parseFloat(r.cost ?? "0") || 0), 0);
+  const totalCount = filtered.length;
+
+  // All sales revenue for comparison
+  const allRevenue = allUserSales.reduce((s, r) => s + (parseFloat(r.cost ?? "0") || 0), 0);
+  const externalShare = allRevenue > 0 ? Math.round((totalRevenue / allRevenue) * 100) : 0;
+
+  // By channel breakdown
+  const channelMap2: Record<number, { channelId: number; channelName: string; revenue: number; count: number; avgCost: number }> = {};
+  for (const r of filtered) {
+    if (!channelMap2[r.channelId]) {
+      channelMap2[r.channelId] = {
+        channelId: r.channelId,
+        channelName: channelMap[r.channelId] ?? `Канал ${r.channelId}`,
+        revenue: 0,
+        count: 0,
+        avgCost: 0,
+      };
+    }
+    channelMap2[r.channelId].revenue += parseFloat(r.cost ?? "0") || 0;
+    channelMap2[r.channelId].count += 1;
+  }
+  const byChannel = Object.values(channelMap2)
+    .map((c) => ({ ...c, avgCost: c.count > 0 ? Math.round(c.revenue / c.count) : 0 }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  // By month breakdown
+  const monthMap: Record<string, { month: string; revenue: number; count: number }> = {};
+  for (const r of filtered) {
+    const m = r.month ?? (r.date ? new Date(r.date).toISOString().slice(0, 7) : "unknown");
+    if (!monthMap[m]) monthMap[m] = { month: m, revenue: 0, count: 0 };
+    monthMap[m].revenue += parseFloat(r.cost ?? "0") || 0;
+    monthMap[m].count += 1;
+  }
+  const byMonth = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month));
+
+  // Last purchase date
+  const lastPurchaseDate = filtered.length > 0 ? filtered[0].date : null;
+
+  // Avg cost per external sale vs internal
+  const internalSales = allUserSales.filter((r) => !r.isExternal);
+  const avgExternalCost = totalCount > 0 ? Math.round(totalRevenue / totalCount) : 0;
+  const avgInternalCost = internalSales.length > 0
+    ? Math.round(internalSales.reduce((s, r) => s + (parseFloat(r.cost ?? "0") || 0), 0) / internalSales.length)
+    : 0;
+  const costPremium = avgInternalCost > 0
+    ? Math.round(((avgExternalCost - avgInternalCost) / avgInternalCost) * 100)
+    : null;
+
+  return {
+    totalRevenue: Math.round(totalRevenue),
+    totalCount,
+    externalShare,
+    avgExternalCost,
+    avgInternalCost,
+    costPremium,
+    lastPurchaseDate,
+    byChannel,
+    byMonth,
+  };
 }

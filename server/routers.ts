@@ -689,6 +689,7 @@ const aiRouter = router({
         if (c.avgSaleReach !== null) lines.push(`- 👁️ Ср. охват продажи: ${c.avgSaleReach.toLocaleString('ru-RU')}`);
         if (c.avgBuyerSubscribers !== null) lines.push(`- 🛒 Ср. размер канала-покупателя: ${c.avgBuyerSubscribers.toLocaleString('ru-RU')}`);
         if (c.mutualSalesCount > 0) lines.push(`- 🤝 ВП-продажи: ${c.mutualSalesCount} шт. на ${c.mutualSalesRevenue.toLocaleString('ru-RU')}₽`);
+        if (c.mutualPurchasesCount > 0) lines.push(`- 🤝 ВП-закупки: ${c.mutualPurchasesCount} шт. (доплата: ${c.mutualPurchasesTotal.toLocaleString('ru-RU')}₽)`);
         return lines.join('\n');
       }).join('\n\n');
 
@@ -807,7 +808,8 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
         if (c.avgCpf !== null) parts.push(`CPF: ${c.avgCpf}₽`);
         if (c.er24 !== null) parts.push(`ER24: ${c.er24.toFixed(1)}%`);
         if (c.topDirections.length > 0) parts.push(`ниши: ${c.topDirections.slice(0, 3).join(', ')}`);
-        if (c.mutualSalesCount > 0) parts.push(`ВП: ${c.mutualSalesCount} шт.`);
+        if (c.mutualSalesCount > 0) parts.push(`ВП-продажи: ${c.mutualSalesCount} шт.`);
+        if (c.mutualPurchasesCount > 0) parts.push(`ВП-закупки: ${c.mutualPurchasesCount} шт. (доплата: ${c.mutualPurchasesTotal.toLocaleString('ru-RU')}₽)`);
         if (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) parts.push(`⚠️ неопл.: ${(c.unpaidSalesTotal + c.unpaidPurchasesTotal).toLocaleString('ru-RU')}₽`);
         return parts.join(' | ');
       }).join('\n');
