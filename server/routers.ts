@@ -672,8 +672,9 @@ const aiRouter = router({
           lines.push(`- 🎯 Привлечено подписчиков: ${c.subscribersGained > 0 ? '+' + c.subscribersGained.toLocaleString('ru-RU') : '—'} | Ср. CPF: ${c.avgCpf !== null ? c.avgCpf + '₽' : '—'}`);
         }
         // Financial
-        lines.push(`- 💰 Доход: ${c.salesTotal.toLocaleString('ru-RU')}₽ (${c.salesCount} продаж) | Расход: ${c.purchasesTotal.toLocaleString('ru-RU')}₽ (${c.purchasesCount} закупок)`);
+        lines.push(`- 💰 Доход: ${c.salesTotal.toLocaleString('ru-RU')}₽ (${c.salesCount} продаж) | Реальный расход: ${(c as any).realPurchasesTotal.toLocaleString('ru-RU')}₽ (${c.purchasesCount} закупок)`);
         lines.push(`- 📈 Прибыль: ${c.profit.toLocaleString('ru-RU')}₽ | ROI: ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`);
+        if ((c as any).savedByVp > 0) lines.push(`- 🎁 Сэкономлено через ВП: ${(c as any).savedByVp.toLocaleString('ru-RU')}₽ (рыночная стоимость ${(c as any).mutualPurchasesCount} закупок)`);
         // Unpaid
         if (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) {
           lines.push(`- ⚠️ Неоплачено: продажи ${c.unpaidSalesTotal.toLocaleString('ru-RU')}₽, закупки ${c.unpaidPurchasesTotal.toLocaleString('ru-RU')}₽`);
@@ -689,7 +690,7 @@ const aiRouter = router({
         if (c.avgSaleReach !== null) lines.push(`- 👁️ Ср. охват продажи: ${c.avgSaleReach.toLocaleString('ru-RU')}`);
         if (c.avgBuyerSubscribers !== null) lines.push(`- 🛒 Ср. размер канала-покупателя: ${c.avgBuyerSubscribers.toLocaleString('ru-RU')}`);
         if (c.mutualSalesCount > 0) lines.push(`- 🤝 ВП-продажи: ${c.mutualSalesCount} шт. на ${c.mutualSalesRevenue.toLocaleString('ru-RU')}₽`);
-        if (c.mutualPurchasesCount > 0) lines.push(`- 🤝 ВП-закупки: ${c.mutualPurchasesCount} шт. (доплата: ${c.mutualPurchasesTotal.toLocaleString('ru-RU')}₽)`);
+        if (c.mutualPurchasesCount > 0) lines.push(`- 🤝 ВП-закупки: ${c.mutualPurchasesCount} шт. (в расходы НЕ входят, рыночная стоимость: ${(c as any).mutualPurchasesTotal.toLocaleString('ru-RU')}₽)`);
         return lines.join('\n');
       }).join('\n\n');
 
@@ -741,7 +742,8 @@ ${ctx_data.mutual.avgPartnerReach !== null ? `- Ср. охват партнёр�
 
 ОБЩИЕ ПОКАЗАТЕЛИ (${periodLabel}):
 - Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.salesCount, 0)} продаж)
-- Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.purchasesCount, 0)} закупок)
+- Реальный расход (без ВП): ${ctx_data.totalRealPurchases.toLocaleString('ru-RU')}₽ (${ctx_data.channels.reduce((s, c) => s + c.purchasesCount, 0)} закупок)
+${ctx_data.totalSavedByVp > 0 ? `- 🎁 Сэкономлено через ВП: ${ctx_data.totalSavedByVp.toLocaleString('ru-RU')}₽ (рыночная стоимость ${ctx_data.channels.reduce((s, c) => s + (c as any).mutualPurchasesCount, 0)} ВП-закупок)` : ''}
 - Прибыль (до расходов): ${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%
 ${expensesLine}
 ${netProfitLine}
@@ -799,7 +801,7 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
 
       const channelsList = ctx_data.channels.map(c => {
         const parts = [
-          `**${c.channelName}**: доход ${c.salesTotal.toLocaleString('ru-RU')}₽ / расход ${c.purchasesTotal.toLocaleString('ru-RU')}₽ / прибыль ${c.profit.toLocaleString('ru-RU')}₽ / ROI ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`,
+          `**${c.channelName}**: доход ${c.salesTotal.toLocaleString('ru-RU')}₽ / реальный расход ${(c as any).realPurchasesTotal.toLocaleString('ru-RU')}₽ / прибыль ${c.profit.toLocaleString('ru-RU')}₽ / ROI ${c.roi === Infinity ? '∞' : c.roi.toFixed(0)}%`,
         ];
         if (c.currentSubscribers !== null) {
           const wgStr = c.weeklyGrowth != null ? ` (${c.weeklyGrowth >= 0 ? '+' : ''}${c.weeklyGrowth} нед.)` : '';
@@ -809,7 +811,7 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
         if (c.er24 !== null) parts.push(`ER24: ${c.er24.toFixed(1)}%`);
         if (c.topDirections.length > 0) parts.push(`ниши: ${c.topDirections.slice(0, 3).join(', ')}`);
         if (c.mutualSalesCount > 0) parts.push(`ВП-продажи: ${c.mutualSalesCount} шт.`);
-        if (c.mutualPurchasesCount > 0) parts.push(`ВП-закупки: ${c.mutualPurchasesCount} шт. (доплата: ${c.mutualPurchasesTotal.toLocaleString('ru-RU')}₽)`);
+        if (c.mutualPurchasesCount > 0) parts.push(`ВП-закупки: ${c.mutualPurchasesCount} шт. (сэкономлено: ${(c as any).savedByVp.toLocaleString('ru-RU')}₽, в расходы не входят)`);
         if (c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) parts.push(`⚠️ неопл.: ${(c.unpaidSalesTotal + c.unpaidPurchasesTotal).toLocaleString('ru-RU')}₽`);
         return parts.join(' | ');
       }).join('\n');
@@ -825,10 +827,13 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
 
       const periodLabel = input.month ? `за ${input.month}` : 'за всё время';
       const profitSign = ctx_data.totalProfit >= 0 ? '+' : '';
+      const digestVpLine = ctx_data.totalSavedByVp > 0
+        ? `\n- 🎁 Сэкономлено через ВП: ${ctx_data.totalSavedByVp.toLocaleString('ru-RU')}₽ (рыночная стоимость ВП-закупок, в расходы не входит)`
+        : '';
       const prompt = `Составь мотивирующий бизнес-дайджест ${periodLabel} для владельца рекламных каналов в Макс/Телеграм. Обращайсь на «ты».
 
 ДАННЫЕ:
-- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Расход: ${ctx_data.totalPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${profitSign}${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%${digestExpenseLine}
+- Доход: ${ctx_data.totalSales.toLocaleString('ru-RU')}₽ | Реальный расход (без ВП): ${ctx_data.totalRealPurchases.toLocaleString('ru-RU')}₽ | Прибыль: ${profitSign}${ctx_data.totalProfit.toLocaleString('ru-RU')}₽ | ROI: ${ctx_data.overallROI.toFixed(1)}%${digestExpenseLine}${digestVpLine}
 - Подписчиков: ${ctx_data.totalCurrentSubscribers.toLocaleString('ru-RU')} | Привлечено: +${ctx_data.totalSubscribersGained.toLocaleString('ru-RU')}${digestCpfLine}${mutualLine}
 
 По каналам:

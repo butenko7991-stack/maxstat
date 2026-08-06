@@ -794,7 +794,7 @@ export async function getChannelProfitability(
     .where(and(...saleConds))
     .groupBy(saleRecords.channelId);
 
-  // Purchases aggregation per channel
+  // Purchases aggregation per channel (split real vs VP)
   const purchaseConds: any[] = [eq(purchaseRecords.userId, userId)];
   if (month) purchaseConds.push(eq(purchaseRecords.month, month));
 
@@ -803,7 +803,9 @@ export async function getChannelProfitability(
       channelId: purchaseRecords.channelId,
       total: sql<string>`COALESCE(SUM(CAST(${purchaseRecords.cost} AS DECIMAL(12,2))), 0)`,
       count: sql<string>`COUNT(*)`,
-      unpaid: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseRecords.paymentStatus} != 'paid' THEN CAST(${purchaseRecords.cost} AS DECIMAL(12,2)) ELSE 0 END), 0)`,
+      unpaid: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseRecords.paymentStatus} != 'paid' AND ${purchaseRecords.isMutual} = 0 THEN CAST(${purchaseRecords.cost} AS DECIMAL(12,2)) ELSE 0 END), 0)`,
+      realTotal: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseRecords.isMutual} = 0 THEN CAST(${purchaseRecords.cost} AS DECIMAL(12,2)) ELSE 0 END), 0)`,
+      vpTotal: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseRecords.isMutual} = 1 THEN CAST(${purchaseRecords.cost} AS DECIMAL(12,2)) ELSE 0 END), 0)`,
     })
     .from(purchaseRecords)
     .where(and(...purchaseConds))
@@ -835,7 +837,8 @@ export async function getChannelProfitability(
       profit: 0, roi: 0, avgSaleCost: 0, avgPurchaseCost: 0,
       unpaidSalesTotal: 0, unpaidPurchasesTotal: 0,
     };
-    entry.purchasesTotal = parseFloat(row.total);
+    const realTotal = parseFloat((row as any).realTotal ?? row.total);
+    entry.purchasesTotal = realTotal; // use real (non-VP) purchases for profit/ROI
     entry.purchasesCount = parseInt(row.count);
     entry.unpaidPurchasesTotal = parseFloat(row.unpaid);
     entry.avgPurchaseCost = entry.purchasesCount > 0 ? entry.purchasesTotal / entry.purchasesCount : 0;
@@ -1613,7 +1616,9 @@ export interface AiChannelData {
   mutualSalesCount: number; // isMutual=true sales
   mutualSalesRevenue: number;
   mutualPurchasesCount: number; // isMutual=true purchases
-  mutualPurchasesTotal: number; // sum of VP purchase costs
+  mutualPurchasesTotal: number; // market value of VP purchases (not real spend)
+  realPurchasesTotal: number; // actual cash spent (excluding VP)
+  savedByVp: number; // market value of VP = mutualPurchasesTotal
 
   avgBuyerSubscribers: number | null;
 }
@@ -1644,6 +1649,9 @@ export interface AiContext {
   totalExpenses: number;
   netProfit: number;
   expensesByCategory: Record<string, number>;
+  // VP savings
+  totalSavedByVp: number; // total market value of all VP purchases
+  totalRealPurchases: number; // actual cash spent on purchases
 }
 
 export async function getAiContext(userId: number, month?: string): Promise<AiContext> {
@@ -1655,6 +1663,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     totalSales: 0, totalPurchases: 0, totalProfit: 0, overallROI: 0,
     totalSubscribersGained: 0, totalCurrentSubscribers: 0, overallAvgCpf: null,
     totalExpenses: 0, netProfit: 0, expensesByCategory: {},
+    totalSavedByVp: 0, totalRealPurchases: 0,
   };
   if (!db) return empty;
 
@@ -1732,7 +1741,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     topDirections: [], topTariffs: [], avgPurchaseReach: null, avgSpm: null,
     avgSourceSubscribers: null,
     platforms: [], avgSaleReach: null, mutualSalesCount: 0, mutualSalesRevenue: 0,
-    mutualPurchasesCount: 0, mutualPurchasesTotal: 0,
+    mutualPurchasesCount: 0, mutualPurchasesTotal: 0, realPurchasesTotal: 0, savedByVp: 0,
     avgBuyerSubscribers: null,
   });
 
@@ -1758,9 +1767,15 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     const cost = parseFloat(String(p.cost ?? 0));
     e.purchasesTotal += cost;
     e.purchasesCount += 1;
-    if (p.paymentStatus !== "paid") e.unpaidPurchasesTotal += cost;
+    if (!p.isMutual && p.paymentStatus !== "paid") e.unpaidPurchasesTotal += cost;
     if (p.subscribersGained) e.subscribersGained += p.subscribersGained;
-    if (p.isMutual) { e.mutualPurchasesCount += 1; e.mutualPurchasesTotal += cost; }
+    if (p.isMutual) {
+      e.mutualPurchasesCount += 1;
+      e.mutualPurchasesTotal += cost;
+      e.savedByVp += cost;
+    } else {
+      e.realPurchasesTotal += cost;
+    }
 
     if (p.direction) {
       const dir = p.direction.trim();
@@ -1827,27 +1842,29 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     }
   }
 
-  // Finalize profit/ROI
+  // Finalize profit/ROI (based on real cash purchases only, VP excluded)
   const channelsList: AiChannelData[] = [];
   for (const e of Array.from(channelDataMap.values())) {
-    e.profit = e.salesTotal - e.purchasesTotal;
-    e.roi = e.purchasesTotal > 0
-      ? ((e.salesTotal - e.purchasesTotal) / e.purchasesTotal) * 100
+    e.profit = e.salesTotal - e.realPurchasesTotal;
+    e.roi = e.realPurchasesTotal > 0
+      ? ((e.salesTotal - e.realPurchasesTotal) / e.realPurchasesTotal) * 100
       : (e.salesTotal > 0 ? Infinity : 0);
     channelsList.push(e);
   }
   channelsList.sort((a, b) => b.profit - a.profit);
 
-  // Totals
+  // Totals (real cash only — VP excluded from purchases/profit/ROI)
   const totalSales = channelsList.reduce((s, c) => s + c.salesTotal, 0);
-  const totalPurchases = channelsList.reduce((s, c) => s + c.purchasesTotal, 0);
-  const totalProfit = totalSales - totalPurchases;
-  const overallROI = totalPurchases > 0 ? ((totalSales - totalPurchases) / totalPurchases) * 100 : 0;
+  const totalRealPurchases = channelsList.reduce((s, c) => s + c.realPurchasesTotal, 0);
+  const totalSavedByVp = channelsList.reduce((s, c) => s + c.savedByVp, 0);
+  const totalPurchases = totalRealPurchases; // for backward compat in return
+  const totalProfit = totalSales - totalRealPurchases;
+  const overallROI = totalRealPurchases > 0 ? ((totalSales - totalRealPurchases) / totalRealPurchases) * 100 : 0;
   const totalSubscribersGained = channelsList.reduce((s, c) => s + c.subscribersGained, 0);
   const totalCurrentSubscribers = channelsList.reduce((s, c) => s + (c.currentSubscribers ?? 0), 0);
-  // Overall weighted CPF: total purchases / total subscribers gained (across all channels)
+  // Overall weighted CPF: real purchases / total subscribers gained
   const totalSubsGainedForCpf = channelsList.reduce((s, c) => s + c.subscribersGained, 0);
-  const totalPurchasesForCpf = channelsList.reduce((s, c) => s + c.purchasesTotal, 0);
+  const totalPurchasesForCpf = totalRealPurchases;
   const overallAvgCpf = totalSubsGainedForCpf > 0
     ? Math.round((totalPurchasesForCpf / totalSubsGainedForCpf) * 100) / 100
     : null;
@@ -1863,6 +1880,7 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
     totalSales, totalPurchases, totalProfit, overallROI,
     totalSubscribersGained, totalCurrentSubscribers, overallAvgCpf,
     totalExpenses, netProfit, expensesByCategory: expenseSummary.byCategory,
+    totalSavedByVp, totalRealPurchases,
   };
 }
 // ─── Expenses ───────────────────────────────────────────────────────────────

@@ -875,7 +875,7 @@ export default function AIAnalyticsPage() {
                       </div>
                       <div className="rounded-lg bg-red-500/10 p-1.5">
                         <p className="text-[10px] text-muted-foreground">Расход</p>
-                        <p className="text-xs font-semibold text-red-400">{formatCurrency(c.purchasesTotal)}</p>
+                        <p className="text-xs font-semibold text-red-400">{formatCurrency((c as any).realPurchasesTotal ?? c.purchasesTotal)}</p>
                         <p className="text-[10px] text-muted-foreground">{c.purchasesCount} закуп.</p>
                       </div>
                       <div className={`rounded-lg p-1.5 ${c.profit >= 0 ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
@@ -898,6 +898,9 @@ export default function AIAnalyticsPage() {
                       )}
                       {(c as any).mutualPurchasesCount > 0 && (
                         <span className="text-[10px] bg-purple-500/15 text-purple-300 rounded-full px-2 py-0.5">🤝 ВП-зак: {(c as any).mutualPurchasesCount}</span>
+                      )}
+                      {(c as any).savedByVp > 0 && (
+                        <span className="text-[10px] bg-green-500/15 text-green-300 rounded-full px-2 py-0.5">🎁 Сэкон.: {formatCurrency((c as any).savedByVp)}</span>
                       )}
                     </div>
                     {(c.unpaidSalesTotal > 0 || c.unpaidPurchasesTotal > 0) && (
