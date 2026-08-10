@@ -736,12 +736,13 @@ export default function SchedulePage() {
 
                           if (booked) {
                             const status = records[0]?.paymentStatus ?? "unpaid";
-                            const cc = CELL_COLORS[status] ?? CELL_COLORS.unpaid;
+                            const isVpSale = (((mutualDateMap[channel.id]?.[dateStr]?.[slot] ?? mutualDateMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0;
+                            const cc = isVpSale ? MUTUAL_CELL : (CELL_COLORS[status] ?? CELL_COLORS.unpaid);
                             return (
                               <button
                                 key={dateStr}
                                 onClick={() => openDetail(channel.id, channel.name, dateStr, slot)}
-                                className={cn("relative rounded-lg border transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group", cc.bg, cc.border, cc.hover)}
+                                className={cn("relative rounded-lg border transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group", cc.bg, cc.border, cc.hover, isVpSale && "ring-1 ring-violet-500/50")}
                               >
                                 <div className="flex items-start justify-between gap-1 min-w-0">
                                   <span className={cn("text-[10px] font-semibold leading-tight truncate min-w-0 block", cc.text)}>
@@ -956,11 +957,16 @@ export default function SchedulePage() {
                                     });
                                   }}
                                   className={cn("relative rounded-lg border transition-colors p-1.5 text-left min-h-[52px] w-full overflow-hidden group",
-                                    (() => { const pcc = CELL_COLORS[purchases[0]?.paymentStatus ?? "unpaid"] ?? CELL_COLORS.unpaid; return `${pcc.bg} ${pcc.border} ${pcc.hover}`; })()
+                                    (() => {
+                                      const isVpPurchase = (((mutualPurchaseMap[channel.id]?.[dateStr]?.[slot] ?? mutualPurchaseMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0;
+                                      const pcc2 = isVpPurchase ? MUTUAL_CELL : (CELL_COLORS[purchases[0]?.paymentStatus ?? "unpaid"] ?? CELL_COLORS.unpaid);
+                                      return `${pcc2.bg} ${pcc2.border} ${pcc2.hover}${isVpPurchase ? " ring-1 ring-violet-500/50" : ""}`;
+                                    })()
                                   )}
                                 >
                                   {(() => {
-                                    const pcc = CELL_COLORS[purchases[0]?.paymentStatus ?? "unpaid"] ?? CELL_COLORS.unpaid;
+                                    const isVpPurchaseInner = (((mutualPurchaseMap[channel.id]?.[dateStr]?.[slot] ?? mutualPurchaseMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0;
+                                    const pcc = isVpPurchaseInner ? MUTUAL_CELL : (CELL_COLORS[purchases[0]?.paymentStatus ?? "unpaid"] ?? CELL_COLORS.unpaid);
                                     const pStatus = purchases[0]?.paymentStatus ?? "unpaid";
                                     return (
                                       <>
