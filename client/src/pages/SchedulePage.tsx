@@ -126,11 +126,6 @@ export default function SchedulePage() {
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
-  // Refs to always read latest form state in onSubmit (avoids stale closure bug with isMutual)
-  const purchaseFormRef = useRef(purchaseForm);
-  useEffect(() => { purchaseFormRef.current = purchaseForm; }, [purchaseForm]);
-  const editPurchaseFormRef = useRef(editPurchaseForm);
-  useEffect(() => { editPurchaseFormRef.current = editPurchaseForm; }, [editPurchaseForm]);
   // Multi-select state
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<Array<{ channelId: number; channelName: string; dateStr: string; slot: Slot }>>([]);
@@ -172,6 +167,11 @@ export default function SchedulePage() {
   // Edit state for purchases
   const [editPurchaseId, setEditPurchaseId] = useState<number | null>(null);
   const [editPurchaseForm, setEditPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
+  // Refs to always read latest form state in onSubmit (avoids stale closure bug with isMutual)
+  const purchaseFormRef = useRef(purchaseForm);
+  useEffect(() => { purchaseFormRef.current = purchaseForm; }, [purchaseForm]);
+  const editPurchaseFormRef = useRef(editPurchaseForm);
+  useEffect(() => { editPurchaseFormRef.current = editPurchaseForm; }, [editPurchaseForm]);
   const [editPurchaseOpen, setEditPurchaseOpen] = useState(false);
   // Mutual deal detail popup
   const [mutualDetail, setMutualDetail] = useState<null | {
