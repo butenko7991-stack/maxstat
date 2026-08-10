@@ -106,11 +106,15 @@ export default function SummaryPage() {
     () =>
       filteredSummaries.reduce(
         (acc, s) => ({
-          spend: acc.spend + s.totalPurchaseCost,
+          spend: acc.spend + ((s as any).realPurchaseCost ?? s.totalPurchaseCost),
           income: acc.income + s.totalSaleRevenue,
           profit: acc.profit + s.profit,
+          vpPurchaseCount: acc.vpPurchaseCount + ((s as any).vpPurchaseCount ?? 0),
+          vpPurchaseCost: acc.vpPurchaseCost + ((s as any).vpPurchaseCost ?? 0),
+          vpSaleCount: acc.vpSaleCount + ((s as any).vpSaleCount ?? 0),
+          vpSaleRevenue: acc.vpSaleRevenue + ((s as any).vpSaleRevenue ?? 0),
         }),
-        { spend: 0, income: 0, profit: 0 }
+        { spend: 0, income: 0, profit: 0, vpPurchaseCount: 0, vpPurchaseCost: 0, vpSaleCount: 0, vpSaleRevenue: 0 }
       ),
     [filteredSummaries]
   );
@@ -135,7 +139,7 @@ export default function SummaryPage() {
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
               <SelectItem value="all">Все каналы</SelectItem>
-              {(channels ?? []).map((c) => (
+              {(channels ?? []).filter((c) => c.isVisible !== false).map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.name}
                 </SelectItem>
@@ -187,6 +191,36 @@ export default function SummaryPage() {
               signed
             />
           </div>
+
+          {/* VP summary card */}
+          {((totals as any).vpPurchaseCount > 0 || (totals as any).vpSaleCount > 0) && (
+            <div className="glass rounded-xl p-4 border border-violet-500/30 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-violet-300">🤝 Взаимный пиар (ВП)</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {(totals as any).vpPurchaseCount > 0 && (
+                  <div className="bg-violet-500/10 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">ВП-закупки</p>
+                    <p className="text-sm font-bold text-violet-300">{(totals as any).vpPurchaseCount} шт.</p>
+                    <p className="text-xs text-muted-foreground">рын. стоимость: {formatCost((totals as any).vpPurchaseCost)} ₽</p>
+                  </div>
+                )}
+                {(totals as any).vpSaleCount > 0 && (
+                  <div className="bg-violet-500/10 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">ВП-продажи</p>
+                    <p className="text-sm font-bold text-violet-300">{(totals as any).vpSaleCount} шт.</p>
+                    <p className="text-xs text-muted-foreground">сумма: {formatCost((totals as any).vpSaleRevenue)} ₽</p>
+                  </div>
+                )}
+                <div className="bg-emerald-500/10 rounded-lg p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">Сэкономлено</p>
+                  <p className="text-sm font-bold text-emerald-400">+{formatCost((totals as any).vpPurchaseCost)} ₽</p>
+                  <p className="text-xs text-muted-foreground">не вошло в расходы</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Unpaid debts widget */}
           {unpaidDebts && (unpaidDebts.unpaidPurchases > 0 || unpaidDebts.unpaidSales > 0) && (
@@ -341,43 +375,73 @@ export default function SummaryPage() {
               </div>
 
               {/* Line chart: profit per month */}
-              <div className="glass rounded-xl p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-primary" />
-                  <h2 className="text-sm font-semibold text-foreground">Динамика прибыли по месяцам</h2>
-                </div>
-                <ResponsiveContainer width="100%" height={180}>
-                  <LineChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis
-                      dataKey="month"
-                      tickFormatter={shortMonth}
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v: number) =>
-                        v >= 1000 ? `${(v / 1000).toFixed(0)}к` : String(v)
-                      }
-                      width={38}
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Line
-                      type="monotone"
-                      dataKey="profit"
-                      name="Прибыль"
-                      stroke="oklch(0.72 0.19 290)"
-                      strokeWidth={2.5}
-                      dot={{ fill: "oklch(0.72 0.19 290)", r: 4, strokeWidth: 0 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              {(() => {
+                const hasExpenses = (chartData ?? []).some((d) => (d as { expenses?: number }).expenses ?? 0 > 0);
+                return (
+                  <div className="glass rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                      <h2 className="text-sm font-semibold text-foreground">Динамика прибыли по месяцам</h2>
+                      {hasExpenses && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          пунктир = чистая (после расходов)
+                        </span>
+                      )}
+                    </div>
+                    <ResponsiveContainer width="100%" height={hasExpenses ? 210 : 180}>
+                      <LineChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                        <XAxis
+                          dataKey="month"
+                          tickFormatter={shortMonth}
+                          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                          axisLine={false}
+                          tickLine={false}
+                          tickFormatter={(v: number) =>
+                            v >= 1000 ? `${(v / 1000).toFixed(0)}к` : String(v)
+                          }
+                          width={38}
+                        />
+                        <Tooltip content={<ChartTooltip />} />
+                        {hasExpenses && (
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}>{value}</span>
+                            )}
+                          />
+                        )}
+                        <Line
+                          type="monotone"
+                          dataKey="profit"
+                          name="Валовая прибыль"
+                          stroke="oklch(0.72 0.19 290)"
+                          strokeWidth={hasExpenses ? 1.5 : 2.5}
+                          strokeOpacity={hasExpenses ? 0.5 : 1}
+                          strokeDasharray={hasExpenses ? "4 3" : undefined}
+                          dot={{ fill: "oklch(0.72 0.19 290)", r: hasExpenses ? 2 : 4, strokeWidth: 0 }}
+                          activeDot={{ r: 5 }}
+                        />
+                        {hasExpenses && (
+                          <Line
+                            type="monotone"
+                            dataKey="netProfit"
+                            name="Чистая прибыль"
+                            stroke="oklch(0.62 0.18 155)"
+                            strokeWidth={2.5}
+                            dot={{ fill: "oklch(0.62 0.18 155)", r: 4, strokeWidth: 0 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="glass rounded-xl p-8 flex flex-col items-center gap-3 text-center">
@@ -481,7 +545,7 @@ function ChannelCard({ summary: s }: ChannelCardProps) {
           <div>
             <p className="font-medium text-foreground text-sm">{s.channelName}</p>
             <p className="text-xs text-muted-foreground">
-              {s.purchaseCount} закупов · {s.saleCount} продаж
+              {s.purchaseCount} закупов · {s.saleCount} продаж{((s as any).vpPurchaseCount ?? 0) + ((s as any).vpSaleCount ?? 0) > 0 ? ` · 🤝 ВП: ${((s as any).vpPurchaseCount ?? 0) + ((s as any).vpSaleCount ?? 0)}` : ""}
             </p>
           </div>
         </div>
@@ -511,7 +575,7 @@ function ChannelCard({ summary: s }: ChannelCardProps) {
             />
           </div>
           <span className="text-xs font-medium text-loss w-24 text-right shrink-0">
-            {formatCost(s.totalPurchaseCost)} ₽
+            {formatCost((s as any).realPurchaseCost ?? s.totalPurchaseCost)} ₽
           </span>
         </div>
         <div className="flex items-center gap-3">

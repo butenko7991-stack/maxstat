@@ -316,6 +316,11 @@ export interface ChannelSummary {
   profit: number;
   purchaseCount: number;
   saleCount: number;
+  vpPurchaseCount: number;
+  vpPurchaseCost: number;
+  vpSaleCount: number;
+  vpSaleRevenue: number;
+  realPurchaseCost: number;
 }
 
 export async function getFinancialSummary(
@@ -358,17 +363,43 @@ export async function getFinancialSummary(
       .from(saleRecords)
       .where(and(...saleConditions));
 
+    const vpPurchaseAgg = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(CAST(cost AS DECIMAL(12,2))), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(purchaseRecords)
+      .where(and(...purchaseConditions, eq(purchaseRecords.isMutual, true)));
+
+    const vpSaleAgg = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(CAST(cost AS DECIMAL(12,2))), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(saleRecords)
+      .where(and(...saleConditions, eq(saleRecords.isMutual, true)));
+
     const totalPurchaseCost = parseFloat(purchaseAgg[0]?.total ?? "0");
     const totalSaleRevenue = parseFloat(saleAgg[0]?.total ?? "0");
+    const vpPurchaseCost = parseFloat(vpPurchaseAgg[0]?.total ?? "0");
+    const vpPurchaseCount = Number(vpPurchaseAgg[0]?.count ?? 0);
+    const vpSaleRevenue = parseFloat(vpSaleAgg[0]?.total ?? "0");
+    const vpSaleCount = Number(vpSaleAgg[0]?.count ?? 0);
+    const realPurchaseCost = totalPurchaseCost - vpPurchaseCost;
 
     summaries.push({
       channelId: channel.id,
       channelName: channel.name,
       totalPurchaseCost,
       totalSaleRevenue,
-      profit: totalSaleRevenue - totalPurchaseCost,
+      profit: totalSaleRevenue - realPurchaseCost,
       purchaseCount: Number(purchaseAgg[0]?.count ?? 0),
       saleCount: Number(saleAgg[0]?.count ?? 0),
+      vpPurchaseCount,
+      vpPurchaseCost,
+      vpSaleCount,
+      vpSaleRevenue,
+      realPurchaseCost,
     });
   }
 
