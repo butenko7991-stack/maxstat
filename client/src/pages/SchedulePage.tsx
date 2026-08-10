@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import AppLayout from "@/components/AppLayout";
 import { trpc } from "@/lib/trpc";
 import { cn, formatCost } from "@/lib/utils";
@@ -126,6 +126,11 @@ export default function SchedulePage() {
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
+  // Refs to always read latest form state in onSubmit (avoids stale closure bug with isMutual)
+  const purchaseFormRef = useRef(purchaseForm);
+  useEffect(() => { purchaseFormRef.current = purchaseForm; }, [purchaseForm]);
+  const editPurchaseFormRef = useRef(editPurchaseForm);
+  useEffect(() => { editPurchaseFormRef.current = editPurchaseForm; }, [editPurchaseForm]);
   // Multi-select state
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<Array<{ channelId: number; channelName: string; dateStr: string; slot: Slot }>>([]);
@@ -702,7 +707,7 @@ export default function SchedulePage() {
                         const total = weekDates.reduce((s, d) => s + (Object.values(mutualDateMap[channel.id]?.[toIso(d)] ?? {}).reduce((a, b) => a + b.length, 0)), 0);
                         return total > 0 ? (
                           <span className="ml-2 text-[10px] text-violet-400 flex-inline items-center gap-1">
-                            ⇄ {total} взаим.
+                            ВП: {total}
                           </span>
                         ) : null;
                       })()}
@@ -777,7 +782,7 @@ export default function SchedulePage() {
                                     onClick={(e) => { e.stopPropagation(); const m = (mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0]; setMutualDetail({ id: m.id, partnerChannel: m.partnerChannel ?? null, dopDirection: m.dopDirection ?? null, dopAmount: m.dopAmount ?? null }); }}
                                   >
                                     <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                      ⇄ ВП: {(mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0].partnerChannel}
+                                      ВП: {(mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0].partnerChannel}
                                     </span>
                                   </div>
                                 )}
@@ -828,7 +833,7 @@ export default function SchedulePage() {
                                 >
                                   <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
                                     <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                      ⇄ {(mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0].partnerChannel}
+                                      ВП: {(mutualDateMap[channel.id][dateStr][slot] ?? mutualDateMap[channel.id][dateStr]["__any__"] ?? [])[0].partnerChannel}
                                     </span>
                                   </div>
                                 </div>
@@ -915,7 +920,7 @@ export default function SchedulePage() {
                           const total = weekDates.reduce((s, d) => s + (Object.values(mutualPurchaseMap[channel.id]?.[toIso(d)] ?? {}).reduce((a, b) => a + b.length, 0)), 0);
                           return total > 0 ? (
                             <span className="ml-2 text-[10px] text-violet-400">
-                              ⇄ {total} взаим.
+                              ВП: {total}
                             </span>
                           ) : null;
                         })()}
@@ -985,7 +990,7 @@ export default function SchedulePage() {
                                             onClick={(e) => { e.stopPropagation(); const m = (mutualPurchaseMap[channel.id][dateStr][slot] ?? mutualPurchaseMap[channel.id][dateStr]["__any__"] ?? [])[0]; setMutualDetail({ id: m.id, partnerChannel: (m as any).partnerChannel ?? null, dopDirection: (m as any).dopDirection ?? null, dopAmount: (m as any).dopAmount ?? null }); }}
                                           >
                                             <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                              ⇄ ВП: {(mutualPurchaseMap[channel.id][dateStr][slot] ?? mutualPurchaseMap[channel.id][dateStr]["__any__"] ?? [])[0].admin ?? "ВП"}
+                                              ВП: {(mutualPurchaseMap[channel.id][dateStr][slot] ?? mutualPurchaseMap[channel.id][dateStr]["__any__"] ?? [])[0].admin ?? "ВП"}
                                             </span>
                                           </div>
                                         )}
@@ -1028,7 +1033,7 @@ export default function SchedulePage() {
                                   >
                                     <div className="flex items-center gap-0.5 rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.5 overflow-hidden">
                                       <span className="text-[9px] text-violet-300 truncate leading-tight">
-                                        ⇄ ВП
+                                        ВП
                                       </span>
                                     </div>
                                   </div>
@@ -1057,7 +1062,7 @@ export default function SchedulePage() {
             onSubmit={(e: React.FormEvent) => {
               e.preventDefault();
               if (!purchaseForm.channelId || !purchaseForm.date) return;
-              const f = purchaseForm;
+              const f = purchaseFormRef.current;
               createPurchaseMutation.mutate({
                 channelId: Number(f.channelId),
                 date: f.date,
@@ -1476,7 +1481,7 @@ export default function SchedulePage() {
           onSubmit={(e: React.FormEvent) => {
             e.preventDefault();
             if (!editPurchaseId || !editPurchaseForm.channelId || !editPurchaseForm.date) return;
-            const f = editPurchaseForm;
+            const f = editPurchaseFormRef.current;
             updatePurchaseMutation.mutate({
               id: editPurchaseId,
               channelId: Number(f.channelId),
