@@ -1,0 +1,111 @@
+name: Deploy Max Ads Manager to Beget VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: max-ads-manager-vps-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Test, build and deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.4.1'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run regression tests
+        run: pnpm test
+
+      - name: Build production release
+        run: pnpm build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Archive release
+        run: tar -czf dist.tar.gz dist/
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BEGET_SSH_KEY }}
+
+      - name: Trust VPS host key
+        run: ssh-keyscan -H "$BEGET_HOST" >> ~/.ssh/known_hosts
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+
+      - name: Upload release archive
+        run: scp dist.tar.gz "$BEGET_USER@$BEGET_HOST:/tmp/max-ads-manager-dist.tar.gz"
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+          BEGET_USER: ${{ secrets.BEGET_USER }}
+
+      - name: Deploy, verify, and roll back on failure
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+          BEGET_USER: ${{ secrets.BEGET_USER }}
+        run: |
+          ssh "$BEGET_USER@$BEGET_HOST" 'bash -s' <<'REMOTE'
+            set -Eeuo pipefail
+
+            APP_DIR="/opt/max-ads-manager"
+            RELEASE_DIR="$APP_DIR/releases"
+            ARCHIVE="/tmp/max-ads-manager-dist.tar.gz"
+            RELEASE_ID="$(date +%Y%m%d_%H%M%S)"
+            RELEASE_BACKUP="$RELEASE_DIR/dist_${RELEASE_ID}.tar.gz"
+
+            mkdir -p "$RELEASE_DIR"
+            test -f "$ARCHIVE"
+
+            if [ -d "$APP_DIR/dist" ]; then
+              tar -czf "$RELEASE_BACKUP" -C "$APP_DIR" dist
+            fi
+
+            rollback() {
+              echo "Health check failed. Rolling back release."
+              rm -rf "$APP_DIR/dist"
+              if [ -f "$RELEASE_BACKUP" ]; then
+                tar -xzf "$RELEASE_BACKUP" -C "$APP_DIR"
+              fi
+              pm2 restart max-ads-manager
+              exit 1
+            }
+
+            rm -rf "$APP_DIR/dist"
+            tar -xzf "$ARCHIVE" -C "$APP_DIR"
+            rm -f "$ARCHIVE"
+            pm2 restart max-ads-manager
+
+            for attempt in {1..10}; do
+              if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/schedule >/dev/null; then
+                echo "Deployment health check passed."
+                find "$RELEASE_DIR" -type f -name 'dist_*.tar.gz' -printf '%T@ %p\n' | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -f
+                exit 0
+              fi
+              sleep 3
+            done
+
+            rollback
+          REMOTE
