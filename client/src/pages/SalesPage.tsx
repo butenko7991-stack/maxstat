@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Plus, TrendingUp, Pencil, Trash2, X, Check,
@@ -67,6 +67,14 @@ export default function SalesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<SaleFormData>(EMPTY_FORM);
+  const formRef = useRef<SaleFormData>(EMPTY_FORM);
+  const updateForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
+    setForm((previous) => {
+      const next = typeof updater === "function" ? updater(previous) : updater;
+      formRef.current = next;
+      return next;
+    });
+  }, []);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [exportPending, setExportPending] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
@@ -251,11 +259,11 @@ export default function SalesPage() {
     refetchExport();
   }
 
-  function openCreate() { setEditingId(null); setForm({ ...EMPTY_FORM }); setConflictError(null); setDialogOpen(true); }
+  function openCreate() { setEditingId(null); updateForm({ ...EMPTY_FORM }); setConflictError(null); setDialogOpen(true); }
   function openEdit(r: NonNullable<typeof records>[number]) {
     setEditingId(r.id);
     setConflictError(null);
-    setForm({
+    updateForm({
       channelId: String(r.channelId), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : todayIso(),
       admin: r.admin ?? "", link: r.link ?? "", timeSlot: (r.timeSlot as TimeSlot) ?? "",
       bookingSlot: (r.bookingSlot as "" | "утро" | "обед" | "вечер" | "ночной топ") ?? "",
@@ -273,27 +281,28 @@ export default function SalesPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.channelId || !form.date) return;
+    const currentForm = formRef.current;
+    if (!currentForm.channelId || !currentForm.date) return;
     const payload = {
-      channelId: Number(form.channelId), date: form.date,
-      admin: form.admin || undefined, link: form.link || undefined,
-      timeSlot: (form.timeSlot || undefined) as TimeSlot | undefined,
-      bookingSlot: (form.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
-      tariff: form.tariff || undefined, platform: form.platform || undefined,
-      spm: form.spm || undefined,
-      reach: form.reach ? Number(form.reach) : undefined,
-      cost: form.cost || undefined,
-      paymentStatus: form.paymentStatus, month: form.month,
-      postNotNeeded: form.postNotNeeded,
-      isExternal: form.isExternal,
-      isMutual: form.isMutual,
-      partnerChannel: form.partnerChannel || undefined,
-      ourReach: form.ourReach ? Number(form.ourReach) : undefined,
-      partnerReach: form.partnerReach ? Number(form.partnerReach) : undefined,
-      dopDirection: form.dopDirection !== "none" ? form.dopDirection : undefined,
-      dopAmount: form.dopAmount || undefined,
-      buyerSubscribers: form.buyerSubscribers ? Number(form.buyerSubscribers) : undefined,
-      notes: form.notes || undefined,
+      channelId: Number(currentForm.channelId), date: currentForm.date,
+      admin: currentForm.admin || undefined, link: currentForm.link || undefined,
+      timeSlot: (currentForm.timeSlot || undefined) as TimeSlot | undefined,
+      bookingSlot: (currentForm.bookingSlot || undefined) as "утро" | "обед" | "вечер" | "ночной топ" | undefined,
+      tariff: currentForm.tariff || undefined, platform: currentForm.platform || undefined,
+      spm: currentForm.spm || undefined,
+      reach: currentForm.reach ? Number(currentForm.reach) : undefined,
+      cost: currentForm.cost || undefined,
+      paymentStatus: currentForm.paymentStatus, month: currentForm.month,
+      postNotNeeded: currentForm.postNotNeeded,
+      isExternal: currentForm.isExternal,
+      isMutual: currentForm.isMutual,
+      partnerChannel: currentForm.partnerChannel || undefined,
+      ourReach: currentForm.ourReach ? Number(currentForm.ourReach) : undefined,
+      partnerReach: currentForm.partnerReach ? Number(currentForm.partnerReach) : undefined,
+      dopDirection: currentForm.dopDirection !== "none" ? currentForm.dopDirection : undefined,
+      dopAmount: currentForm.dopAmount || undefined,
+      buyerSubscribers: currentForm.buyerSubscribers ? Number(currentForm.buyerSubscribers) : undefined,
+      notes: currentForm.notes || undefined,
     };
     if (editingId) { updateMutation.mutate({ id: editingId, ...payload }); }
     else { createMutation.mutate(payload); }
@@ -568,7 +577,7 @@ export default function SalesPage() {
         title={editingId ? "Редактировать продажу" : "Новая запись продажи"}
         channels={channels ?? []}
         form={form}
-        setForm={(updater) => { setConflictError(null); setForm(updater); }}
+        setForm={(updater) => { setConflictError(null); updateForm(updater); }}
         onSubmit={handleSubmit}
         isPending={isPending}
         suggestions={suggestions}
