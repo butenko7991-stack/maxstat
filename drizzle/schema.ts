@@ -307,3 +307,40 @@ export const postAnalytics = mysqlTable("post_analytics", {
 });
 export type PostAnalytics = typeof postAnalytics.$inferSelect;
 export type InsertPostAnalytics = typeof postAnalytics.$inferInsert;
+
+// ─── Clients (CRM) ──────────────────────────────────────────────────────────
+
+export const clients = mysqlTable("clients", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  /** Display name (how you know this partner) */
+  name: varchar("name", { length: 255 }).notNull(),
+  /** Their Max/Telegram username */
+  maxNick: varchar("maxNick", { length: 255 }),
+  /** Relationship type */
+  type: mysqlEnum("type", ["продаём", "закупаем", "оба"]).default("оба").notNull(),
+  /** Niche / topic */
+  niche: varchar("niche", { length: 255 }),
+  /** Free-text notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Client = typeof clients.$inferSelect;
+export type InsertClient = typeof clients.$inferInsert;
+
+export const clientChannels = mysqlTable("client_channels", {
+  id: int("id").autoincrement().primaryKey(),
+  clientId: int("clientId").notNull(),
+  /** Channel name / handle */
+  channelName: varchar("channelName", { length: 255 }).notNull(),
+  /** Channel URL (t.me/... or iimax.ru/...) */
+  channelUrl: varchar("channelUrl", { length: 1024 }),
+  /** Approximate subscriber count */
+  subscribers: int("subscribers"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ClientChannel = typeof clientChannels.$inferSelect;
+export type InsertClientChannel = typeof clientChannels.$inferInsert;
