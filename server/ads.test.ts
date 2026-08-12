@@ -14,6 +14,7 @@ vi.mock("./db", () => ({
   createChannel: vi.fn().mockResolvedValue(2),
   updateChannel: vi.fn().mockResolvedValue(undefined),
   deleteChannel: vi.fn().mockResolvedValue(undefined),
+  countChannelRecords: vi.fn().mockResolvedValue({ purchases: 0, sales: 0 }),
   getPurchaseRecords: vi.fn().mockResolvedValue([
     {
       id: 1, userId: 1, channelId: 1, date: new Date("2026-05-01"),
