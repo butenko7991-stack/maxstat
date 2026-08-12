@@ -123,6 +123,8 @@ export default function SchedulePage() {
   const [activeTab, setActiveTab] = useState<"sales" | "purchases">("sales");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saleForm, setSaleForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
+  const saleFormRef = useRef(saleForm);
+  useEffect(() => { saleFormRef.current = saleForm; }, [saleForm]);
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
@@ -162,6 +164,8 @@ export default function SchedulePage() {
   // Edit state for sales
   const [editSaleId, setEditSaleId] = useState<number | null>(null);
   const [editSaleForm, setEditSaleForm] = useState<SaleFormData>({ ...EMPTY_SALE_FORM });
+  const editSaleFormRef = useRef(editSaleForm);
+  useEffect(() => { editSaleFormRef.current = editSaleForm; }, [editSaleForm]);
   const [editSaleOpen, setEditSaleOpen] = useState(false);
   const [editSaleConflictError, setEditSaleConflictError] = useState<string | null>(null);
   // Edit state for purchases
@@ -1114,7 +1118,7 @@ export default function SchedulePage() {
             onSubmit={(e: React.FormEvent) => {
               e.preventDefault();
               if (!saleForm.channelId || !saleForm.date) return;
-              const f = saleForm;
+              const f = saleFormRef.current;
               createSaleMutation.mutate({
                 channelId: Number(f.channelId), date: f.date,
                 admin: f.admin || undefined, link: f.link || undefined,
@@ -1402,7 +1406,7 @@ export default function SchedulePage() {
           onSubmit={(e: React.FormEvent) => {
             e.preventDefault();
             if (!editSaleId || !editSaleForm.channelId || !editSaleForm.date) return;
-            const f = editSaleForm;
+            const f = editSaleFormRef.current;
             updateSaleMutation.mutate({
               id: editSaleId,
               channelId: Number(f.channelId), date: f.date,
