@@ -287,13 +287,13 @@ export async function getVisibleChannelsByUser(userId: number): Promise<Channel[
   return db
     .select()
     .from(channels)
-    .where(and(eq(channels.userId, userId), eq(channels.isVisible, true)))
+    .where(eq(channels.userId, userId))
     .orderBy(channels.createdAt);
 }
 export async function updateChannel(
   id: number,
   userId: number,
-  data: Partial<Pick<InsertChannel, "name" | "description" | "isVisible">>
+  data: Partial<Pick<InsertChannel, "name" | "description">>
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -930,11 +930,11 @@ export async function getChannelProfitability(
     };
   }
 
-  // Get user channels (only visible ones for analytics)
+  // Get workspace channels for analytics.
   const userChannels = await db
     .select({ id: channels.id, name: channels.name })
     .from(channels)
-    .where(and(eq(channels.userId, userId), eq(channels.isVisible, true)));
+    .where(eq(channels.userId, userId));
   const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
   const visibleChannelIds = new Set(userChannels.map((c) => c.id));
   // Sales aggregation per channell
@@ -1825,9 +1825,9 @@ export async function getAiContext(userId: number, month?: string): Promise<AiCo
   };
   if (!db) return empty;
 
-  // ── Channels (only visible ones for AI analytics) ────────────────────────
+  // ── Workspace channels for AI analytics ──────────────────────────────────
   const userChannels = await db.select({ id: channels.id, name: channels.name })
-    .from(channels).where(and(eq(channels.userId, userId), eq(channels.isVisible, true)));
+    .from(channels).where(eq(channels.userId, userId));
   const channelMap = new Map(userChannels.map((c) => [c.id, c.name]));
 
   // ── Sales ─────────────────────────────────────────────────────────────────

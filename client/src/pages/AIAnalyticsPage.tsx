@@ -38,7 +38,7 @@ function SubscribersTab({ month }: { month?: string }) {
   const { data: channels } = trpc.channels.list.useQuery();
   const [selectedChannelId, setSelectedChannelId] = useState<string>("all");
 
-  const visibleChannels = useMemo(() => channels?.filter((c) => c.isVisible !== false) ?? [], [channels]);
+  const visibleChannels = useMemo(() => channels ?? [], [channels]);
   const channelIds = useMemo(() => {
     if (!visibleChannels.length) return [];
     if (selectedChannelId === "all") return visibleChannels.map((c) => c.id);

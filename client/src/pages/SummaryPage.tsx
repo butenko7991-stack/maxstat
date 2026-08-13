@@ -139,7 +139,7 @@ export default function SummaryPage() {
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
               <SelectItem value="all">Все каналы</SelectItem>
-              {(channels ?? []).filter((c) => c.isVisible !== false).map((c) => (
+              {(channels ?? []).map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.name}
                 </SelectItem>

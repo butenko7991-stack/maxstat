@@ -375,7 +375,7 @@ export default function SchedulePage() {
   }, [purchaseByIdQuery.data, editPurchaseId]);
 
   const visibleChannels = useMemo(() => {
-    const onlyVisible = channels.filter((c) => c.isVisible !== false);
+    const onlyVisible = channels;
     if (channelFilter === "all") return onlyVisible;
     return onlyVisible.filter((c) => String(c.id) === channelFilter);
   }, [channels, channelFilter]);

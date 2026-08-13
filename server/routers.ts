@@ -101,18 +101,11 @@ const channelsRouter = router({
         id: z.number().int().positive(),
         name: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
-        isVisible: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...rest } = input;
       await updateChannel(id, ctx.user.id, rest);
-      return { success: true };
-    }),
-  setVisibility: protectedProcedure
-    .input(z.object({ id: z.number().int().positive(), isVisible: z.boolean() }))
-    .mutation(async ({ ctx, input }) => {
-      await updateChannel(input.id, ctx.user.id, { isVisible: input.isVisible });
       return { success: true };
     }),
   delete: protectedProcedure
