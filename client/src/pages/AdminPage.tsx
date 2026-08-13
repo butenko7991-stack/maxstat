@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Shield, Users, Link2, Trash2, UserCog, Check } from "lucide-react";
+import { Shield, Users, Link2, Trash2, UserCog, Check, UserPlus, Crown } from "lucide-react";
 import { toast } from "sonner";
 
 const ROLE_LABELS: Record<string, string> = {
+  owner: "Владелец",
   admin: "Админ",
   buyer: "Закупщик",
   manager: "Менеджер",
@@ -16,6 +17,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const ROLE_COLORS: Record<string, string> = {
+  owner: "bg-amber-500/20 text-amber-300 border-amber-500/30",
   admin: "bg-violet-500/20 text-violet-300 border-violet-500/30",
   buyer: "bg-blue-500/20 text-blue-300 border-blue-500/30",
   manager: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
@@ -25,6 +27,8 @@ const ROLE_COLORS: Record<string, string> = {
 export default function AdminPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("users");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "buyer" as "admin" | "buyer" | "manager" });
 
   // Users data
   const { data: allUsers, refetch: refetchUsers } = trpc.admin.users.useQuery();
@@ -41,6 +45,15 @@ export default function AdminPage() {
   });
   const setAssignmentsMutation = trpc.admin.setAssignments.useMutation({
     onSuccess: () => { refetchAssignments(); toast.success("Назначения обновлены"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const createUserMutation = trpc.admin.createUser.useMutation({
+    onSuccess: () => {
+      refetchUsers();
+      setCreateDialogOpen(false);
+      setNewUser({ name: "", email: "", password: "", role: "buyer" });
+      toast.success("Пользователь создан. Передайте ему email и временный пароль.");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -76,7 +89,12 @@ export default function AdminPage() {
     );
   };
 
-  if (user?.role !== "admin") {
+  const openCreateDialog = () => {
+    setNewUser({ name: "", email: "", password: "", role: user?.role === "owner" ? "admin" : "buyer" });
+    setCreateDialogOpen(true);
+  };
+
+  if (user?.role !== "admin" && user?.role !== "owner") {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
@@ -94,10 +112,16 @@ export default function AdminPage() {
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
           <Shield className="w-5 h-5 text-white" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl font-semibold text-foreground">Админ-панель</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Управление командой и назначение каналов</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {user?.role === "owner" ? "Ваши админы и команда. Их учёт изолирован от ваших данных." : "Ваша команда и назначение каналов"}
+          </p>
         </div>
+        <Button size="sm" className="gap-1.5" onClick={openCreateDialog}>
+          <UserPlus className="w-4 h-4" />
+          {user?.role === "owner" ? "Добавить в команду" : "Добавить сотрудника"}
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -126,14 +150,15 @@ export default function AdminPage() {
                       <p className="font-medium text-foreground truncate">{u.name || "Без имени"}</p>
                       <p className="text-xs text-muted-foreground truncate">{u.email || u.openId}</p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${ROLE_COLORS[u.role]}`}>
-                      {ROLE_LABELS[u.role]}
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${ROLE_COLORS[u.role] ?? ROLE_COLORS.user}`}>
+                      {u.role === "owner" && <Crown className="inline w-3 h-3 mr-1 -mt-0.5" />}
+                      {ROLE_LABELS[u.role] ?? "Пользователь"}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2">
                     {/* Role selector */}
-                    <Select
+                    {u.role !== "owner" && u.role !== "admin" && <Select
                       value={u.role}
                       onValueChange={(role) => {
                         if (u.id === user?.id) {
@@ -147,12 +172,10 @@ export default function AdminPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-popover border-border">
-                        <SelectItem value="admin">Админ</SelectItem>
                         <SelectItem value="buyer">Закупщик</SelectItem>
                         <SelectItem value="manager">Менеджер</SelectItem>
-                        <SelectItem value="user">Пользователь</SelectItem>
                       </SelectContent>
-                    </Select>
+                    </Select>}
 
                     {/* Assign channels button */}
                     {(u.role === "buyer" || u.role === "manager") && (
@@ -168,7 +191,7 @@ export default function AdminPage() {
                     )}
 
                     {/* Delete button */}
-                    {u.id !== user?.id && (
+                    {u.id !== user?.id && u.role !== "admin" && u.role !== "owner" && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -218,6 +241,53 @@ export default function AdminPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="bg-popover border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle>{user?.role === "owner" ? "Добавить администратора или сотрудника" : "Добавить сотрудника"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <label className="block text-sm font-medium text-foreground">
+              Имя
+              <input value={newUser.name} onChange={(e) => setNewUser((v) => ({ ...v, name: e.target.value }))} className="mt-1.5 w-full h-10 rounded-lg border border-input bg-background px-3 text-sm" placeholder="Например, Анна" />
+            </label>
+            <label className="block text-sm font-medium text-foreground">
+              Email для входа
+              <input type="email" value={newUser.email} onChange={(e) => setNewUser((v) => ({ ...v, email: e.target.value }))} className="mt-1.5 w-full h-10 rounded-lg border border-input bg-background px-3 text-sm" placeholder="name@example.com" />
+            </label>
+            <label className="block text-sm font-medium text-foreground">
+              Временный пароль
+              <input type="password" value={newUser.password} onChange={(e) => setNewUser((v) => ({ ...v, password: e.target.value }))} className="mt-1.5 w-full h-10 rounded-lg border border-input bg-background px-3 text-sm" placeholder="Не менее 8 символов" />
+            </label>
+            <label className="block text-sm font-medium text-foreground">
+              Роль
+              <Select value={newUser.role} onValueChange={(role) => setNewUser((v) => ({ ...v, role: role as typeof newUser.role }))}>
+                <SelectTrigger className="mt-1.5 w-full bg-background"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-popover border-border">
+                  {user?.role === "owner" ? (
+                    <SelectItem value="admin">Администратор — отдельные каналы и учёт</SelectItem>
+                  ) : (
+                    <>
+                      <SelectItem value="buyer">Закупщик — каналы назначает админ</SelectItem>
+                      <SelectItem value="manager">Менеджер — каналы назначает админ</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>Отмена</Button>
+            <Button
+              disabled={createUserMutation.isPending || !newUser.name.trim() || !newUser.email.trim() || newUser.password.length < 8}
+              onClick={() => createUserMutation.mutate(newUser)}
+            >
+              {createUserMutation.isPending ? "Создаю..." : "Создать пользователя"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Channel Assignment Dialog */}
       <Dialog open={assignDialog.open} onOpenChange={(open) => setAssignDialog((p) => ({ ...p, open }))}>

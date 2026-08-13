@@ -29,15 +29,13 @@ import {
   getScheduleData,
   checkBookingConflict,
   getChannelProfitability,
-  getAllUsers,
-  updateUserRole,
-  deleteUser,
-  getChannelAssignments,
-  getUserAssignments,
-  setUserChannelAssignments,
-  deleteChannelAssignment,
-  getAssignedChannelIds,
-  getAllChannels,
+  createWorkspaceUser,
+  deleteWorkspaceUser,
+  getWorkspaceChannelAssignments,
+  getWorkspaceUserAssignments,
+  getWorkspaceUsers,
+  setWorkspaceUserChannelAssignments,
+  updateWorkspaceUserRole,
   getMutualDeals,
   getMutualDealById,
   createMutualDeal,
@@ -78,6 +76,7 @@ import {
 import { sql, and, eq } from "drizzle-orm";
 import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
+import { hashPassword } from "./_core/localAuth";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -1058,7 +1057,7 @@ ${channelsList}
 });
 // ─── Admin procedure guard ─────────────────────────────────────────────────────────────────────────────
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin") {
+  if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Доступ только для администраторов" });
   }
   return next({ ctx });
@@ -1066,38 +1065,77 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
 
 // ─── Admin router ──────────────────────────────────────────────────────────────────────────────────────
 const adminRouter = router({
-  /** List all users */
-  users: adminProcedure.query(() => getAllUsers()),
+  /** List only the members of the current owner's or admin's own team. */
+  users: adminProcedure.query(({ ctx }) => getWorkspaceUsers(ctx.user.id)),
+
+  /** Owner can create independent admins; any admin can add employees to their own team. */
+  createUser: adminProcedure
+    .input(z.object({
+      name: z.string().trim().min(2).max(255),
+      email: z.string().trim().email().max(320),
+      password: z.string().min(8).max(128),
+      role: z.enum(["admin", "buyer", "manager"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const ownerCreatesAdmin = ctx.user.role === "owner" && input.role === "admin";
+      const adminCreatesEmployee = ctx.user.role === "admin" && (input.role === "buyer" || input.role === "manager");
+      if (!ownerCreatesAdmin && !adminCreatesEmployee) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: ctx.user.role === "owner"
+            ? "Владелец создаёт независимых администраторов"
+            : "Администратор создаёт только закупщиков и менеджеров своей команды",
+        });
+      }
+      const passwordHash = await hashPassword(input.password);
+      try {
+        const created = await createWorkspaceUser({
+          name: input.name,
+          email: input.email.toLowerCase(),
+          passwordHash,
+          role: input.role,
+          teamOwnerId: ctx.user.id,
+        });
+        return { id: created?.id };
+      } catch (error) {
+        if (String(error).includes("Duplicate")) {
+          throw new TRPCError({ code: "CONFLICT", message: "Пользователь с таким email уже существует" });
+        }
+        throw error;
+      }
+    }),
 
   /** Update user role */
   updateRole: adminProcedure
     .input(z.object({
       userId: z.number().int().positive(),
-      role: z.enum(["user", "admin", "buyer", "manager"]),
+      role: z.enum(["buyer", "manager"]),
     }))
-    .mutation(async ({ input }) => {
-      await updateUserRole(input.userId, input.role);
+    .mutation(async ({ ctx, input }) => {
+      const updated = await updateWorkspaceUserRole(input.userId, ctx.user.id, input.role);
+      if (!updated) throw new TRPCError({ code: "FORBIDDEN", message: "Нельзя изменить роль этого пользователя" });
       return { success: true };
     }),
 
   /** Delete a user */
   deleteUser: adminProcedure
     .input(z.object({ userId: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
-      await deleteUser(input.userId);
+    .mutation(async ({ ctx, input }) => {
+      const deleted = await deleteWorkspaceUser(input.userId, ctx.user.id);
+      if (!deleted) throw new TRPCError({ code: "FORBIDDEN", message: "Нельзя удалить владельца или администратора рабочей зоны" });
       return { success: true };
     }),
 
-  /** Get all channels (across all owners) */
-  allChannels: adminProcedure.query(() => getAllChannels()),
+  /** Get only the workspace channels available for employee assignment. */
+  allChannels: adminProcedure.query(({ ctx }) => getChannelsByUser(ctx.user.id)),
 
-  /** Get all channel assignments */
-  assignments: adminProcedure.query(() => getChannelAssignments()),
+  /** Get only assignments inside the current workspace. */
+  assignments: adminProcedure.query(({ ctx }) => getWorkspaceChannelAssignments(ctx.user.id)),
 
   /** Get assignments for a specific user */
   userAssignments: adminProcedure
     .input(z.object({ userId: z.number().int().positive() }))
-    .query(({ input }) => getUserAssignments(input.userId)),
+    .query(({ ctx, input }) => getWorkspaceUserAssignments(input.userId, ctx.user.id)),
 
   /** Set channel assignments for a user (replaces all) */
   setAssignments: adminProcedure
@@ -1106,15 +1144,8 @@ const adminRouter = router({
       channelIds: z.array(z.number().int().positive()),
     }))
     .mutation(async ({ ctx, input }) => {
-      await setUserChannelAssignments(input.userId, input.channelIds, ctx.user.id);
-      return { success: true };
-    }),
-
-  /** Delete a single assignment */
-  deleteAssignment: adminProcedure
-    .input(z.object({ id: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
-      await deleteChannelAssignment(input.id);
+      const assigned = await setWorkspaceUserChannelAssignments(input.userId, ctx.user.id, input.channelIds, ctx.user.id);
+      if (!assigned) throw new TRPCError({ code: "FORBIDDEN", message: "Можно назначать только свои каналы закупщикам и менеджерам своей команды" });
       return { success: true };
     }),
 });

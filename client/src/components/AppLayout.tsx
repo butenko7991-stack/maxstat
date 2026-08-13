@@ -19,15 +19,15 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 
 const NAV_ITEMS = [
-  { href: "/channels", label: "Каналы", icon: Layers, roles: ["admin", "user"] as string[] },
-  { href: "/purchases", label: "Закуп", icon: ShoppingCart, roles: ["admin", "user", "buyer"] as string[] },
-  { href: "/sales", label: "Продажа", icon: TrendingUp, roles: ["admin", "user", "manager"] as string[] },
-  { href: "/mutual", label: "ВП (взаимки)", icon: Handshake, roles: ["admin", "user"] as string[] },
-  { href: "/schedule", label: "Расписание", icon: CalendarDays, roles: ["admin", "user", "buyer", "manager"] as string[] },
-  { href: "/summary", label: "Итоги", icon: BarChart3, roles: ["admin", "user"] as string[] },
-  { href: "/expenses", label: "Расходы", icon: Receipt, roles: ["admin", "user"] as string[] },
-  { href: "/ai", label: "AI Аналитика", icon: Sparkles, roles: ["admin", "user"] as string[] },
-  { href: "/admin", label: "Админ-панель", icon: Shield, roles: ["admin"] as string[] },
+  { href: "/channels", label: "Каналы", icon: Layers, roles: ["owner", "admin", "user"] as string[] },
+  { href: "/purchases", label: "Закуп", icon: ShoppingCart, roles: ["owner", "admin", "user", "buyer"] as string[] },
+  { href: "/sales", label: "Продажа", icon: TrendingUp, roles: ["owner", "admin", "user", "manager"] as string[] },
+  { href: "/mutual", label: "ВП (взаимки)", icon: Handshake, roles: ["owner", "admin", "user"] as string[] },
+  { href: "/schedule", label: "Расписание", icon: CalendarDays, roles: ["owner", "admin", "user", "buyer", "manager"] as string[] },
+  { href: "/summary", label: "Итоги", icon: BarChart3, roles: ["owner", "admin", "user"] as string[] },
+  { href: "/expenses", label: "Расходы", icon: Receipt, roles: ["owner", "admin", "user"] as string[] },
+  { href: "/ai", label: "AI Аналитика", icon: Sparkles, roles: ["owner", "admin", "user"] as string[] },
+  { href: "/admin", label: "Команда", icon: Shield, roles: ["owner", "admin"] as string[] },
 ];
 
 interface AppLayoutProps {

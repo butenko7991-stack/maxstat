@@ -17,7 +17,10 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   passwordHash: varchar("passwordHash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin", "buyer", "manager"]).default("user").notNull(),
+  /** Owner controls only their own workspace and can create independent admins. */
+  role: mysqlEnum("role", ["owner", "admin", "buyer", "manager", "user"]).default("user").notNull(),
+  /** Administrator whose workspace owns this employee. For an admin, stores the owner that created them. */
+  teamOwnerId: int("teamOwnerId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

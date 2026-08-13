@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   Channel,
@@ -74,8 +74,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     values.role = user.role;
     updateSet.role = user.role;
   } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
+    values.role = "owner";
+    updateSet.role = "owner";
   }
 
   if (!values.lastSignedIn) values.lastSignedIn = new Date();
@@ -103,7 +103,8 @@ export async function createLocalUser(data: {
   name: string;
   email: string;
   passwordHash: string;
-  role?: "user" | "admin" | "buyer" | "manager";
+  role?: "owner" | "user" | "admin" | "buyer" | "manager";
+  teamOwnerId?: number | null;
 }): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -114,6 +115,7 @@ export async function createLocalUser(data: {
     passwordHash: data.passwordHash,
     loginMethod: "local",
     role: data.role ?? "user",
+    teamOwnerId: data.teamOwnerId ?? null,
     lastSignedIn: new Date(),
   });
 }
@@ -122,6 +124,131 @@ export async function updateUserPasswordHash(openId: string, passwordHash: strin
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ passwordHash }).where(eq(users.openId, openId));
+}
+
+export type ManagedRole = "admin" | "buyer" | "manager" | "user";
+
+export async function getWorkspaceUsers(workspaceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: users.id,
+      openId: users.openId,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      teamOwnerId: users.teamOwnerId,
+      createdAt: users.createdAt,
+      lastSignedIn: users.lastSignedIn,
+    })
+    .from(users)
+    .where(or(eq(users.id, workspaceId), eq(users.teamOwnerId, workspaceId)))
+    .orderBy(desc(users.createdAt));
+}
+
+export async function getWorkspaceUser(userId: number, workspaceId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, userId), or(eq(users.id, workspaceId), eq(users.teamOwnerId, workspaceId))))
+    .limit(1);
+  return result[0];
+}
+
+export async function createWorkspaceUser(data: {
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: ManagedRole;
+  teamOwnerId: number;
+}) {
+  const openId = crypto.randomUUID();
+  await createLocalUser({ ...data, openId });
+  return getUserByEmail(data.email);
+}
+
+export async function updateWorkspaceUserRole(userId: number, workspaceId: number, role: ManagedRole) {
+  const db = await getDb();
+  if (!db) return false;
+  const member = await getWorkspaceUser(userId, workspaceId);
+  if (!member || member.id === workspaceId || member.role === "owner") return false;
+  await db.update(users).set({ role }).where(eq(users.id, userId));
+  return true;
+}
+
+export async function deleteWorkspaceUser(userId: number, workspaceId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const member = await getWorkspaceUser(userId, workspaceId);
+  if (!member || member.id === workspaceId || member.role === "owner") return false;
+  await db.delete(channelAssignments).where(eq(channelAssignments.userId, userId));
+  await db.delete(users).where(eq(users.id, userId));
+  return true;
+}
+
+export async function getWorkspaceChannelAssignments(workspaceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: channelAssignments.id,
+      userId: channelAssignments.userId,
+      channelId: channelAssignments.channelId,
+      assignedBy: channelAssignments.assignedBy,
+      createdAt: channelAssignments.createdAt,
+      userName: users.name,
+      userRole: users.role,
+      channelName: channels.name,
+    })
+    .from(channelAssignments)
+    .innerJoin(users, eq(channelAssignments.userId, users.id))
+    .innerJoin(channels, eq(channelAssignments.channelId, channels.id))
+    .where(eq(channels.userId, workspaceId))
+    .orderBy(desc(channelAssignments.createdAt));
+}
+
+export async function getWorkspaceUserAssignments(userId: number, workspaceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: channelAssignments.id,
+      channelId: channelAssignments.channelId,
+      channelName: channels.name,
+    })
+    .from(channelAssignments)
+    .innerJoin(channels, eq(channelAssignments.channelId, channels.id))
+    .where(and(eq(channelAssignments.userId, userId), eq(channels.userId, workspaceId)));
+}
+
+export async function setWorkspaceUserChannelAssignments(
+  userId: number,
+  workspaceId: number,
+  channelIds: number[],
+  assignedBy: number
+) {
+  const db = await getDb();
+  if (!db) return false;
+  const member = await getWorkspaceUser(userId, workspaceId);
+  if (!member || member.id === workspaceId || !["buyer", "manager"].includes(member.role)) return false;
+  const uniqueChannelIds = Array.from(new Set(channelIds));
+  if (uniqueChannelIds.length > 0) {
+    const workspaceChannels = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.userId, workspaceId), inArray(channels.id, uniqueChannelIds)));
+    if (workspaceChannels.length !== uniqueChannelIds.length) return false;
+  }
+  await db.delete(channelAssignments).where(eq(channelAssignments.userId, userId));
+  if (uniqueChannelIds.length > 0) {
+    await db.insert(channelAssignments).values(
+      uniqueChannelIds.map((channelId) => ({ userId, channelId, assignedBy }))
+    );
+  }
+  return true;
 }
 
 // ─── Channels ─────────────────────────────────────────────────────────────────

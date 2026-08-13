@@ -5,7 +5,10 @@ import type { TrpcContext } from "./_core/context";
 // ─── Mock DB helpers ─────────────────────────────────────────────────────────
 
 vi.mock("./db", () => ({
-  getChannelsByUser: vi.fn().mockResolvedValue([]),
+  getChannelsByUser: vi.fn().mockResolvedValue([
+    { id: 1, userId: 1, name: "Канал 1", description: null },
+    { id: 2, userId: 1, name: "Канал 2", description: null },
+  ]),
   getChannelById: vi.fn().mockResolvedValue(null),
   createChannel: vi.fn().mockResolvedValue(1),
   updateChannel: vi.fn().mockResolvedValue(undefined),
@@ -30,26 +33,21 @@ vi.mock("./db", () => ({
   upsertUser: vi.fn().mockResolvedValue(undefined),
   getUserByOpenId: vi.fn().mockResolvedValue(undefined),
   getChannelProfitability: vi.fn().mockResolvedValue({ totalSales: 0, totalPurchases: 0, totalProfit: 0, overallROI: 0, channelCount: 0, salesCount: 0, purchasesCount: 0, channels: [], topChannel: null, worstChannel: null }),
-  getAllUsers: vi.fn().mockResolvedValue([
+  getWorkspaceUsers: vi.fn().mockResolvedValue([
     { id: 1, openId: "admin-1", name: "Админ", email: "admin@test.com", role: "admin", createdAt: new Date(), lastSignedIn: new Date() },
     { id: 2, openId: "buyer-1", name: "Закупщик", email: "buyer@test.com", role: "buyer", createdAt: new Date(), lastSignedIn: new Date() },
     { id: 3, openId: "manager-1", name: "Менеджер", email: "mgr@test.com", role: "manager", createdAt: new Date(), lastSignedIn: new Date() },
   ]),
-  updateUserRole: vi.fn().mockResolvedValue(undefined),
-  deleteUser: vi.fn().mockResolvedValue(undefined),
-  getChannelAssignments: vi.fn().mockResolvedValue([
+  createWorkspaceUser: vi.fn().mockResolvedValue({ id: 4 }),
+  updateWorkspaceUserRole: vi.fn().mockResolvedValue(true),
+  deleteWorkspaceUser: vi.fn().mockResolvedValue(true),
+  getWorkspaceChannelAssignments: vi.fn().mockResolvedValue([
     { id: 1, userId: 2, channelId: 1, assignedBy: 1, createdAt: new Date(), userName: "Закупщик", userRole: "buyer", channelName: "Канал 1" },
   ]),
-  getUserAssignments: vi.fn().mockResolvedValue([
+  getWorkspaceUserAssignments: vi.fn().mockResolvedValue([
     { id: 1, channelId: 1, channelName: "Канал 1" },
   ]),
-  setUserChannelAssignments: vi.fn().mockResolvedValue(undefined),
-  deleteChannelAssignment: vi.fn().mockResolvedValue(undefined),
-  getAssignedChannelIds: vi.fn().mockResolvedValue([1, 2]),
-  getAllChannels: vi.fn().mockResolvedValue([
-    { id: 1, userId: 1, name: "Канал 1", description: null },
-    { id: 2, userId: 1, name: "Канал 2", description: null },
-  ]),
+  setWorkspaceUserChannelAssignments: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("./_core/llm", () => ({
@@ -94,6 +92,26 @@ function makeBuyerCtx(): TrpcContext {
   };
 }
 
+function makeOwnerCtx(): TrpcContext {
+  return {
+    user: {
+      id: 1,
+      openId: "owner-1",
+      email: "owner@test.com",
+      name: "Владелец",
+      loginMethod: "local",
+      role: "owner",
+      teamOwnerId: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
+    workspaceId: 1,
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: vi.fn() } as unknown as TrpcContext["res"],
+  };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("admin.users", () => {
@@ -119,7 +137,41 @@ describe("admin.updateRole", () => {
 
   it("non-admin cannot update roles", async () => {
     const caller = appRouter.createCaller(makeBuyerCtx());
-    await expect(caller.admin.updateRole({ userId: 3, role: "user" })).rejects.toThrow("Доступ только для администраторов");
+    await expect(caller.admin.updateRole({ userId: 3, role: "manager" })).rejects.toThrow("Доступ только для администраторов");
+  });
+});
+
+describe("admin.createUser", () => {
+  it("owner can create an independent admin", async () => {
+    const caller = appRouter.createCaller(makeOwnerCtx());
+    const result = await caller.admin.createUser({
+      name: "Новый админ",
+      email: "admin-new@test.com",
+      password: "secure-test-password",
+      role: "admin",
+    });
+    expect(result.id).toBe(4);
+  });
+
+  it("admin can create a buyer in their own workspace", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    const result = await caller.admin.createUser({
+      name: "Новый закупщик",
+      email: "buyer-new@test.com",
+      password: "secure-test-password",
+      role: "buyer",
+    });
+    expect(result.id).toBe(4);
+  });
+
+  it("regular admin cannot create another admin", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    await expect(caller.admin.createUser({
+      name: "Второй админ",
+      email: "admin-new@test.com",
+      password: "secure-test-password",
+      role: "admin",
+    })).rejects.toThrow("Администратор создаёт только закупщиков и менеджеров своей команды");
   });
 });
 

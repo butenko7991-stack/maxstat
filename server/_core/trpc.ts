@@ -17,10 +17,17 @@ const requireUser = t.middleware(async opts => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
+  // All operational routers already use ctx.user.id as the data owner.
+  // For an employee, replace only that ID with their administrator's workspace;
+  // their actual role remains unchanged and still gates allowed screens/actions.
+  const workspaceUser = ctx.workspaceId && ctx.workspaceId !== ctx.user.id
+    ? { ...ctx.user, id: ctx.workspaceId }
+    : ctx.user;
+
   return next({
     ctx: {
       ...ctx,
-      user: ctx.user,
+      user: workspaceUser,
     },
   });
 });
@@ -31,7 +38,7 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    if (!ctx.user || (ctx.user.role !== 'owner' && ctx.user.role !== 'admin')) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 
