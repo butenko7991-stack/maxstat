@@ -166,6 +166,20 @@ export default function SchedulePage() {
   const [editSaleForm, setEditSaleForm] = useState<SaleFormData>({ ...EMPTY_SALE_FORM });
   const editSaleFormRef = useRef(editSaleForm);
   useEffect(() => { editSaleFormRef.current = editSaleForm; }, [editSaleForm]);
+  const updateSaleForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
+    setSaleForm((previous) => {
+      const next = typeof updater === "function" ? updater(previous) : updater;
+      saleFormRef.current = next;
+      return next;
+    });
+  }, []);
+  const updateEditSaleForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
+    setEditSaleForm((previous) => {
+      const next = typeof updater === "function" ? updater(previous) : updater;
+      editSaleFormRef.current = next;
+      return next;
+    });
+  }, []);
   const [editSaleOpen, setEditSaleOpen] = useState(false);
   const [editSaleConflictError, setEditSaleConflictError] = useState<string | null>(null);
   // Edit state for purchases
@@ -312,7 +326,7 @@ export default function SchedulePage() {
   useEffect(() => {
     if (saleByIdQuery.data && editSaleId) {
       const s = saleByIdQuery.data;
-      setEditSaleForm({
+      updateEditSaleForm({
         channelId: String(s.channelId),
         date: s.date ? toIso(new Date(s.date)) : "",
         admin: s.admin ?? "",
@@ -476,7 +490,7 @@ export default function SchedulePage() {
 
   function openCreate(channelId: number, dateStr: string, slot: Slot) {
     const month = dateStr.slice(0, 7);
-    setSaleForm({
+    updateSaleForm({
       ...EMPTY_SALE_FORM,
       channelId: String(channelId),
       date: dateStr,
@@ -1112,13 +1126,13 @@ export default function SchedulePage() {
             onOpenChange={(v) => { setDialogOpen(v); if (!v) setConflictError(null); }}
             title="Новая запись продажи"
             form={saleForm as any}
-            setForm={(updater: any) => { setConflictError(null); setSaleForm(updater); }}
+            setForm={(updater: any) => { setConflictError(null); updateSaleForm(updater); }}
             conflictError={conflictError}
             onClearConflict={() => setConflictError(null)}
             onSubmit={(e: React.FormEvent) => {
               e.preventDefault();
-              if (!saleForm.channelId || !saleForm.date) return;
               const f = saleFormRef.current;
+              if (!f.channelId || !f.date) return;
               createSaleMutation.mutate({
                 channelId: Number(f.channelId), date: f.date,
                 admin: f.admin || undefined, link: f.link || undefined,
@@ -1400,13 +1414,13 @@ export default function SchedulePage() {
           onOpenChange={(v) => { setEditSaleOpen(v); if (!v) { setEditSaleId(null); setEditSaleConflictError(null); } }}
           title="Редактирование записи"
           form={editSaleForm as any}
-          setForm={(updater: any) => { setEditSaleConflictError(null); setEditSaleForm(updater); }}
+          setForm={(updater: any) => { setEditSaleConflictError(null); updateEditSaleForm(updater); }}
           conflictError={editSaleConflictError}
           onClearConflict={() => setEditSaleConflictError(null)}
           onSubmit={(e: React.FormEvent) => {
             e.preventDefault();
-            if (!editSaleId || !editSaleForm.channelId || !editSaleForm.date) return;
             const f = editSaleFormRef.current;
+            if (!editSaleId || !f.channelId || !f.date) return;
             updateSaleMutation.mutate({
               id: editSaleId,
               channelId: Number(f.channelId), date: f.date,
