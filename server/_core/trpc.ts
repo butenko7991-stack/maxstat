@@ -17,9 +17,10 @@ const requireUser = t.middleware(async opts => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
+  const actorUser = ctx.actorUser ?? ctx.user;
   // All operational routers already use ctx.user.id as the data owner.
-  // For an employee, replace only that ID with their administrator's workspace;
-  // their actual role remains unchanged and still gates allowed screens/actions.
+  // For an employee, expose the workspace ID only for legacy data-owner queries.
+  // Keep actorUser unchanged so routers can enforce concrete channel assignments.
   const workspaceUser = ctx.workspaceId && ctx.workspaceId !== ctx.user.id
     ? { ...ctx.user, id: ctx.workspaceId }
     : ctx.user;
@@ -27,12 +28,24 @@ const requireUser = t.middleware(async opts => {
   return next({
     ctx: {
       ...ctx,
+      actorUser,
       user: workspaceUser,
     },
   });
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);
+
+/** Workspace-wide analytics and CRM must never be exposed to channel-scoped employees. */
+export const workspaceAdminProcedure = protectedProcedure.use(
+  t.middleware(async opts => {
+    const actorUser = opts.ctx.actorUser ?? opts.ctx.user;
+    if (!actorUser || actorUser.role === "buyer" || actorUser.role === "manager") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Доступ к общим данным рабочей зоны запрещён" });
+    }
+    return opts.next({ ctx: opts.ctx });
+  }),
+);
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {

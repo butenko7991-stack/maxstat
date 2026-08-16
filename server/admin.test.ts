@@ -30,6 +30,7 @@ vi.mock("./db", () => ({
   checkBookingConflict: vi.fn().mockResolvedValue(null),
   getPurchaseById: vi.fn().mockResolvedValue(null),
   getSaleById: vi.fn().mockResolvedValue(null),
+  getAssignedChannelIds: vi.fn().mockResolvedValue([1]),
   upsertUser: vi.fn().mockResolvedValue(undefined),
   getUserByOpenId: vi.fn().mockResolvedValue(undefined),
   getChannelProfitability: vi.fn().mockResolvedValue({ totalSales: 0, totalPurchases: 0, totalProfit: 0, overallROI: 0, channelCount: 0, salesCount: 0, purchasesCount: 0, channels: [], topChannel: null, worstChannel: null }),
@@ -106,6 +107,29 @@ function makeOwnerCtx(): TrpcContext {
       updatedAt: new Date(),
       lastSignedIn: new Date(),
     },
+    workspaceId: 1,
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: vi.fn() } as unknown as TrpcContext["res"],
+  };
+}
+
+function makeWorkspaceEmployeeCtx(role: "buyer" | "manager"): TrpcContext {
+  const employee = {
+    id: role === "buyer" ? 2 : 3,
+    openId: `${role}-1`,
+    email: `${role}@test.com`,
+    name: role === "buyer" ? "Закупщик" : "Менеджер",
+    loginMethod: "local",
+    role,
+    teamOwnerId: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastSignedIn: new Date(),
+  } as NonNullable<TrpcContext["user"]>;
+
+  return {
+    user: employee,
+    actorUser: employee,
     workspaceId: 1,
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: { clearCookie: vi.fn() } as unknown as TrpcContext["res"],
@@ -217,5 +241,57 @@ describe("admin.assignments", () => {
   it("non-admin cannot access assignments", async () => {
     const caller = appRouter.createCaller(makeBuyerCtx());
     await expect(caller.admin.assignments()).rejects.toThrow("Доступ только для администраторов");
+  });
+});
+
+describe("P0: доступ сотрудников только к назначенным каналам", () => {
+  it("передаёт в список каналов закупщика только его назначения", async () => {
+    const caller = appRouter.createCaller(makeWorkspaceEmployeeCtx("buyer"));
+
+    await caller.channels.list();
+
+    const db = await import("./db");
+    expect(db.getChannelsByUser).toHaveBeenLastCalledWith(1, [1]);
+  });
+
+  it("не позволяет закупщику читать закупки неназначенного канала", async () => {
+    const caller = appRouter.createCaller(makeWorkspaceEmployeeCtx("buyer"));
+
+    await expect(caller.purchases.list({ channelId: 2 })).rejects.toThrow(
+      "Доступ к этому каналу не назначен"
+    );
+  });
+
+  it("передаёт в список продаж менеджера только его назначения", async () => {
+    const caller = appRouter.createCaller(makeWorkspaceEmployeeCtx("manager"));
+
+    await caller.sales.list({});
+
+    const db = await import("./db");
+    expect(db.getSaleRecords).toHaveBeenLastCalledWith(1, {
+      channelId: undefined,
+      month: undefined,
+      paymentStatus: undefined,
+    }, [1]);
+  });
+
+  it("не позволяет менеджеру читать продажи неназначенного канала", async () => {
+    const caller = appRouter.createCaller(makeWorkspaceEmployeeCtx("manager"));
+
+    await expect(caller.sales.list({ channelId: 2 })).rejects.toThrow(
+      "Доступ к этому каналу не назначен"
+    );
+  });
+
+  it("не позволяет сотрудникам обращаться к сводным данным всей рабочей зоны", async () => {
+    const buyer = appRouter.createCaller(makeWorkspaceEmployeeCtx("buyer"));
+    const manager = appRouter.createCaller(makeWorkspaceEmployeeCtx("manager"));
+
+    await expect(buyer.summary.financial({})).rejects.toThrow(
+      "Доступ к общим данным рабочей зоны запрещён"
+    );
+    await expect(manager.expenses.list({})).rejects.toThrow(
+      "Доступ к общим данным рабочей зоны запрещён"
+    );
   });
 });

@@ -5,6 +5,8 @@ import { authenticateRequest } from "./localAuth";
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
+  /** Real authenticated person. Never replace this user when accessing a team workspace. */
+  actorUser: User | null;
   user: User | null;
   /** Workspace that contains the user's operational data. Admins own their own workspace. */
   workspaceId?: number | null;
@@ -21,6 +23,7 @@ export async function createContext(
   return {
     req: opts.req,
     res: opts.res,
+    actorUser: user,
     user,
     workspaceId,
   };

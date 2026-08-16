@@ -3,7 +3,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router, workspaceAdminProcedure } from "./_core/trpc";
 import {
   createChannel,
   createPurchaseRecord,
@@ -13,6 +13,7 @@ import {
   deletePurchaseRecord,
   deleteSaleRecord,
   getAvailableMonths,
+  getAssignedChannelIds,
   getChannelById,
   getChannelsByUser,
   getFinancialSummary,
@@ -73,7 +74,7 @@ import {
   getExternalSalesAnalytics,
   getDb,
 } from "./db";
-import { sql, and, eq } from "drizzle-orm";
+import { sql, and, eq, inArray } from "drizzle-orm";
 import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
@@ -82,12 +83,45 @@ import { hashPassword } from "./_core/localAuth";
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
 const timeSlotEnum = z.string().max(100);
 
+type OperationalContext = {
+  user: { id: number; role: string } | null;
+  actorUser?: { id: number; role: string } | null;
+};
+
+function isChannelScopedMember(ctx: OperationalContext) {
+  return ctx.actorUser?.role === "buyer" || ctx.actorUser?.role === "manager";
+}
+
+async function getChannelScope(ctx: OperationalContext): Promise<number[] | undefined> {
+  if (!isChannelScopedMember(ctx) || !ctx.actorUser) return undefined;
+  return getAssignedChannelIds(ctx.actorUser.id);
+}
+
+function requireAssignedChannel(channelScope: number[] | undefined, channelId: number) {
+  if (channelScope && !channelScope.includes(channelId)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Доступ к этому каналу не назначен" });
+  }
+}
+
+function requireEmployeeRole(ctx: OperationalContext, allowedRoles: Array<"buyer" | "manager">) {
+  if (isChannelScopedMember(ctx) && (!ctx.actorUser || !allowedRoles.includes(ctx.actorUser.role as "buyer" | "manager"))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Эта операция недоступна для вашей роли" });
+  }
+}
+
+function requireWorkspaceAdmin(ctx: OperationalContext) {
+  if (isChannelScopedMember(ctx)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Аналитика и общие данные доступны только администратору" });
+  }
+}
+
 // ─── Channels router ──────────────────────────────────────────────────────────
 const channelsRouter = router({
-  list: protectedProcedure.query(({ ctx }) => getChannelsByUser(ctx.user.id)),
+  list: protectedProcedure.query(async ({ ctx }) => getChannelsByUser(ctx.user.id, await getChannelScope(ctx))),
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(255), description: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
+      requireWorkspaceAdmin(ctx);
       const id = await createChannel({
         userId: ctx.user.id,
         name: input.name,
@@ -105,14 +139,20 @@ const channelsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...rest } = input;
-      await updateChannel(id, ctx.user.id, rest);
+      requireWorkspaceAdmin(ctx);
+      const channelScope = await getChannelScope(ctx);
+      requireAssignedChannel(channelScope, id);
+      await updateChannel(id, ctx.user.id, rest, channelScope);
       return { success: true };
     }),
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive(), force: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
+      requireWorkspaceAdmin(ctx);
+      const channelScope = await getChannelScope(ctx);
+      requireAssignedChannel(channelScope, input.id);
       if (!input.force) {
-        const counts = await countChannelRecords(input.id, ctx.user.id);
+        const counts = await countChannelRecords(input.id, ctx.user.id, channelScope);
         if (counts.purchases > 0 || counts.sales > 0) {
           // Encode counts in message as JSON so frontend can parse them
           throw new TRPCError({
@@ -121,13 +161,13 @@ const channelsRouter = router({
           });
         }
       }
-      await deleteChannel(input.id, ctx.user.id);
+      await deleteChannel(input.id, ctx.user.id, channelScope);
       return { success: true };
     }),
   getById: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      const channel = await getChannelById(input.id, ctx.user.id);
+      const channel = await getChannelById(input.id, ctx.user.id, await getChannelScope(ctx));
       if (!channel) throw new TRPCError({ code: "NOT_FOUND" });
       return channel;
     }),
@@ -169,14 +209,19 @@ const purchasesRouter = router({
         paymentStatus: z.string().optional(),
       })
     )
-    .query(({ ctx, input }) =>
-      getPurchaseRecords(ctx.user.id, {
+    .query(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["buyer"]);
+      const channelScope = await getChannelScope(ctx);
+      if (input.channelId) requireAssignedChannel(channelScope, input.channelId);
+      return getPurchaseRecords(ctx.user.id, {
         channelId: input.channelId,
         month: input.month,
         paymentStatus: input.paymentStatus,
-      })
-    ),
+      }, channelScope);
+    }),
   create: protectedProcedure.input(purchaseInput).mutation(async ({ ctx, input }) => {
+    requireEmployeeRole(ctx, ["buyer"]);
+    requireAssignedChannel(await getChannelScope(ctx), input.channelId);
     const id = await createPurchaseRecord({
       userId: ctx.user.id,
       channelId: input.channelId,
@@ -209,25 +254,35 @@ const purchasesRouter = router({
   update: protectedProcedure
     .input(purchaseInput.partial().extend({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["buyer"]);
+      const channelScope = await getChannelScope(ctx);
+      if (!await getPurchaseById(input.id, ctx.user.id, channelScope)) throw new TRPCError({ code: "NOT_FOUND" });
+      if (input.channelId) requireAssignedChannel(channelScope, input.channelId);
       const { id, date, ...rest } = input;
       const updateData: Record<string, unknown> = { ...rest };
       if (date) updateData.date = new Date(date);
-      await updatePurchaseRecord(id, ctx.user.id, updateData as Parameters<typeof updatePurchaseRecord>[2]);
+      await updatePurchaseRecord(id, ctx.user.id, updateData as Parameters<typeof updatePurchaseRecord>[2], channelScope);
       return { success: true };
     }),
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      await deletePurchaseRecord(input.id, ctx.user.id);
+      requireEmployeeRole(ctx, ["buyer"]);
+      const channelScope = await getChannelScope(ctx);
+      if (!await getPurchaseById(input.id, ctx.user.id, channelScope)) throw new TRPCError({ code: "NOT_FOUND" });
+      await deletePurchaseRecord(input.id, ctx.user.id, channelScope);
       return { success: true };
     }),
   quickUpdatePayment: protectedProcedure
     .input(z.object({ id: z.number().int().positive(), paymentStatus: paymentStatusEnum }))
     .mutation(async ({ ctx, input }) => {
-      await updatePurchaseRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus });
+      requireEmployeeRole(ctx, ["buyer"]);
+      const channelScope = await getChannelScope(ctx);
+      if (!await getPurchaseById(input.id, ctx.user.id, channelScope)) throw new TRPCError({ code: "NOT_FOUND" });
+      await updatePurchaseRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus }, channelScope);
       // Auto-fetch analytics when status changes to paid and record has a link
       if (input.paymentStatus === "paid") {
-        const record = await getPurchaseById(input.id, ctx.user.id);
+        const record = await getPurchaseById(input.id, ctx.user.id, channelScope);
         if (record?.link) {
           upsertPostAnalytics(ctx.user.id, "purchase", input.id, record.link).catch(() => {});
         }
@@ -237,7 +292,8 @@ const purchasesRouter = router({
   duplicate: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      const original = await getPurchaseById(input.id, ctx.user.id);
+      requireEmployeeRole(ctx, ["buyer"]);
+      const original = await getPurchaseById(input.id, ctx.user.id, await getChannelScope(ctx));
       if (!original) throw new TRPCError({ code: "NOT_FOUND" });
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = original;
       const newId = await createPurchaseRecord({ ...rest });
@@ -250,9 +306,12 @@ const purchasesRouter = router({
         channelId: z.number().int().positive().optional(),
       })
     )
-    .query(({ ctx, input }) =>
-      getPurchaseRecords(ctx.user.id, { month: input.month, channelId: input.channelId })
-    ),
+    .query(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["buyer"]);
+      const channelScope = await getChannelScope(ctx);
+      if (input.channelId) requireAssignedChannel(channelScope, input.channelId);
+      return getPurchaseRecords(ctx.user.id, { month: input.month, channelId: input.channelId }, channelScope);
+    }),
   bulkCreate: protectedProcedure
     .input(z.object({
       slots: z.array(z.object({
@@ -277,6 +336,9 @@ const purchasesRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["buyer"]);
+      const channelScope = await getChannelScope(ctx);
+      input.slots.forEach((slot) => requireAssignedChannel(channelScope, slot.channelId));
       const conflicts: string[] = [];
       for (const slot of input.slots) {
         if (slot.bookingSlot) {
@@ -320,7 +382,8 @@ const purchasesRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      const record = await getPurchaseById(input.id, ctx.user.id);
+      requireEmployeeRole(ctx, ["buyer"]);
+      const record = await getPurchaseById(input.id, ctx.user.id, await getChannelScope(ctx));
       if (!record) throw new TRPCError({ code: "NOT_FOUND" });
       return record;
     }),
@@ -330,6 +393,8 @@ const purchasesRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return { sales: [], purchases: [] };
+      const channelScope = await getChannelScope(ctx);
+      if (channelScope?.length === 0) return { sales: [], purchases: [] };
       const adminLike = `%${input.admin.trim()}%`;
       const [sales, purchases] = await Promise.all([
         db.select({
@@ -343,7 +408,8 @@ const purchasesRouter = router({
         }).from(saleRecords)
           .where(and(
             eq(saleRecords.userId, ctx.user.id),
-            sql`${saleRecords.admin} LIKE ${adminLike}`
+            sql`${saleRecords.admin} LIKE ${adminLike}`,
+            channelScope ? inArray(saleRecords.channelId, channelScope) : sql`1=1`
           ))
           .orderBy(sql`${saleRecords.date} DESC`)
           .limit(10),
@@ -359,7 +425,8 @@ const purchasesRouter = router({
           .where(and(
             eq(purchaseRecordsTable.userId, ctx.user.id),
             sql`${purchaseRecordsTable.admin} LIKE ${adminLike}`,
-            input.excludeId ? sql`${purchaseRecordsTable.id} != ${input.excludeId}` : sql`1=1`
+            input.excludeId ? sql`${purchaseRecordsTable.id} != ${input.excludeId}` : sql`1=1`,
+            channelScope ? inArray(purchaseRecordsTable.channelId, channelScope) : sql`1=1`
           ))
           .orderBy(sql`${purchaseRecordsTable.date} DESC`)
           .limit(10),
@@ -428,14 +495,19 @@ const salesRouter = router({
         paymentStatus: z.string().optional(),
       })
     )
-    .query(({ ctx, input }) =>
-      getSaleRecords(ctx.user.id, {
+    .query(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["manager"]);
+      const channelScope = await getChannelScope(ctx);
+      if (input.channelId) requireAssignedChannel(channelScope, input.channelId);
+      return getSaleRecords(ctx.user.id, {
         channelId: input.channelId,
         month: input.month,
         paymentStatus: input.paymentStatus,
-      })
-    ),
+      }, channelScope);
+    }),
   create: protectedProcedure.input(saleInput).mutation(async ({ ctx, input }) => {
+    requireEmployeeRole(ctx, ["manager"]);
+    requireAssignedChannel(await getChannelScope(ctx), input.channelId);
     // Check booking conflict if bookingSlot is specified
     if (input.bookingSlot) {
       const dateStr = input.date.slice(0, 10);
@@ -475,6 +547,10 @@ const salesRouter = router({
   update: protectedProcedure
     .input(saleInput.partial().extend({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["manager"]);
+      const channelScope = await getChannelScope(ctx);
+      if (!await getSaleById(input.id, ctx.user.id, channelScope)) throw new TRPCError({ code: "NOT_FOUND" });
+      if (input.channelId) requireAssignedChannel(channelScope, input.channelId);
       const { id, date, ...rest } = input;
       const updateData: Record<string, unknown> = { ...rest };
       if (date) updateData.date = new Date(date);
@@ -491,22 +567,28 @@ const salesRouter = router({
           throw new TRPCError({ code: "CONFLICT", message: `Слот "${input.bookingSlot}" уже занят для этого канала на выбранную дату.` });
         }
       }
-      await updateSaleRecord(id, ctx.user.id, updateData as Parameters<typeof updateSaleRecord>[2]);
+      await updateSaleRecord(id, ctx.user.id, updateData as Parameters<typeof updateSaleRecord>[2], channelScope);
       return { success: true };
     }),
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      await deleteSaleRecord(input.id, ctx.user.id);
+      requireEmployeeRole(ctx, ["manager"]);
+      const channelScope = await getChannelScope(ctx);
+      if (!await getSaleById(input.id, ctx.user.id, channelScope)) throw new TRPCError({ code: "NOT_FOUND" });
+      await deleteSaleRecord(input.id, ctx.user.id, channelScope);
       return { success: true };
     }),
   quickUpdatePayment: protectedProcedure
     .input(z.object({ id: z.number().int().positive(), paymentStatus: paymentStatusEnum }))
     .mutation(async ({ ctx, input }) => {
-      await updateSaleRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus });
+      requireEmployeeRole(ctx, ["manager"]);
+      const channelScope = await getChannelScope(ctx);
+      if (!await getSaleById(input.id, ctx.user.id, channelScope)) throw new TRPCError({ code: "NOT_FOUND" });
+      await updateSaleRecord(input.id, ctx.user.id, { paymentStatus: input.paymentStatus }, channelScope);
       // Auto-fetch analytics when status changes to paid and record has a link
       if (input.paymentStatus === "paid") {
-        const record = await getSaleById(input.id, ctx.user.id);
+        const record = await getSaleById(input.id, ctx.user.id, channelScope);
         if (record?.link) {
           upsertPostAnalytics(ctx.user.id, "sale", input.id, record.link).catch(() => {});
         }
@@ -516,7 +598,8 @@ const salesRouter = router({
   duplicate: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      const original = await getSaleById(input.id, ctx.user.id);
+      requireEmployeeRole(ctx, ["manager"]);
+      const original = await getSaleById(input.id, ctx.user.id, await getChannelScope(ctx));
       if (!original) throw new TRPCError({ code: "NOT_FOUND" });
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = original;
       const newId = await createSaleRecord({ ...rest });
@@ -529,9 +612,12 @@ const salesRouter = router({
         channelId: z.number().int().positive().optional(),
       })
     )
-    .query(({ ctx, input }) =>
-      getSaleRecords(ctx.user.id, { month: input.month, channelId: input.channelId })
-    ),
+    .query(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["manager"]);
+      const channelScope = await getChannelScope(ctx);
+      if (input.channelId) requireAssignedChannel(channelScope, input.channelId);
+      return getSaleRecords(ctx.user.id, { month: input.month, channelId: input.channelId }, channelScope);
+    }),
   bulkCreate: protectedProcedure
     .input(z.object({
       slots: z.array(z.object({
@@ -555,6 +641,9 @@ const salesRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      requireEmployeeRole(ctx, ["manager"]);
+      const channelScope = await getChannelScope(ctx);
+      input.slots.forEach((slot) => requireAssignedChannel(channelScope, slot.channelId));
       const conflicts: string[] = [];
       for (const slot of input.slots) {
         if (slot.bookingSlot) {
@@ -596,21 +685,22 @@ const salesRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      const record = await getSaleById(input.id, ctx.user.id);
+      requireEmployeeRole(ctx, ["manager"]);
+      const record = await getSaleById(input.id, ctx.user.id, await getChannelScope(ctx));
       if (!record) throw new TRPCError({ code: "NOT_FOUND" });
       return record;
     }),
 });
 // ─── Summary routerr ───────────────────────────────────────────────────────────
 const summaryRouter = router({
-  financial: protectedProcedure
+  financial: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getFinancialSummary(ctx.user.id, input.month)),
-  months: protectedProcedure.query(({ ctx }) => getAvailableMonths(ctx.user.id)),
-  monthlyStats: protectedProcedure
+  months: workspaceAdminProcedure.query(({ ctx }) => getAvailableMonths(ctx.user.id)),
+  monthlyStats: workspaceAdminProcedure
     .input(z.object({ channelId: z.number().int().positive().optional() }))
     .query(({ ctx, input }) => getMonthlyStats(ctx.user.id, input.channelId)),
-  unpaidDebts: protectedProcedure
+  unpaidDebts: workspaceAdminProcedure
     .input(z.object({
       channelId: z.number().int().positive().optional(),
       month: z.string().optional(),
@@ -623,23 +713,23 @@ const summaryRouter = router({
       const unpaidSaleCount = byChannel.reduce((s, c) => s + c.unpaidSaleCount, 0);
       return { unpaidPurchases, unpaidSales, unpaidPurchaseCount, unpaidSaleCount, byChannel };
     }),
-  autocomplete: protectedProcedure.query(({ ctx }) => getAutocompleteSuggestions(ctx.user.id)),
+  autocomplete: workspaceAdminProcedure.query(({ ctx }) => getAutocompleteSuggestions(ctx.user.id)),
 });
 // ─── Schedule router ─────────────────────────────────────────────────────────────────────────────────────
 const scheduleRouter = router({
   getData: protectedProcedure
     .input(z.object({ startDate: z.string(), endDate: z.string() }))
-    .query(({ ctx, input }) => getScheduleData(ctx.user.id, input.startDate, input.endDate)),
+    .query(async ({ ctx, input }) => getScheduleData(ctx.user.id, input.startDate, input.endDate, await getChannelScope(ctx))),
 });
-// ─── AI Analytics router ────────────────────────────────────────────────────────────────────────────────
+// ─── AI Analytics router ────────────────────────────────────────────────────────────────
 const aiRouter = router({
   /** Get raw profitability data per channel */
-  profitability: protectedProcedure
+  profitability: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getChannelProfitability(ctx.user.id, input.month)),
 
   /** AI analysis of channel profitability with CPF + ER + reach business logic */
-  analyzeChannels: protectedProcedure
+  analyzeChannels: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const ctx_data = await getAiContext(ctx.user.id, input.month);
@@ -788,7 +878,7 @@ ER24 по каналам с оценкой. Если ER низкий — кон�
       return { analysis, data: ctx_data };
     }),
     /** AI digest — weekly/monthly text summary */
-  generateDigest: protectedProcedure
+  generateDigest: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const ctx_data = await getAiContext(ctx.user.id, input.month);
@@ -863,7 +953,7 @@ ${channelsList}
     }),
 
   /** Weekly performance stats — current week vs previous week */
-  weeklyStats: protectedProcedure
+  weeklyStats: workspaceAdminProcedure
     .input(z.object({ referenceDate: z.date().optional() }))
     .query(async ({ ctx, input }) => {
       const now = input.referenceDate ?? new Date();
@@ -944,7 +1034,7 @@ ${channelsList}
     }),
 
   /** AI weekly analysis with motivating recommendations */
-  weeklyAnalysis: protectedProcedure
+  weeklyAnalysis: workspaceAdminProcedure
     .input(z.object({ referenceDate: z.date().optional() }))
     .mutation(async ({ ctx, input }) => {
       const now = input.referenceDate ?? new Date();
@@ -1042,7 +1132,7 @@ ${channelsList}
       const analysis = typeof content === "string" ? content : Array.isArray(content) ? content.map((p: { type: string; text?: string }) => p.type === "text" ? p.text : "").join("") : "";
       return { analysis };
     }),
-  externalAnalytics: protectedProcedure
+  externalAnalytics: workspaceAdminProcedure
     .input(z.object({ months: z.number().int().min(1).max(24).optional() }))
     .query(async ({ ctx, input }) => {
       return getExternalSalesAnalytics(ctx.user.id, input.months);
@@ -1169,7 +1259,7 @@ const mutualInput = z.object({
 });
 
 const mutualRouter = router({
-  list: protectedProcedure
+  list: workspaceAdminProcedure
     .input(z.object({
       month: z.string().optional(),
       status: z.string().optional(),
@@ -1177,11 +1267,11 @@ const mutualRouter = router({
     }))
     .query(({ ctx, input }) => getMutualDeals(ctx.user.id, input)),
 
-  getById: protectedProcedure
+  getById: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .query(({ ctx, input }) => getMutualDealById(input.id, ctx.user.id)),
 
-   create: protectedProcedure
+   create: workspaceAdminProcedure
     .input(mutualInput)
     .mutation(async ({ ctx, input }) => {
       const id = await createMutualDealWithRecords({
@@ -1208,28 +1298,28 @@ const mutualRouter = router({
       });
       return { id };
     }),
-  update: protectedProcedure
+  update: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }).merge(mutualInput.partial()))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       await updateMutualDealWithRecords(id, ctx.user.id, data as any);
       return { success: true };
     }),
-  delete: protectedProcedure
+  delete: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       await deleteMutualDealWithRecords(input.id, ctx.user.id);;
       return { success: true };
     }),
 
-  calcDoplate: protectedProcedure
+  calcDoplate: workspaceAdminProcedure
     .input(z.object({
       ourReach: z.number().int(),
       partnerReach: z.number().int(),
       baseSpm: z.number().optional(),
     }))
     .query(({ input }) => calcRecommendedDoplate(input.ourReach, input.partnerReach, input.baseSpm)),
-  summary: protectedProcedure
+  summary: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const deals = await getMutualDeals(ctx.user.id, { month: input.month });
@@ -1259,11 +1349,11 @@ const mutualRouter = router({
 
 // ─── Subscriber Snapshots router ───────────────────────────────────────────────
 const snapshotsRouter = router({
-  list: protectedProcedure
+  list: workspaceAdminProcedure
     .input(z.object({ channelId: z.number().int().positive().optional() }))
     .query(({ ctx, input }) => listSubscriberSnapshots(ctx.user.id, input.channelId)),
 
-  upsert: protectedProcedure
+  upsert: workspaceAdminProcedure
     .input(z.object({
       channelId: z.number().int().positive(),
       subscriberCount: z.number().int().nonnegative(),
@@ -1292,14 +1382,14 @@ const snapshotsRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: workspaceAdminProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       await deleteSubscriberSnapshot(input.id, ctx.user.id);
       return { success: true };
     }),
 
-  cpfAnalytics: protectedProcedure
+  cpfAnalytics: workspaceAdminProcedure
     .input(z.object({
       channelIds: z.array(z.number().int().positive()).optional(),
       month: z.string().optional(),
@@ -1310,10 +1400,10 @@ const snapshotsRouter = router({
       return getCpfAnalytics(ctx.user.id, ids, input.month);
     }),
 
-  sourceEfficiency: protectedProcedure
+  sourceEfficiency: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }).optional())
     .query(({ ctx, input }) => getSourceEfficiency(ctx.user.id, input?.month)),
-  channelStats: protectedProcedure
+  channelStats: workspaceAdminProcedure
     .input(z.object({ channelId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       const snaps = await listSubscriberSnapshots(ctx.user.id, input.channelId);
@@ -1357,7 +1447,7 @@ const ocrRouter = router({
    * Accepts a base64-encoded Trustat screenshot and returns structured
    * channel statistics extracted by the vision LLM.
    */
-  recognizeTrustatScreenshot: protectedProcedure
+  recognizeTrustatScreenshot: workspaceAdminProcedure
     .input(z.object({
       imageBase64: z.string().min(100),
       mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]).default("image/jpeg"),
@@ -1739,7 +1829,7 @@ const ocrRouter = router({
    * Accepts a base64-encoded image (PNG/JPEG/WEBP) and returns structured
    * purchase data extracted by the vision LLM.
    */
-  recognizePurchaseScreenshot: protectedProcedure
+  recognizePurchaseScreenshot: workspaceAdminProcedure
     .input(z.object({
       /** base64-encoded image WITHOUT the data:... prefix */
       imageBase64: z.string().min(100),
@@ -1830,15 +1920,15 @@ const ocrRouter = router({
 
 // ─── Expenses router ─────────────────────────────────────────────────────────
 const expensesRouter = router({
-  list: protectedProcedure
+  list: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getExpenses(ctx.user.id, input.month)),
 
-  summary: protectedProcedure
+  summary: workspaceAdminProcedure
     .input(z.object({ month: z.string().optional() }))
     .query(({ ctx, input }) => getExpenseSummary(ctx.user.id, input.month)),
 
-  create: protectedProcedure
+  create: workspaceAdminProcedure
     .input(z.object({
       month: z.string().min(7).max(7),
       category: z.string().min(1).max(100),
@@ -1850,7 +1940,7 @@ const expensesRouter = router({
       createExpense({ ...input, userId: ctx.user.id })
     ),
 
-  update: protectedProcedure
+  update: workspaceAdminProcedure
     .input(z.object({
       id: z.number(),
       month: z.string().min(7).max(7).optional(),
@@ -1864,7 +1954,7 @@ const expensesRouter = router({
       return updateExpense(id, ctx.user.id, data);
     }),
 
-  delete: protectedProcedure
+  delete: workspaceAdminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(({ ctx, input }) => deleteExpense(input.id, ctx.user.id)),
 });
@@ -1872,7 +1962,7 @@ const expensesRouter = router({
 // ─── Post Analytics router ──────────────────────────────────────────────────
 const postAnalyticsRouter = router({
   /** Fetch analytics for a specific record (sale or purchase) */
-  getByRecord: protectedProcedure
+  getByRecord: workspaceAdminProcedure
     .input(z.object({
       recordType: z.enum(["sale", "purchase"]),
       recordId: z.number().int().positive(),
@@ -1880,7 +1970,7 @@ const postAnalyticsRouter = router({
     .query(({ input }) => getPostAnalyticsByRecord(input.recordType, input.recordId)),
 
   /** Manually trigger analytics fetch for a record with a link */
-  fetch: protectedProcedure
+  fetch: workspaceAdminProcedure
     .input(z.object({
       recordType: z.enum(["sale", "purchase"]),
       recordId: z.number().int().positive(),
@@ -1891,10 +1981,10 @@ const postAnalyticsRouter = router({
     ),
 
   /** List all fetched analytics for the current user */
-  list: protectedProcedure
+  list: workspaceAdminProcedure
     .query(({ ctx }) => getPostAnalyticsByUser(ctx.user.id)),
   /** Batch-fetch analytics for all paid records with links that don't have analytics yet */
-  fetchAllMissing: protectedProcedure
+  fetchAllMissing: workspaceAdminProcedure
     .mutation(async ({ ctx }) => {
       const [sales, purchases, existing] = await Promise.all([
         getSaleRecords(ctx.user.id, {}),
@@ -1938,13 +2028,13 @@ const clientChannelSchema = z.object({
 });
 
 const clientsRouter = router({
-  list: protectedProcedure.query(({ ctx }) => listClients(ctx.user.id)),
+  list: workspaceAdminProcedure.query(({ ctx }) => listClients(ctx.user.id)),
 
-  getById: protectedProcedure
+  getById: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .query(({ ctx, input }) => getClientById(input.id, ctx.user.id)),
 
-  create: protectedProcedure
+  create: workspaceAdminProcedure
     .input(z.object({
       name: z.string().min(1).max(255),
       maxNick: z.string().max(255).optional().nullable(),
@@ -1960,7 +2050,7 @@ const clientsRouter = router({
       return { id };
     }),
 
-  update: protectedProcedure
+  update: workspaceAdminProcedure
     .input(z.object({
       id: z.number().int(),
       name: z.string().min(1).max(255).optional(),
@@ -1977,18 +2067,18 @@ const clientsRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(({ ctx, input }) => deleteClient(input.id, ctx.user.id)),
 
-  autoImport: protectedProcedure
+  autoImport: workspaceAdminProcedure
     .mutation(({ ctx }) => autoImportClients(ctx.user.id)),
 
-  getStats: protectedProcedure
+  getStats: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .query(({ ctx, input }) => getClientStats(input.id, ctx.user.id)),
 
-  getPurchases: protectedProcedure
+  getPurchases: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .query(async ({ ctx, input }) => {
       const purchases = await getClientPurchases(input.id, ctx.user.id);
@@ -2006,10 +2096,10 @@ const clientsRouter = router({
       });
     }),
 
-  getSales: protectedProcedure
+  getSales: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .query(({ ctx, input }) => getClientSales(input.id, ctx.user.id)),
-  analyze: protectedProcedure
+  analyze: workspaceAdminProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       const stats = await getClientStats(input.id, ctx.user.id);

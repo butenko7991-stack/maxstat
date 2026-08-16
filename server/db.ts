@@ -253,23 +253,25 @@ export async function setWorkspaceUserChannelAssignments(
 
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
-export async function getChannelsByUser(userId: number): Promise<Channel[]> {
+export async function getChannelsByUser(userId: number, allowedChannelIds?: number[]): Promise<Channel[]> {
   const db = await getDb();
   if (!db) return [];
+  if (allowedChannelIds && allowedChannelIds.length === 0) return [];
   return db
     .select()
     .from(channels)
-    .where(eq(channels.userId, userId))
+    .where(and(eq(channels.userId, userId), ...(allowedChannelIds ? [inArray(channels.id, allowedChannelIds)] : [])))
     .orderBy(channels.createdAt);
 }
 
-export async function getChannelById(id: number, userId: number): Promise<Channel | undefined> {
+export async function getChannelById(id: number, userId: number, allowedChannelIds?: number[]): Promise<Channel | undefined> {
   const db = await getDb();
   if (!db) return undefined;
+  if (allowedChannelIds && !allowedChannelIds.includes(id)) return undefined;
   const result = await db
     .select()
     .from(channels)
-    .where(and(eq(channels.id, id), eq(channels.userId, userId)))
+    .where(and(eq(channels.id, id), eq(channels.userId, userId), ...(allowedChannelIds ? [inArray(channels.id, allowedChannelIds)] : [])))
     .limit(1);
   return result[0];
 }
@@ -293,19 +295,22 @@ export async function getVisibleChannelsByUser(userId: number): Promise<Channel[
 export async function updateChannel(
   id: number,
   userId: number,
-  data: Partial<Pick<InsertChannel, "name" | "description">>
+  data: Partial<Pick<InsertChannel, "name" | "description">>,
+  allowedChannelIds?: number[]
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  if (allowedChannelIds && !allowedChannelIds.includes(id)) return;
   await db
     .update(channels)
     .set(data)
-    .where(and(eq(channels.id, id), eq(channels.userId, userId)));
+    .where(and(eq(channels.id, id), eq(channels.userId, userId), ...(allowedChannelIds ? [inArray(channels.id, allowedChannelIds)] : [])));
 }
 
-export async function countChannelRecords(channelId: number, userId: number): Promise<{ purchases: number; sales: number }> {
+export async function countChannelRecords(channelId: number, userId: number, allowedChannelIds?: number[]): Promise<{ purchases: number; sales: number }> {
   const db = await getDb();
   if (!db) return { purchases: 0, sales: 0 };
+  if (allowedChannelIds && !allowedChannelIds.includes(channelId)) return { purchases: 0, sales: 0 };
   const [pAgg, sAgg] = await Promise.all([
     db.select({ count: sql<string>`COUNT(*)` }).from(purchaseRecords)
       .where(and(eq(purchaseRecords.channelId, channelId), eq(purchaseRecords.userId, userId))),
@@ -318,22 +323,26 @@ export async function countChannelRecords(channelId: number, userId: number): Pr
   };
 }
 
-export async function deleteChannel(id: number, userId: number): Promise<void> {
+export async function deleteChannel(id: number, userId: number, allowedChannelIds?: number[]): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.delete(channels).where(and(eq(channels.id, id), eq(channels.userId, userId)));
+  if (allowedChannelIds && !allowedChannelIds.includes(id)) return;
+  await db.delete(channels).where(and(eq(channels.id, id), eq(channels.userId, userId), ...(allowedChannelIds ? [inArray(channels.id, allowedChannelIds)] : [])));
 }
 
 // ─── Purchase Records ─────────────────────────────────────────────────────────
 
 export async function getPurchaseRecords(
   userId: number,
-  filters: { channelId?: number; month?: string; paymentStatus?: string }
+  filters: { channelId?: number; month?: string; paymentStatus?: string },
+  allowedChannelIds?: number[]
 ): Promise<PurchaseRecord[]> {
   const db = await getDb();
   if (!db) return [];
+  if (allowedChannelIds && allowedChannelIds.length === 0) return [];
 
   const conditions = [eq(purchaseRecords.userId, userId)];
+  if (allowedChannelIds) conditions.push(inArray(purchaseRecords.channelId, allowedChannelIds));
   if (filters.channelId) conditions.push(eq(purchaseRecords.channelId, filters.channelId));
   if (filters.month) conditions.push(eq(purchaseRecords.month, filters.month));
   if (filters.paymentStatus && ["paid", "unpaid", "partial"].includes(filters.paymentStatus)) {
@@ -362,34 +371,40 @@ export async function createPurchaseRecord(data: InsertPurchaseRecord): Promise<
 export async function updatePurchaseRecord(
   id: number,
   userId: number,
-  data: Partial<InsertPurchaseRecord>
+  data: Partial<InsertPurchaseRecord>,
+  allowedChannelIds?: number[]
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  if (allowedChannelIds && allowedChannelIds.length === 0) return;
   await db
     .update(purchaseRecords)
     .set(data)
-    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId)));
+    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId), ...(allowedChannelIds ? [inArray(purchaseRecords.channelId, allowedChannelIds)] : [])));
 }
 
-export async function deletePurchaseRecord(id: number, userId: number): Promise<void> {
+export async function deletePurchaseRecord(id: number, userId: number, allowedChannelIds?: number[]): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  if (allowedChannelIds && allowedChannelIds.length === 0) return;
   await db
     .delete(purchaseRecords)
-    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId)));
+    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId), ...(allowedChannelIds ? [inArray(purchaseRecords.channelId, allowedChannelIds)] : [])));
 }
 
 // ─── Sale Records ─────────────────────────────────────────────────────────────
 
 export async function getSaleRecords(
   userId: number,
-  filters: { channelId?: number; month?: string; paymentStatus?: string }
+  filters: { channelId?: number; month?: string; paymentStatus?: string },
+  allowedChannelIds?: number[]
 ): Promise<SaleRecord[]> {
   const db = await getDb();
   if (!db) return [];
+  if (allowedChannelIds && allowedChannelIds.length === 0) return [];
 
   const conditions = [eq(saleRecords.userId, userId)];
+  if (allowedChannelIds) conditions.push(inArray(saleRecords.channelId, allowedChannelIds));
   if (filters.channelId) conditions.push(eq(saleRecords.channelId, filters.channelId));
   if (filters.month) conditions.push(eq(saleRecords.month, filters.month));
   if (filters.paymentStatus && ["paid", "unpaid", "partial"].includes(filters.paymentStatus)) {
@@ -415,22 +430,25 @@ export async function createSaleRecord(data: InsertSaleRecord): Promise<number> 
 export async function updateSaleRecord(
   id: number,
   userId: number,
-  data: Partial<InsertSaleRecord>
+  data: Partial<InsertSaleRecord>,
+  allowedChannelIds?: number[]
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  if (allowedChannelIds && allowedChannelIds.length === 0) return;
   await db
     .update(saleRecords)
     .set(data)
-    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId)));
+    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId), ...(allowedChannelIds ? [inArray(saleRecords.channelId, allowedChannelIds)] : [])));
 }
 
-export async function deleteSaleRecord(id: number, userId: number): Promise<void> {
+export async function deleteSaleRecord(id: number, userId: number, allowedChannelIds?: number[]): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  if (allowedChannelIds && allowedChannelIds.length === 0) return;
   await db
     .delete(saleRecords)
-    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId)));
+    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId), ...(allowedChannelIds ? [inArray(saleRecords.channelId, allowedChannelIds)] : [])));
 }
 
 // ─── Financial Summaries ──────────────────────────────────────────────────────
@@ -556,24 +574,26 @@ export async function getAvailableMonths(userId: number): Promise<string[]> {
 }
 
 // ─── Single-record lookups (for duplication) ─────────────────────────────────
-export async function getPurchaseById(id: number, userId: number): Promise<PurchaseRecord | undefined> {
+export async function getPurchaseById(id: number, userId: number, allowedChannelIds?: number[]): Promise<PurchaseRecord | undefined> {
   const db = await getDb();
   if (!db) return undefined;
+  if (allowedChannelIds && allowedChannelIds.length === 0) return undefined;
   const result = await db
     .select()
     .from(purchaseRecords)
-    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId)))
+    .where(and(eq(purchaseRecords.id, id), eq(purchaseRecords.userId, userId), ...(allowedChannelIds ? [inArray(purchaseRecords.channelId, allowedChannelIds)] : [])))
     .limit(1);
   return result[0];
 }
 
-export async function getSaleById(id: number, userId: number): Promise<SaleRecord | undefined> {
+export async function getSaleById(id: number, userId: number, allowedChannelIds?: number[]): Promise<SaleRecord | undefined> {
   const db = await getDb();
   if (!db) return undefined;
+  if (allowedChannelIds && allowedChannelIds.length === 0) return undefined;
   const result = await db
     .select()
     .from(saleRecords)
-    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId)))
+    .where(and(eq(saleRecords.id, id), eq(saleRecords.userId, userId), ...(allowedChannelIds ? [inArray(saleRecords.channelId, allowedChannelIds)] : [])))
     .limit(1);
   return result[0];
 }
@@ -775,7 +795,8 @@ export async function getAutocompleteSuggestions(userId: number) {
 export async function getScheduleData(
   userId: number,
   startDate: string,
-  endDate: string
+  endDate: string,
+  allowedChannelIds?: number[]
 ): Promise<{
   sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded" | "isMutual" | "partnerChannel" | "dopDirection" | "dopAmount">>;
   purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot" | "isMutual">>;
@@ -783,6 +804,7 @@ export async function getScheduleData(
 }> {
   const db = await getDb();
   if (!db) return { sales: [], purchases: [], mutuals: [] };
+  if (allowedChannelIds && allowedChannelIds.length === 0) return { sales: [], purchases: [], mutuals: [] };
 
   const [sales, purchases, mutuals] = await Promise.all([
     db
@@ -807,6 +829,7 @@ export async function getScheduleData(
       .where(
         and(
           eq(saleRecords.userId, userId),
+          ...(allowedChannelIds ? [inArray(saleRecords.channelId, allowedChannelIds)] : []),
           sql`DATE(${saleRecords.date}) >= ${startDate}`,
           sql`DATE(${saleRecords.date}) <= ${endDate}`
         )
@@ -828,6 +851,7 @@ export async function getScheduleData(
       .where(
         and(
           eq(purchaseRecords.userId, userId),
+          ...(allowedChannelIds ? [inArray(purchaseRecords.channelId, allowedChannelIds)] : []),
           sql`DATE(${purchaseRecords.date}) >= ${startDate}`,
           sql`DATE(${purchaseRecords.date}) <= ${endDate}`
         )
@@ -849,6 +873,7 @@ export async function getScheduleData(
       .where(
         and(
           eq(mutualDeals.userId, userId),
+          ...(allowedChannelIds ? [inArray(mutualDeals.ourChannelId, allowedChannelIds)] : []),
           sql`DATE(${mutualDeals.dealDate}) >= ${startDate}`,
           sql`DATE(${mutualDeals.dealDate}) <= ${endDate}`
         )
