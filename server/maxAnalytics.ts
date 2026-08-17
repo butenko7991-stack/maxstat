@@ -65,10 +65,11 @@ export function getMaxAnalyticsApiUrl(url: URL, reportCode: string): string {
   return new URL(`/api/ad/${encodeURIComponent(reportCode)}?hours=48`, url.origin).toString();
 }
 
-/** URL serialisation uses ASCII punycode and is safe for Fetch ByteString headers. */
-export function getMaxAnalyticsReferer(url: URL): string {
-  return url.toString();
-}
+/** The public report API does not require a Referer header. Keeping headers ASCII-only avoids URL encoding failures. */
+export const MAX_ANALYTICS_FETCH_HEADERS = {
+  "Accept": "application/json, text/plain, */*",
+  "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)",
+} as const;
 
 /**
  * Converts the service API response to the application-wide post analytics

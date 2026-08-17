@@ -78,7 +78,7 @@ import { sql, and, eq, inArray } from "drizzle-orm";
 import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
-import { getMaxAnalyticsApiUrl, getMaxAnalyticsReferer, getMaxAnalyticsReportCode, parseMaxAnalyticsReport } from "./maxAnalytics";
+import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -1554,11 +1554,7 @@ const ocrRouter = router({
       if (maxAnalyticsCode) {
         const apiUrl = getMaxAnalyticsApiUrl(parsedUrl, maxAnalyticsCode);
         const response = await fetch(apiUrl, {
-          headers: {
-            "Accept": "application/json, text/plain, */*",
-            "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)",
-            "Referer": getMaxAnalyticsReferer(parsedUrl),
-          },
+          headers: MAX_ANALYTICS_FETCH_HEADERS,
           signal: AbortSignal.timeout(15_000),
         });
         if (!response.ok) {

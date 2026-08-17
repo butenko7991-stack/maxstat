@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMaxAnalyticsApiUrl, getMaxAnalyticsReferer, getMaxAnalyticsReportCode, parseMaxAnalyticsReport } from "./maxAnalytics";
+import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
 
 const REPORT_URL = new URL("https://go.аналитика-мах.рф/ad/ad_-70945865509462_1786471897531_5pup1v");
 const SAMPLE_RESPONSE = {
@@ -18,9 +18,8 @@ describe("Аналитика МАХ", () => {
     expect(getMaxAnalyticsApiUrl(REPORT_URL, code!)).toBe(
       "https://go.xn----7sbaab9baqgpd7d3b.xn--p1ai/api/ad/ad_-70945865509462_1786471897531_5pup1v?hours=48"
     );
-    expect(getMaxAnalyticsReferer(REPORT_URL)).toBe(
-      "https://go.xn----7sbaab9baqgpd7d3b.xn--p1ai/ad/ad_-70945865509462_1786471897531_5pup1v"
-    );
+    expect(MAX_ANALYTICS_FETCH_HEADERS).not.toHaveProperty("Referer");
+    expect(Object.values(MAX_ANALYTICS_FETCH_HEADERS).every((value) => /^[\x00-\x7F]*$/.test(value))).toBe(true);
   });
 
   it("переносит общий и поканальный охват за 24 часа из JSON API", () => {
