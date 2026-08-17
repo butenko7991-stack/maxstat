@@ -345,6 +345,14 @@ export async function listChannelCreatives(channelId: number, userId: number): P
     .orderBy(desc(channelCreatives.createdAt));
 }
 
+export async function listWorkspaceCreatives(userId: number): Promise<ChannelCreative[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(channelCreatives)
+    .where(eq(channelCreatives.userId, userId))
+    .orderBy(desc(channelCreatives.createdAt));
+}
+
 export async function createChannelCreative(data: InsertChannelCreative): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -358,6 +366,14 @@ export async function getChannelCreativeById(id: number, userId: number): Promis
   const result = await db.select().from(channelCreatives)
     .where(and(eq(channelCreatives.id, id), eq(channelCreatives.userId, userId))).limit(1);
   return result[0];
+}
+
+export async function updateChannelCreativeRecognizedText(id: number, userId: number, recognizedText: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(channelCreatives)
+    .set({ recognizedText })
+    .where(and(eq(channelCreatives.id, id), eq(channelCreatives.userId, userId)));
 }
 
 export async function deleteChannelCreative(id: number, userId: number): Promise<void> {

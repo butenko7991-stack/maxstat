@@ -74,16 +74,19 @@ import {
   getExternalSalesAnalytics,
   getDb,
   listChannelCreatives,
+  listWorkspaceCreatives,
   createChannelCreative,
   getChannelCreativeById,
   deleteChannelCreative,
+  updateChannelCreativeRecognizedText,
 } from "./db";
 import { sql, and, eq, inArray } from "drizzle-orm";
 import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
-import { CreativeImageMime, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
+import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
+import { matchCreativeToChannel } from "./creativeMatching";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -119,6 +122,62 @@ function requireWorkspaceAdmin(ctx: OperationalContext) {
   if (isChannelScopedMember(ctx)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Аналитика и общие данные доступны только администратору" });
   }
+}
+
+type CreativeMatchablePost = {
+  postText?: string | null;
+  postPreview?: string | null;
+  creativeChannelId?: number | null;
+  creativeMatchConfidence?: number | null;
+};
+
+async function recognizeCreativeText(imagePath: string, imageMime: string | null): Promise<string | null> {
+  const dataUrl = await readCreativeImageDataUrl(imagePath, imageMime);
+  if (!dataUrl) return null;
+  try {
+    const result = await invokeLLM({
+      messages: [
+        { role: "system", content: "Распознай текст рекламного поста на скриншоте. Верни только JSON. Не пересказывай и не добавляй текст от себя." },
+        { role: "user", content: [{ type: "text", text: "Перепиши видимый текст рекламного поста со скриншота." }, { type: "image_url", image_url: { url: dataUrl, detail: "high" } }] },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "creative_ocr",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+    const raw = result.choices[0]?.message?.content;
+    if (typeof raw !== "string") return null;
+    const text = JSON.parse(raw).text;
+    return typeof text === "string" && text.trim().length >= 12 ? text.trim().slice(0, 20_000) : null;
+  } catch (error) {
+    console.warn("[Creatives] OCR skipped:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+async function attachCreativeMatches<T extends CreativeMatchablePost>(posts: T[], workspaceId: number): Promise<Array<T & { creativeChannelId: number | null; creativeMatchConfidence: number | null }>> {
+  const creatives = await listWorkspaceCreatives(workspaceId);
+  for (const creative of creatives) {
+    if (creative.postText || creative.recognizedText || !creative.imagePath) continue;
+    const recognizedText = await recognizeCreativeText(creative.imagePath, creative.imageMime);
+    if (recognizedText) {
+      await updateChannelCreativeRecognizedText(creative.id, workspaceId, recognizedText);
+      creative.recognizedText = recognizedText;
+    }
+  }
+  return posts.map((post) => {
+    const match = matchCreativeToChannel(`${post.postText ?? ""}\n${post.postPreview ?? ""}`, creatives);
+    return { ...post, creativeChannelId: match?.channelId ?? null, creativeMatchConfidence: match?.confidence ?? null };
+  });
 }
 
 // ─── Channels router ──────────────────────────────────────────────────────────
@@ -1589,7 +1648,7 @@ const ocrRouter = router({
     .input(z.object({
       url: z.string().url(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { url } = input;
       // ── SSRF protection: block private/internal IP ranges only ────────────────
       let parsedUrl: URL;
@@ -1626,7 +1685,7 @@ const ocrRouter = router({
         if (report.posts.length === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Аналитики МАХ не найдены размещения" });
         }
-        return report;
+        return { ...report, posts: await attachCreativeMatches(report.posts, ctx.user.id) };
       }
 
       // ── Trustat / anypost share link ──────────────────────────────────────

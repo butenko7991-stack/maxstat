@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS `channel_creatives` (
   `channelId` INT NOT NULL,
   `title` VARCHAR(255),
   `postText` TEXT,
+  `recognizedText` TEXT,
   `imagePath` VARCHAR(1024),
   `imageMime` VARCHAR(100),
   `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

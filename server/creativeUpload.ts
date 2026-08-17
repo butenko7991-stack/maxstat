@@ -38,3 +38,14 @@ export async function removeCreativeImage(imagePath: string | null | undefined):
   if (!filePath.startsWith(expectedRoot)) return;
   await fs.unlink(filePath).catch(() => undefined);
 }
+
+export async function readCreativeImageDataUrl(imagePath: string, mimeType: string | null): Promise<string | null> {
+  if (!imagePath.startsWith("/uploads/creatives/")) return null;
+  const filePath = path.resolve(process.cwd(), imagePath.slice(1));
+  const expectedRoot = path.resolve(process.cwd(), "uploads", "creatives") + path.sep;
+  if (!filePath.startsWith(expectedRoot)) return null;
+  const buffer = await fs.readFile(filePath).catch(() => null);
+  if (!buffer || buffer.length === 0 || buffer.length > MAX_IMAGE_BYTES) return null;
+  const safeMime = Object.hasOwn(mimeExtensions, mimeType ?? "") ? mimeType : "image/jpeg";
+  return `data:${safeMime};base64,${buffer.toString("base64")}`;
+}

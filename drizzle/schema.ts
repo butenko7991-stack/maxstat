@@ -52,6 +52,7 @@ export const channelCreatives = mysqlTable("channel_creatives", {
   channelId: int("channelId").notNull(),
   title: varchar("title", { length: 255 }),
   postText: text("postText"),
+  recognizedText: text("recognizedText"),
   imagePath: varchar("imagePath", { length: 1024 }),
   imageMime: varchar("imageMime", { length: 100 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

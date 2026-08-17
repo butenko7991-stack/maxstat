@@ -155,7 +155,7 @@ export function PurchaseFormModal({
       setLinkAnalyzeStatus("done");
       if (data.posts && data.posts.length >= 1) {
         const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
-        const selection = selectPostForChannel(data.posts, selectedChannelName);
+        const selection = selectPostForChannel(data.posts, selectedChannelName, Number(form.channelId));
         const reach = getViews24h(selection.post);
         const sourceSubscribers = selection.post?.channelSubs;
         if (selection.post) setForm((f) => ({
@@ -873,7 +873,7 @@ export function SaleFormModal({
       setLinkAnalyzeStatus("done");
       if (data.posts && data.posts.length >= 1) {
         const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
-        const selection = selectPostForChannel(data.posts, selectedChannelName);
+        const selection = selectPostForChannel(data.posts, selectedChannelName, Number(form.channelId));
         const reach = getViews24h(selection.post);
         const buyerSubscribers = selection.post?.channelSubs;
         if (selection.post) setForm((f) => ({

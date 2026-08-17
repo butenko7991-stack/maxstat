@@ -1,5 +1,7 @@
 export type LinkAnalyticsPost = {
   channelTitle?: string | null;
+  creativeChannelId?: number | null;
+  creativeMatchConfidence?: number | null;
   views24h?: number | null;
   views48h?: number | null;
   views72h?: number | null;
@@ -35,9 +37,21 @@ function normalizeChannelName(value: string | null | undefined): string {
 export function selectPostForChannel(
   posts: LinkAnalyticsPost[] | null | undefined,
   channelName: string | null | undefined,
+  channelId?: number | null,
 ): PostSelection {
   if (!posts?.length) return { kind: "empty", post: null };
-  if (posts.length === 1) return { kind: "single", post: posts[0] };
+  if (posts.length === 1) {
+    const onlyPost = posts[0];
+    if (channelId && onlyPost.creativeChannelId && onlyPost.creativeChannelId !== channelId) {
+      return { kind: "ambiguous", post: null };
+    }
+    return { kind: "single", post: onlyPost };
+  }
+
+  if (channelId) {
+    const creativeMatches = posts.filter((post) => post.creativeChannelId === channelId);
+    if (creativeMatches.length === 1) return { kind: "matched", post: creativeMatches[0] };
+  }
 
   const normalizedChannel = normalizeChannelName(channelName);
   if (normalizedChannel.length < 3) return { kind: "ambiguous", post: null };
@@ -71,8 +85,9 @@ export function decideHistoricalReach(
   posts: LinkAnalyticsPost[] | null | undefined,
   channelName: string | null | undefined,
   currentReach: number | null,
+  channelId?: number | null,
 ): HistoricalReachDecision {
-  const selection = selectPostForChannel(posts, channelName);
+  const selection = selectPostForChannel(posts, channelName, channelId);
   if (selection.kind === "ambiguous" || selection.kind === "empty") {
     return {
       status: "ambiguous",

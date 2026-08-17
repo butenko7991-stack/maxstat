@@ -12,6 +12,7 @@ export async function ensureCreativeSchema(): Promise<void> {
       channelId INT NOT NULL,
       title VARCHAR(255),
       postText TEXT,
+      recognizedText TEXT,
       imagePath VARCHAR(1024),
       imageMime VARCHAR(100),
       createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -20,4 +21,5 @@ export async function ensureCreativeSchema(): Promise<void> {
       INDEX channel_creatives_user_channel_idx (userId, channelId)
     )
   `));
+  await db.execute(sql.raw("ALTER TABLE channel_creatives ADD COLUMN IF NOT EXISTS recognizedText TEXT AFTER postText"));
 }

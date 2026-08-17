@@ -84,4 +84,19 @@ describe("decideHistoricalReach", () => {
     expect(shouldIncludeHistoricalReachDecision(ready)).toBe(true);
     expect(shouldIncludeHistoricalReachDecision(ambiguous)).toBe(true);
   });
+
+  it("выбирает точный канал креатива в общей ссылке даже без совпадения названия", () => {
+    const decision = decideHistoricalReach([
+      { channelTitle: "Внешнее название 1", creativeChannelId: 10, views24h: 336 },
+      { channelTitle: "Внешнее название 2", creativeChannelId: 20, views24h: 552 },
+    ], "Мой канал", 500, 20);
+    expect(decision).toMatchObject({ status: "ready", proposedReach: 552 });
+  });
+
+  it("не принимает одиночный пост, если креатив уверенно указывает на другой канал", () => {
+    const decision = decideHistoricalReach([
+      { channelTitle: "Внешний канал", creativeChannelId: 20, views24h: 552 },
+    ], "Мой канал", 500, 10);
+    expect(decision.status).toBe("ambiguous");
+  });
 });

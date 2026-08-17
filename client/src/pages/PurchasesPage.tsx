@@ -313,7 +313,7 @@ export default function PurchasesPage() {
       { url: record.link },
       {
         onSuccess: (data) => {
-          const selection = selectPostForChannel(data.posts, channelMap[record.channelId]);
+          const selection = selectPostForChannel(data.posts, channelMap[record.channelId], record.channelId);
           if (selection.kind === "ambiguous") {
             toast.info("Охваты не изменены", {
               description: "Ссылка содержит несколько каналов. Откройте запись и выберите нужный канал вручную.",

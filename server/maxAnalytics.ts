@@ -8,6 +8,9 @@ export type AnalyticsPost = {
   er24h: number | null;
   postedAt: string | null;
   postUrl: string | null;
+  postText: string | null;
+  postPreview: string | null;
+  mediaUrls: string[];
 };
 
 export type AnalyticsLinkReport = {
@@ -97,6 +100,11 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
       er24h: null,
       postedAt: timestampToIso(getRecordValue(channel, "publishedAt", "published_at")),
       postUrl: asText(getRecordValue(channel, "channelLink", "channel_link")) ?? reportUrl,
+      postText: asText(getRecordValue(channel, "postText", "post_text")),
+      postPreview: asText(getRecordValue(channel, "postPreview", "post_preview")),
+      mediaUrls: Array.isArray(channel.media)
+        ? channel.media.flatMap((media) => media && typeof media === "object" && typeof (media as Record<string, unknown>).url === "string" ? [(media as Record<string, string>).url] : [])
+        : [],
     };
   });
 
