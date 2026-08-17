@@ -11,6 +11,7 @@ import { createContext } from "./context";
 // so esbuild never pulls devDependencies into the production bundle.
 import { serveStatic } from "./serveStatic";
 import { externalReminderHandler } from "../scheduledHandlers";
+import { getHistoricalReachRepairStatus, startHistoricalReachRepair } from "../historicalReachRepair";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -43,6 +44,10 @@ async function startServer() {
 
   // Scheduled job endpoints (called by Heartbeat cron)
   app.post("/api/scheduled/external-reminder", externalReminderHandler);
+
+  app.get("/api/historical-reach-repair-status", async (_req, res) => {
+    res.json(await getHistoricalReachRepairStatus());
+  });
 
   // LLM Proxy endpoint - allows VPS (which can't reach Forge/OpenRouter from Russia) to proxy LLM calls
   app.post("/api/llm-proxy", async (req, res) => {
@@ -90,6 +95,7 @@ async function startServer() {
   const bindHost = process.env.BIND_HOST || undefined;
   server.listen(port, bindHost, () => {
     console.log(`Server running on http://${bindHost ?? "localhost"}:${port}/`);
+    if (process.env.NODE_ENV === "production") void startHistoricalReachRepair();
   });
 }
 

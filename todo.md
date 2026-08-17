@@ -1,5 +1,10 @@
 # Max Ads Manager — TODO
 
+## Прямой запуск массовой коррекции
+- [x] Подготовить изолированное обновление только рабочей зоны продажи #4950161
+- [ ] Применить однозначно подтверждённые охваты за 24 часа и сохранить итоговый отчёт
+- [ ] Удалить одноразовый запуск после завершения и подтвердить состояние приложения
+
 ## Backend / Database
 - [x] Define schema: channels, purchase_records, sale_records tables in drizzle/schema.ts
 - [x] Generate and apply migration SQL
