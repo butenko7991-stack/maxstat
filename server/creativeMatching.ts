@@ -8,6 +8,11 @@ export type CreativeMatchCandidate = {
 
 export type CreativeMatch = { channelId: number; creativeId: number; confidence: number } | null;
 
+/** A creative identifies the placement bought from an external source, not a sale in our own channel. */
+export function shouldUseCreativeMatching(recordType: "purchase" | "sale" | undefined): boolean {
+  return recordType === "purchase";
+}
+
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "")
     .toLocaleLowerCase("ru-RU")

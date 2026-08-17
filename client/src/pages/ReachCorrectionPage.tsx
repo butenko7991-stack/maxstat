@@ -77,7 +77,7 @@ export default function ReachCorrectionPage() {
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index];
       try {
-        const data = await analyzeLink.mutateAsync({ url: candidate.link });
+        const data = await analyzeLink.mutateAsync({ url: candidate.link, recordType: candidate.recordType });
         const decision = decideHistoricalReach(data.posts, candidate.channelName, candidate.currentReach, candidate.channelId);
         if (shouldIncludeHistoricalReachDecision(decision)) {
           next.push({ ...candidate, ...decision });

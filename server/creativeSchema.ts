@@ -21,5 +21,10 @@ export async function ensureCreativeSchema(): Promise<void> {
       INDEX channel_creatives_user_channel_idx (userId, channelId)
     )
   `));
-  await db.execute(sql.raw("ALTER TABLE channel_creatives ADD COLUMN IF NOT EXISTS recognizedText TEXT AFTER postText"));
+  try {
+    await db.execute(sql.raw("ALTER TABLE channel_creatives ADD COLUMN recognizedText TEXT AFTER postText"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/duplicate column|duplicate field|already exists/i.test(message)) throw error;
+  }
 }

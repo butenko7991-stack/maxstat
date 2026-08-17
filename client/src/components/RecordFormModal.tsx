@@ -197,7 +197,7 @@ export function PurchaseFormModal({
     setLinkAnalyzeStatus("loading");
     setLinkAnalyzeError("");
     setLinkAnalyzeResult(null);
-    analyzeLinkMutation.mutate({ url });
+    analyzeLinkMutation.mutate({ url, recordType: "purchase" });
   }
 
   function applyPostDataPurchase(post: any) {
@@ -218,7 +218,7 @@ export function PurchaseFormModal({
       setLinkAnalyzeStatus("loading");
       setLinkAnalyzeError("");
       setLinkAnalyzeResult(null);
-      analyzeLinkMutation.mutate({ url: form.link.trim() });
+      analyzeLinkMutation.mutate({ url: form.link.trim(), recordType: "purchase" });
     }
   }
 
@@ -915,7 +915,7 @@ export function SaleFormModal({
     setLinkAnalyzeStatus("loading");
     setLinkAnalyzeError("");
     setLinkAnalyzeResult(null);
-    analyzeLinkMutation.mutate({ url });
+    analyzeLinkMutation.mutate({ url, recordType: "sale" });
   }
 
   function applyPostData(post: any) {
@@ -935,7 +935,7 @@ export function SaleFormModal({
       setLinkAnalyzeStatus("loading");
       setLinkAnalyzeError("");
       setLinkAnalyzeResult(null);
-      analyzeLinkMutation.mutate({ url: form.link.trim() });
+      analyzeLinkMutation.mutate({ url: form.link.trim(), recordType: "sale" });
     }
   }
 

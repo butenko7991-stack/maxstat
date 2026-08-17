@@ -154,7 +154,7 @@ export default function SalesPage() {
     if (!record.link?.startsWith("http")) return;
 
     autoExtractMutation.mutate(
-      { url: record.link },
+      { url: record.link, recordType: "sale" },
       {
         onSuccess: (data) => {
           const selection = selectPostForChannel(data.posts, channelMap[record.channelId], record.channelId);

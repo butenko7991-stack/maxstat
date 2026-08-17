@@ -1,2 +1,2 @@
-ALTER TABLE `channel_creatives`
-  ADD COLUMN IF NOT EXISTS `recognizedText` TEXT AFTER `postText`;
+-- Existing VPS installations receive this additive column from ensureCreativeSchema
+-- during application startup, with a duplicate-column guard for MariaDB/MySQL compatibility.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchCreativeToChannel } from "./creativeMatching";
+import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 
 describe("сопоставление креатива с отчётом", () => {
   const creatives = [
@@ -24,5 +24,13 @@ describe("сопоставление креатива с отчётом", () => 
       { id: 4, channelId: 22, title: null, postText: "Уникальный рекламный текст про новые отношения и доверие в паре каждый день.", recognizedText: null },
     ];
     expect(matchCreativeToChannel("Уникальный рекламный текст про новые отношения и доверие в паре каждый день.", duplicated)).toBeNull();
+  });
+});
+
+describe("граница применения креатива", () => {
+  it("применяет креатив только к закупу, а продажи оставляет данным отчёта", () => {
+    expect(shouldUseCreativeMatching("purchase")).toBe(true);
+    expect(shouldUseCreativeMatching("sale")).toBe(false);
+    expect(shouldUseCreativeMatching(undefined)).toBe(false);
   });
 });

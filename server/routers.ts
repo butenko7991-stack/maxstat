@@ -86,7 +86,7 @@ import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
-import { matchCreativeToChannel } from "./creativeMatching";
+import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -1647,6 +1647,7 @@ const ocrRouter = router({
   analyzeLink: protectedProcedure
     .input(z.object({
       url: z.string().url(),
+      recordType: z.enum(["purchase", "sale"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { url } = input;
@@ -1685,7 +1686,10 @@ const ocrRouter = router({
         if (report.posts.length === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Аналитики МАХ не найдены размещения" });
         }
-        return { ...report, posts: await attachCreativeMatches(report.posts, ctx.user.id) };
+        const posts = shouldUseCreativeMatching(input.recordType)
+          ? await attachCreativeMatches(report.posts, ctx.user.id)
+          : report.posts;
+        return { ...report, posts };
       }
 
       // ── Trustat / anypost share link ──────────────────────────────────────
