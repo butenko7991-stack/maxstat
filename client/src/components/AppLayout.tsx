@@ -16,8 +16,10 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { toast } from "sonner";
+import { UPDATE_ANNOUNCEMENT_STORAGE_KEY, UPDATE_ANNOUNCEMENT_VERSION, shouldShowUpdateAnnouncement } from "@/lib/updateAnnouncement";
 
 const NAV_ITEMS = [
   { href: "/channels", label: "Каналы", icon: Layers, roles: ["owner", "admin", "user"] as string[] },
@@ -40,6 +42,22 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === "undefined") return;
+    const storedVersion = window.localStorage.getItem(UPDATE_ANNOUNCEMENT_STORAGE_KEY);
+    if (!shouldShowUpdateAnnouncement(storedVersion)) return;
+
+    window.localStorage.setItem(UPDATE_ANNOUNCEMENT_STORAGE_KEY, UPDATE_ANNOUNCEMENT_VERSION);
+    toast("Обновление охватов", {
+      description: "Добавлена поддержка ссылок «Аналитики МАХ»: охваты извлекаются строго за 24 часа, а общие ссылки безопасно разбираются по каналам.",
+      duration: 14_000,
+      action: {
+        label: "Проверить историю",
+        onClick: () => { window.location.href = "/reach-correction"; },
+      },
+    });
+  }, [isAuthenticated]);
 
   if (loading) {
     return (
