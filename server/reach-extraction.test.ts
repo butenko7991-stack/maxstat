@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getViews24h, selectPostForChannel } from "../client/src/lib/reachExtraction";
+import { decideHistoricalReach, getViews24h, selectPostForChannel } from "../client/src/lib/reachExtraction";
 
 describe("selectPostForChannel", () => {
   it("использует единственный пост из ссылки", () => {
@@ -50,5 +50,26 @@ describe("getViews24h", () => {
   it("не принимает отрицательные и нечисловые значения", () => {
     expect(getViews24h({ views24h: -1 })).toBeNull();
     expect(getViews24h({ views24h: Number.NaN })).toBeNull();
+  });
+});
+
+describe("decideHistoricalReach", () => {
+  it("разрешает пакетное обновление только для однозначного канала с охватом за 24 часа", () => {
+    expect(decideHistoricalReach([
+      { channelTitle: "Канал А", views24h: 2_500 },
+      { channelTitle: "Канал Б", views24h: 6_000 },
+    ], "Канал Б", 1_000)).toMatchObject({ status: "ready", proposedReach: 6_000 });
+  });
+
+  it("не включает в пакетное обновление общую ссылку без точного совпадения", () => {
+    expect(decideHistoricalReach([
+      { channelTitle: "Канал А", views24h: 2_500 },
+      { channelTitle: "Канал Б", views24h: 6_000 },
+    ], "Канал В", 1_000)).toMatchObject({ status: "ambiguous", proposedReach: null });
+  });
+
+  it("оставляет неизменной запись с уже корректным значением", () => {
+    expect(decideHistoricalReach([{ channelTitle: "Канал А", views24h: 2_500 }], "Канал А", 2_500))
+      .toMatchObject({ status: "same", proposedReach: 2_500 });
   });
 });

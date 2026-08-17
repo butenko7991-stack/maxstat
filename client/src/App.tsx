@@ -15,6 +15,7 @@ import AIAnalyticsPage from "./pages/AIAnalyticsPage";
 import AdminPage from "./pages/AdminPage";
 import ExpensesPage from "./pages/ExpensesPage";
 import MutualPage from "./pages/MutualPage";
+import ReachCorrectionPage from "./pages/ReachCorrectionPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 
@@ -39,6 +40,7 @@ function Router() {
             <Route path="/expenses" component={ExpensesPage} />
             <Route path="/mutual" component={MutualPage} />
             <Route path="/admin" component={AdminPage} />
+            <Route path="/reach-correction" component={ReachCorrectionPage} />
             <Route path="/404" component={NotFound} />
             <Route component={NotFound} />
           </Switch>

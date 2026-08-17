@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   Receipt,
+  RefreshCw,
   Shield,
   ShoppingCart,
   Sparkles,
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { href: "/expenses", label: "Расходы", icon: Receipt, roles: ["owner", "admin", "user"] as string[] },
   { href: "/ai", label: "AI Аналитика", icon: Sparkles, roles: ["owner", "admin", "user"] as string[] },
   { href: "/admin", label: "Команда", icon: Shield, roles: ["owner", "admin"] as string[] },
+  { href: "/reach-correction", label: "Коррекция охватов", icon: RefreshCw, roles: ["owner", "admin"] as string[] },
 ];
 
 interface AppLayoutProps {

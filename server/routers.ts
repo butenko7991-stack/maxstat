@@ -2201,6 +2201,40 @@ ${saleLines || '  Нет данных'}
     }),
 });
 
+// ─── Historical reach correction router ───────────────────────────────────────
+const reachCorrectionRouter = router({
+  /**
+   * Returns paid records with analytics links. The browser performs the actual
+   * link analysis one at a time and applies only a reviewed 24-hour value.
+   */
+  candidates: workspaceAdminProcedure
+    .input(z.object({ recordType: z.enum(["purchase", "sale", "all"]).default("all") }).optional())
+    .query(async ({ ctx, input }) => {
+      const recordType = input?.recordType ?? "all";
+      const [channels, purchases, sales] = await Promise.all([
+        getChannelsByUser(ctx.user.id),
+        recordType === "sale" ? Promise.resolve([]) : getPurchaseRecords(ctx.user.id, { paymentStatus: "paid" }),
+        recordType === "purchase" ? Promise.resolve([]) : getSaleRecords(ctx.user.id, { paymentStatus: "paid" }),
+      ]);
+      const channelNames = new Map(channels.map((channel) => [channel.id, channel.name]));
+
+      const normalize = (recordType: "purchase" | "sale", record: { id: number; channelId: number; link: string | null; reach: number | null; date: Date }) => ({
+        recordType,
+        id: record.id,
+        channelId: record.channelId,
+        channelName: channelNames.get(record.channelId) ?? `Канал #${record.channelId}`,
+        link: record.link!,
+        currentReach: record.reach ?? null,
+        date: record.date,
+      });
+
+      return [
+        ...purchases.filter((record) => Boolean(record.link?.startsWith("http"))).map((record) => normalize("purchase", record)),
+        ...sales.filter((record) => Boolean(record.link?.startsWith("http"))).map((record) => normalize("sale", record)),
+      ].sort((a, b) => b.date.getTime() - a.date.getTime());
+    }),
+});
+
 // ─── App router ──────────────────────────────────────────────────────────────────────────────────────────────────────
 export const appRouter = router({system: systemRouter,  auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -2223,5 +2257,6 @@ export const appRouter = router({system: systemRouter,  auth: router({
    expenses: expensesRouter,
   postAnalytics: postAnalyticsRouter,
   clients: clientsRouter,
+  reachCorrection: reachCorrectionRouter,
 });
 export type AppRouter = typeof appRouter;

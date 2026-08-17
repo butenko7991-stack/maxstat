@@ -10,6 +10,10 @@ export type PostSelection =
   | { kind: "single" | "matched"; post: LinkAnalyticsPost }
   | { kind: "ambiguous" | "empty"; post: null };
 
+export type HistoricalReachDecision =
+  | { status: "ready"; proposedReach: number; message: string }
+  | { status: "same" | "ambiguous" | "no24h"; proposedReach: number | null; message: string };
+
 function normalizeChannelName(value: string | null | undefined): string {
   return (value ?? "")
     .toLocaleLowerCase("ru-RU")
@@ -52,4 +56,46 @@ export function getViews24h(post: LinkAnalyticsPost | null | undefined): number 
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.trunc(value)
     : null;
+}
+
+/**
+ * Decides whether a historical record is safe to update without human review.
+ * Only an unambiguous channel selection and a real 24-hour metric are eligible.
+ */
+export function decideHistoricalReach(
+  posts: LinkAnalyticsPost[] | null | undefined,
+  channelName: string | null | undefined,
+  currentReach: number | null,
+): HistoricalReachDecision {
+  const selection = selectPostForChannel(posts, channelName);
+  if (selection.kind === "ambiguous" || selection.kind === "empty") {
+    return {
+      status: "ambiguous",
+      proposedReach: null,
+      message: "В общей ссылке нельзя однозначно выбрать канал",
+    };
+  }
+
+  const proposedReach = getViews24h(selection.post);
+  if (proposedReach === null) {
+    return {
+      status: "no24h",
+      proposedReach: null,
+      message: "Трекер не вернул охват ровно за 24 часа",
+    };
+  }
+
+  if (proposedReach === currentReach) {
+    return {
+      status: "same",
+      proposedReach,
+      message: "Текущий охват уже совпадает с данными за 24 часа",
+    };
+  }
+
+  return {
+    status: "ready",
+    proposedReach,
+    message: `Будет установлено: ${proposedReach.toLocaleString("ru-RU")}`,
+  };
 }
