@@ -45,6 +45,22 @@ export const channels = mysqlTable("channels", {
 export type Channel = typeof channels.$inferSelect;
 export type InsertChannel = typeof channels.$inferInsert;
 
+/** Reusable advertising creative linked to a single channel and workspace. */
+export const channelCreatives = mysqlTable("channel_creatives", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  channelId: int("channelId").notNull(),
+  title: varchar("title", { length: 255 }),
+  postText: text("postText"),
+  imagePath: varchar("imagePath", { length: 1024 }),
+  imageMime: varchar("imageMime", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ChannelCreative = typeof channelCreatives.$inferSelect;
+export type InsertChannelCreative = typeof channelCreatives.$inferInsert;
+
 /**
  * Ad purchase records (Закуп).
  * Tracks money spent buying advertising placements from external channels.

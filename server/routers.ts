@@ -73,12 +73,17 @@ import {
   getClientAttributedCpf,
   getExternalSalesAnalytics,
   getDb,
+  listChannelCreatives,
+  createChannelCreative,
+  getChannelCreativeById,
+  deleteChannelCreative,
 } from "./db";
 import { sql, and, eq, inArray } from "drizzle-orm";
 import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
+import { CreativeImageMime, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -171,6 +176,57 @@ const channelsRouter = router({
       const channel = await getChannelById(input.id, ctx.user.id, await getChannelScope(ctx));
       if (!channel) throw new TRPCError({ code: "NOT_FOUND" });
       return channel;
+    }),
+  creatives: workspaceAdminProcedure
+    .input(z.object({ channelId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const channel = await getChannelById(input.channelId, ctx.user.id);
+      if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "Канал не найден" });
+      return listChannelCreatives(input.channelId, ctx.user.id);
+    }),
+  createCreative: workspaceAdminProcedure
+    .input(z.object({
+      channelId: z.number().int().positive(),
+      title: z.string().trim().max(255).optional(),
+      postText: z.string().trim().max(20_000).optional(),
+      imageBase64: z.string().max(7_000_000).optional(),
+      imageMime: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]).optional(),
+    }).refine((data) => Boolean(data.postText || data.imageBase64), { message: "Добавьте текст поста или скриншот" })
+      .refine((data) => !data.imageBase64 || Boolean(data.imageMime), { message: "Не указан тип изображения" }))
+    .mutation(async ({ ctx, input }) => {
+      const channel = await getChannelById(input.channelId, ctx.user.id);
+      if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "Канал не найден" });
+      const id = await createChannelCreative({
+        userId: ctx.user.id,
+        channelId: input.channelId,
+        title: input.title || null,
+        postText: input.postText || null,
+        imagePath: null,
+        imageMime: input.imageMime || null,
+      });
+      try {
+        const imagePath = input.imageBase64
+          ? await saveCreativeImage(ctx.user.id, id, input.imageBase64, input.imageMime as CreativeImageMime)
+          : null;
+        if (imagePath) {
+          const db = await getDb();
+          if (!db) throw new Error("База данных недоступна");
+          await db.execute(sql`UPDATE channel_creatives SET imagePath = ${imagePath} WHERE id = ${id} AND userId = ${ctx.user.id}`);
+        }
+        return { id, imagePath };
+      } catch (error) {
+        await deleteChannelCreative(id, ctx.user.id);
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Не удалось сохранить скриншот" });
+      }
+    }),
+  deleteCreative: workspaceAdminProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const creative = await getChannelCreativeById(input.id, ctx.user.id);
+      if (!creative) throw new TRPCError({ code: "NOT_FOUND", message: "Креатив не найден" });
+      await deleteChannelCreative(input.id, ctx.user.id);
+      await removeCreativeImage(creative.imagePath);
+      return { success: true };
     }),
 });
 

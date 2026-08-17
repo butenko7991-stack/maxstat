@@ -10,6 +10,9 @@ import {
   InsertSaleRecord,
   InsertUser,
   MutualDeal,
+  channelCreatives,
+  ChannelCreative,
+  InsertChannelCreative,
   PurchaseRecord,
   SaleRecord,
   channelAssignments,
@@ -328,6 +331,39 @@ export async function deleteChannel(id: number, userId: number, allowedChannelId
   if (!db) return;
   if (allowedChannelIds && !allowedChannelIds.includes(id)) return;
   await db.delete(channels).where(and(eq(channels.id, id), eq(channels.userId, userId), ...(allowedChannelIds ? [inArray(channels.id, allowedChannelIds)] : [])));
+}
+
+// ─── Channel creatives ─────────────────────────────────────────────────────────
+
+export async function listChannelCreatives(channelId: number, userId: number): Promise<ChannelCreative[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(channelCreatives)
+    .where(and(eq(channelCreatives.channelId, channelId), eq(channelCreatives.userId, userId)))
+    .orderBy(desc(channelCreatives.createdAt));
+}
+
+export async function createChannelCreative(data: InsertChannelCreative): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(channelCreatives).values(data);
+  return (result[0] as { insertId: number }).insertId;
+}
+
+export async function getChannelCreativeById(id: number, userId: number): Promise<ChannelCreative | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(channelCreatives)
+    .where(and(eq(channelCreatives.id, id), eq(channelCreatives.userId, userId))).limit(1);
+  return result[0];
+}
+
+export async function deleteChannelCreative(id: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(channelCreatives).where(and(eq(channelCreatives.id, id), eq(channelCreatives.userId, userId)));
 }
 
 // ─── Purchase Records ─────────────────────────────────────────────────────────

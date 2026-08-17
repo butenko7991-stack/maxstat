@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Layers, X, Check, Users, ChevronDown, ChevronUp, Save, Camera, Loader2, CheckCircle2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Layers, X, Check, Users, ChevronDown, ChevronUp, Save, Camera, Loader2, CheckCircle2, ImagePlus, FileText } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -378,6 +378,166 @@ function SnapshotSection({ channelId, channelName }: SnapshotSectionProps) {
   );
 }
 
+// ─── Channel Creative Section ────────────────────────────────────────────────
+function CreativeSection({ channelId }: { channelId: number }) {
+  const utils = trpc.useUtils();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [title, setTitle] = useState("");
+  const [postText, setPostText] = useState("");
+  const [imageBase64, setImageBase64] = useState<string | undefined>();
+  const [imageMime, setImageMime] = useState<"image/png" | "image/jpeg" | "image/webp" | "image/gif" | undefined>();
+  const [preview, setPreview] = useState<string | undefined>();
+
+  const { data: creatives, isLoading } = trpc.channels.creatives.useQuery(
+    { channelId },
+    { enabled: expanded },
+  );
+  const createMutation = trpc.channels.createCreative.useMutation({
+    onSuccess: () => {
+      utils.channels.creatives.invalidate({ channelId });
+      setTitle("");
+      setPostText("");
+      setImageBase64(undefined);
+      setImageMime(undefined);
+      setPreview(undefined);
+      toast.success("Креатив сохранён");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const deleteMutation = trpc.channels.deleteCreative.useMutation({
+    onSuccess: () => {
+      utils.channels.creatives.invalidate({ channelId });
+      toast.success("Креатив удалён");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  function selectImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Размер скриншота не должен превышать 5 МБ");
+      return;
+    }
+    const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+    if (!(allowed as readonly string[]).includes(file.type)) {
+      toast.error("Поддерживаются PNG, JPG, WEBP и GIF");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? "");
+      setPreview(dataUrl);
+      setImageBase64(dataUrl.split(",")[1]);
+      setImageMime(file.type as typeof imageMime);
+    };
+    reader.onerror = () => toast.error("Не удалось прочитать скриншот");
+    reader.readAsDataURL(file);
+  }
+
+  function saveCreative(event: React.FormEvent) {
+    event.preventDefault();
+    if (!postText.trim() && !imageBase64) {
+      toast.error("Добавьте текст рекламного поста или скриншот");
+      return;
+    }
+    createMutation.mutate({
+      channelId,
+      title: title.trim() || undefined,
+      postText: postText.trim() || undefined,
+      imageBase64,
+      imageMime,
+    });
+  }
+
+  return (
+    <div className="mt-3 border-t border-border/40 pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ImagePlus className="h-3.5 w-3.5 text-fuchsia-400" />
+        <span className="font-medium">Креативы</span>
+        {creatives?.length ? <span className="rounded-full bg-fuchsia-400/10 px-1.5 py-0.5 text-[10px] text-fuchsia-300">{creatives.length}</span> : null}
+        {expanded ? <ChevronUp className="ml-auto h-3.5 w-3.5" /> : <ChevronDown className="ml-auto h-3.5 w-3.5" />}
+      </button>
+
+      {expanded ? (
+        <div className="mt-3 space-y-3">
+          <form onSubmit={saveCreative} className="space-y-3 rounded-xl border border-fuchsia-800/40 bg-fuchsia-950/20 p-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-fuchsia-200">
+              <ImagePlus className="h-3.5 w-3.5" />
+              Новый креатив
+            </div>
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Название, например «Креатив про отношения»"
+              className="h-8 border-fuchsia-900/50 bg-input text-xs"
+              maxLength={255}
+            />
+            <Textarea
+              value={postText}
+              onChange={(event) => setPostText(event.target.value)}
+              placeholder="Вставьте текст рекламного поста — можно добавлять и без скриншота"
+              className="min-h-20 resize-y border-fuchsia-900/50 bg-input text-xs"
+              maxLength={20_000}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={selectImage}
+              />
+              <Button type="button" variant="outline" size="sm" className="h-8 border-fuchsia-700/50 text-xs text-fuchsia-200 hover:bg-fuchsia-900/30" onClick={() => fileInputRef.current?.click()}>
+                <Camera className="mr-1.5 h-3.5 w-3.5" />
+                {preview ? "Заменить скрин" : "Добавить скрин"}
+              </Button>
+              {preview ? (
+                <div className="relative">
+                  <img src={preview} alt="Новый креатив" className="h-12 w-12 rounded-md border border-fuchsia-700/50 object-cover" />
+                  <button type="button" aria-label="Убрать скриншот" onClick={() => { setPreview(undefined); setImageBase64(undefined); setImageMime(undefined); }} className="absolute -right-2 -top-2 rounded-full bg-destructive p-0.5 text-destructive-foreground">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : null}
+              <Button type="submit" size="sm" className="ml-auto h-8 gap-1.5 text-xs" disabled={createMutation.isPending}>
+                {createMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Сохранить креатив
+              </Button>
+            </div>
+            <p className="text-[10px] leading-relaxed text-muted-foreground">Добавляйте текст, скриншот или оба варианта. В дальнейшем они помогут автоматически сопоставлять отчёт с нужным каналом.</p>
+          </form>
+
+          {isLoading ? <div className="h-16 animate-pulse rounded-xl bg-muted/40" /> : !creatives?.length ? (
+            <p className="py-2 text-center text-xs text-muted-foreground">Креативов пока нет.</p>
+          ) : (
+            <div className="space-y-2">
+              {creatives.map((creative) => (
+                <div key={creative.id} className="group flex gap-3 rounded-xl border border-border/50 bg-muted/20 p-2.5">
+                  {creative.imagePath ? <img src={creative.imagePath} alt={creative.title || "Скрин креатива"} className="h-16 w-16 shrink-0 rounded-lg border border-border/60 object-cover" /> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-fuchsia-400/10 text-fuchsia-300"><FileText className="h-5 w-5" /></div>}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-foreground">{creative.title || "Рекламный пост"}</p>
+                    {creative.postText ? <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">{creative.postText}</p> : <p className="mt-1 text-[11px] text-muted-foreground">Сохранён скриншот</p>}
+                  </div>
+                  <button type="button" aria-label="Удалить креатив" onClick={() => deleteMutation.mutate({ id: creative.id })} disabled={deleteMutation.isPending} className="self-start rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ChannelsPage() {
   const utils = trpc.useUtils();
@@ -526,6 +686,7 @@ export default function ChannelsPage() {
               </div>
               {/* Subscriber snapshots section */}
               <SnapshotSection channelId={ch.id} channelName={ch.name} />
+              <CreativeSection channelId={ch.id} />
             </div>
           ))}
         </div>

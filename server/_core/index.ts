@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerLocalAuthRoutes } from "./localAuthRoutes";
 import { registerStorageProxy } from "./storageProxy";
@@ -11,6 +12,7 @@ import { createContext } from "./context";
 // so esbuild never pulls devDependencies into the production bundle.
 import { serveStatic } from "./serveStatic";
 import { externalReminderHandler } from "../scheduledHandlers";
+import { ensureCreativeSchema } from "../creativeSchema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -32,11 +34,17 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  try {
+    await ensureCreativeSchema();
+  } catch (error) {
+    console.error("[Creatives] Failed to ensure channel_creatives schema:", error);
+  }
   const app = express();
   const server = createServer(app);
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), { fallthrough: false, maxAge: "7d" }));
 
   registerStorageProxy(app);
   registerLocalAuthRoutes(app);
