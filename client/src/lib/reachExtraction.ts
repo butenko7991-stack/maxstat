@@ -14,6 +14,11 @@ export type HistoricalReachDecision =
   | { status: "ready"; proposedReach: number; message: string }
   | { status: "same" | "ambiguous" | "no24h"; proposedReach: number | null; message: string };
 
+/** Entries that already contain the verified value do not need review or display. */
+export function shouldIncludeHistoricalReachDecision(decision: HistoricalReachDecision): boolean {
+  return decision.status !== "same";
+}
+
 function normalizeChannelName(value: string | null | undefined): string {
   return (value ?? "")
     .toLocaleLowerCase("ru-RU")

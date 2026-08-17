@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHistoricalReach, getViews24h, selectPostForChannel } from "../client/src/lib/reachExtraction";
+import { decideHistoricalReach, getViews24h, selectPostForChannel, shouldIncludeHistoricalReachDecision } from "../client/src/lib/reachExtraction";
 
 describe("selectPostForChannel", () => {
   it("использует единственный пост из ссылки", () => {
@@ -69,7 +69,19 @@ describe("decideHistoricalReach", () => {
   });
 
   it("оставляет неизменной запись с уже корректным значением", () => {
-    expect(decideHistoricalReach([{ channelTitle: "Канал А", views24h: 2_500 }], "Канал А", 2_500))
-      .toMatchObject({ status: "same", proposedReach: 2_500 });
+    const decision = decideHistoricalReach([{ channelTitle: "Канал А", views24h: 2_500 }], "Канал А", 2_500);
+    expect(decision).toMatchObject({ status: "same", proposedReach: 2_500 });
+    expect(shouldIncludeHistoricalReachDecision(decision)).toBe(false);
+  });
+
+  it("оставляет в предпросмотре только записи, требующие действия или проверки", () => {
+    const ready = decideHistoricalReach([{ channelTitle: "Канал А", views24h: 2_500 }], "Канал А", 1_000);
+    const ambiguous = decideHistoricalReach([
+      { channelTitle: "Канал А", views24h: 2_500 },
+      { channelTitle: "Канал Б", views24h: 5_000 },
+    ], "Другой канал", 1_000);
+
+    expect(shouldIncludeHistoricalReachDecision(ready)).toBe(true);
+    expect(shouldIncludeHistoricalReachDecision(ambiguous)).toBe(true);
   });
 });

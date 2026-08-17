@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { decideHistoricalReach } from "@/lib/reachExtraction";
+import { decideHistoricalReach, shouldIncludeHistoricalReachDecision } from "@/lib/reachExtraction";
 
 type Candidate = {
   recordType: "purchase" | "sale";
@@ -46,6 +46,7 @@ export default function ReachCorrectionPage() {
   const [isReviewing, setIsReviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [hasReviewed, setHasReviewed] = useState(false);
 
   const summary = useMemo(() => {
     const count = (status: ReviewStatus) => reviews.filter((review) => review.status === status).length;
@@ -69,14 +70,20 @@ export default function ReachCorrectionPage() {
     setIsReviewing(true);
     setReviews([]);
     setProgress(0);
+    setHasReviewed(false);
     const next: Review[] = [];
+    let skippedSame = 0;
 
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index];
       try {
         const data = await analyzeLink.mutateAsync({ url: candidate.link });
         const decision = decideHistoricalReach(data.posts, candidate.channelName, candidate.currentReach);
-        next.push({ ...candidate, ...decision });
+        if (shouldIncludeHistoricalReachDecision(decision)) {
+          next.push({ ...candidate, ...decision });
+        } else {
+          skippedSame += 1;
+        }
       } catch (error) {
         next.push({
           ...candidate,
@@ -89,7 +96,10 @@ export default function ReachCorrectionPage() {
       setProgress(index + 1);
     }
     setIsReviewing(false);
-    toast.success("Предпросмотр готов", { description: `Проверено записей: ${candidates.length}` });
+    setHasReviewed(true);
+    toast.success("Предпросмотр готов", {
+      description: `Проверено: ${candidates.length}${skippedSame ? ` · Уже верно исключено: ${skippedSame}` : ""}`,
+    });
   }
 
   async function applyReadyReviews() {
@@ -133,7 +143,7 @@ export default function ReachCorrectionPage() {
   }
 
   const candidateCount = candidatesQuery.data?.length ?? 0;
-  const checkedAll = reviews.length === candidateCount && candidateCount > 0;
+  const checkedAll = hasReviewed && candidateCount > 0;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -181,7 +191,6 @@ export default function ReachCorrectionPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">
             {([
               ["Готово", summary.ready, "text-emerald-300"],
-              ["Уже верно", summary.same, "text-sky-300"],
               ["Проверить", summary.ambiguous, "text-amber-300"],
               ["Нет 24ч", summary.no24h, "text-slate-300"],
               ["Ошибки", summary.error, "text-red-300"],
