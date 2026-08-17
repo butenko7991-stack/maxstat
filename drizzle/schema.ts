@@ -88,6 +88,12 @@ export const purchaseRecords = mysqlTable("purchase_records", {
   spm: varchar("spm", { length: 100 }),
   /** Reach / audience size (e.g. 500, 1000) — used for SPM cost calculation */
   reach: bigint("reach", { mode: "number" }),
+  /** Last 24-hour reach value confirmed by the correction tool */
+  reachVerifiedValue: bigint("reachVerifiedValue", { mode: "number" }),
+  /** Link that was used for the confirmed 24-hour reach */
+  reachVerifiedLink: varchar("reachVerifiedLink", { length: 1024 }),
+  /** Timestamp of the confirmed reach check */
+  reachVerifiedAt: timestamp("reachVerifiedAt"),
   /** Cost in rubles */
   cost: decimal("cost", { precision: 12, scale: 2 }),
   /** Payment status */
@@ -139,6 +145,12 @@ export const saleRecords = mysqlTable("sale_records", {
   spm: varchar("spm", { length: 100 }),
   /** Reach / audience size (e.g. 500, 1000) — used for SPM cost calculation */
   reach: bigint("reach", { mode: "number" }),
+  /** Last 24-hour reach value confirmed by the correction tool */
+  reachVerifiedValue: bigint("reachVerifiedValue", { mode: "number" }),
+  /** Link that was used for the confirmed 24-hour reach */
+  reachVerifiedLink: varchar("reachVerifiedLink", { length: 1024 }),
+  /** Timestamp of the confirmed reach check */
+  reachVerifiedAt: timestamp("reachVerifiedAt"),
   /** Revenue in rubles */
   cost: decimal("cost", { precision: 12, scale: 2 }),
   /** Payment status */

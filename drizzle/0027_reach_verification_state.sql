@@ -1,0 +1,2 @@
+-- Existing VPS installations receive these additive columns from ensureCreativeSchema
+-- during application startup, with duplicate-column guards for MariaDB/MySQL compatibility.

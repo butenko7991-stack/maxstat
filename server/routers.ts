@@ -87,6 +87,7 @@ import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
+import { isReachVerificationCurrent } from "./reachCorrectionState";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -2374,9 +2375,39 @@ const reachCorrectionRouter = router({
       });
 
       return [
-        ...purchases.filter((record) => Boolean(record.link?.startsWith("http"))).map((record) => normalize("purchase", record)),
-        ...sales.filter((record) => Boolean(record.link?.startsWith("http"))).map((record) => normalize("sale", record)),
+        ...purchases.filter((record) => Boolean(record.link?.startsWith("http")) && !isReachVerificationCurrent(record)).map((record) => normalize("purchase", record)),
+        ...sales.filter((record) => Boolean(record.link?.startsWith("http")) && !isReachVerificationCurrent(record)).map((record) => normalize("sale", record)),
       ].sort((a, b) => b.date.getTime() - a.date.getTime());
+    }),
+  confirmVerified: workspaceAdminProcedure
+    .input(z.object({
+      records: z.array(z.object({
+        recordType: z.enum(["purchase", "sale"]),
+        id: z.number().int().positive(),
+        reach: z.number().int().nonnegative(),
+        link: z.string().url(),
+      })).min(1).max(1_000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let confirmed = 0;
+      for (const item of input.records) {
+        const record = item.recordType === "purchase"
+          ? await getPurchaseById(item.id, ctx.user.id)
+          : await getSaleById(item.id, ctx.user.id);
+        if (!record || record.paymentStatus !== "paid" || record.link !== item.link || record.reach !== item.reach) continue;
+        const verification = {
+          reachVerifiedValue: item.reach,
+          reachVerifiedLink: item.link,
+          reachVerifiedAt: new Date(),
+        };
+        if (item.recordType === "purchase") {
+          await updatePurchaseRecord(item.id, ctx.user.id, verification as Parameters<typeof updatePurchaseRecord>[2]);
+        } else {
+          await updateSaleRecord(item.id, ctx.user.id, verification as Parameters<typeof updateSaleRecord>[2]);
+        }
+        confirmed += 1;
+      }
+      return { confirmed };
     }),
 });
 

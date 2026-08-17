@@ -41,6 +41,7 @@ export default function ReachCorrectionPage() {
   const analyzeLink = trpc.ocr.analyzeLink.useMutation();
   const updatePurchase = trpc.purchases.update.useMutation();
   const updateSale = trpc.sales.update.useMutation();
+  const confirmVerified = trpc.reachCorrection.confirmVerified.useMutation();
 
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);
@@ -72,6 +73,7 @@ export default function ReachCorrectionPage() {
     setProgress(0);
     setHasReviewed(false);
     const next: Review[] = [];
+    const verified: Array<{ recordType: "purchase" | "sale"; id: number; reach: number; link: string }> = [];
     let skippedSame = 0;
 
     for (let index = 0; index < candidates.length; index += 1) {
@@ -83,6 +85,14 @@ export default function ReachCorrectionPage() {
           next.push({ ...candidate, ...decision });
         } else {
           skippedSame += 1;
+          if (decision.proposedReach !== null) {
+            verified.push({
+              recordType: candidate.recordType,
+              id: candidate.id,
+              reach: decision.proposedReach,
+              link: candidate.link,
+            });
+          }
         }
       } catch (error) {
         next.push({
@@ -94,6 +104,14 @@ export default function ReachCorrectionPage() {
       }
       setReviews([...next]);
       setProgress(index + 1);
+    }
+    if (verified.length > 0) {
+      try {
+        await confirmVerified.mutateAsync({ records: verified });
+        await utils.reachCorrection.candidates.invalidate();
+      } catch {
+        toast.warning("Не удалось сохранить отметки проверки", { description: "Эти ссылки могут попасть в следующий запуск повторно." });
+      }
     }
     setIsReviewing(false);
     setHasReviewed(true);
@@ -113,6 +131,7 @@ export default function ReachCorrectionPage() {
     let updated = 0;
     let failed = 0;
     const updatedIds = new Set<string>();
+    const verified: Array<{ recordType: "purchase" | "sale"; id: number; reach: number; link: string }> = [];
 
     for (const review of ready) {
       try {
@@ -123,8 +142,17 @@ export default function ReachCorrectionPage() {
         }
         updated += 1;
         updatedIds.add(`${review.recordType}:${review.id}`);
+        verified.push({ recordType: review.recordType, id: review.id, reach: review.proposedReach!, link: review.link });
       } catch {
         failed += 1;
+      }
+    }
+
+    if (verified.length > 0) {
+      try {
+        await confirmVerified.mutateAsync({ records: verified });
+      } catch {
+        toast.warning("Охваты обновлены, но отметки проверки не сохранены", { description: "Эти ссылки могут быть показаны при следующем запуске." });
       }
     }
 
