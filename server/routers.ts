@@ -78,6 +78,7 @@ import { sql, and, eq, inArray } from "drizzle-orm";
 import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
+import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, parseMaxAnalyticsReport } from "./maxAnalytics";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -1545,6 +1546,35 @@ const ocrRouter = router({
       // Block private/internal IP ranges to prevent SSRF
       if (/^(localhost|127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|0\.0\.0\.0|::1|\[::1\])/.test(hostname)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Доступ к локальным адресам запрещён' });
+      }
+
+      // ── Analytics MAX public report link ──────────────────────────────────
+      // The public HTML is only a shell; exact 24-hour data lives in its JSON API.
+      const maxAnalyticsCode = getMaxAnalyticsReportCode(parsedUrl);
+      if (maxAnalyticsCode) {
+        const apiUrl = getMaxAnalyticsApiUrl(parsedUrl, maxAnalyticsCode);
+        const response = await fetch(apiUrl, {
+          headers: {
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)",
+            "Referer": url,
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить данные Аналитики МАХ: ${response.status}` });
+        }
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Аналитика МАХ вернула некорректный ответ" });
+        }
+        const report = parseMaxAnalyticsReport(payload, url);
+        if (report.posts.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Аналитики МАХ не найдены размещения" });
+        }
+        return report;
       }
 
       // ── Trustat / anypost share link ──────────────────────────────────────
