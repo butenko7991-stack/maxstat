@@ -1,7 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
-import { saleRecords } from "../drizzle/schema";
+import { saleRecords, users } from "../drizzle/schema";
+import { appRouter } from "./routers";
 import {
   getChannelsByUser,
   getDb,
@@ -13,6 +14,7 @@ import {
 
 export const HISTORICAL_REACH_REPAIR_ANCHOR_SALE_ID = 4950161;
 const MAX_ANALYTICS_HOST = "go.xn----7sbaab9baqgpd7d3b.xn--p1ai";
+const REPAIR_VERSION = 2;
 const reportPath = path.resolve(process.cwd(), "reports", `historical-reach-repair-${HISTORICAL_REACH_REPAIR_ANCHOR_SALE_ID}.json`);
 
 type Candidate = {
@@ -28,9 +30,11 @@ type DecisionStatus = "ready" | "same" | "ambiguous" | "no24h" | "unsupported" |
 type Decision = { status: DecisionStatus; proposedReach: number | null; error?: string };
 
 export type HistoricalRepairSummary = {
+  version?: number;
   state: "running" | "completed" | "failed" | "not_started";
   workspaceId?: number;
   candidates?: number;
+  processed?: number;
   supported?: number;
   updated?: number;
   same?: number;
@@ -94,6 +98,25 @@ export function decideHistoricalRepair(payload: unknown, channelName: string, cu
   return { status: "ready", proposedReach: selected.views24h };
 }
 
+function decideHistoricalPosts(posts: Array<{ channelTitle?: string | null; views24h?: number | null }>, channelName: string, currentReach: number | null): Decision {
+  const normalizedChannel = normalizeChannelName(channelName);
+  const selected = posts.length === 1
+    ? posts[0]
+    : (() => {
+        if (normalizedChannel.length < 3) return null;
+        const matches = posts.filter((post) => {
+          const normalizedPost = normalizeChannelName(post.channelTitle);
+          return normalizedPost.length >= 3 && (normalizedPost.includes(normalizedChannel) || normalizedChannel.includes(normalizedPost));
+        });
+        return matches.length === 1 ? matches[0] : null;
+      })();
+  const reach = selected ? asNumber(selected.views24h) : null;
+  if (!selected) return { status: "ambiguous", proposedReach: null };
+  if (reach === null || reach < 0) return { status: "no24h", proposedReach: null };
+  if (asNumber(currentReach) === reach) return { status: "same", proposedReach: reach };
+  return { status: "ready", proposedReach: reach };
+}
+
 async function readStoredSummary(): Promise<HistoricalRepairSummary | null> {
   try {
     return JSON.parse(await fs.readFile(reportPath, "utf8")) as HistoricalRepairSummary;
@@ -109,7 +132,7 @@ async function writeSummary(summary: HistoricalRepairSummary) {
 
 async function runHistoricalReachRepair(): Promise<HistoricalRepairSummary> {
   const stored = await readStoredSummary();
-  if (stored?.state === "completed") return stored;
+  if (stored?.state === "completed" && stored.version === REPAIR_VERSION) return stored;
 
   const db = await getDb();
   if (!db) throw new Error("База данных недоступна");
@@ -120,6 +143,9 @@ async function runHistoricalReachRepair(): Promise<HistoricalRepairSummary> {
     .limit(1);
   const workspaceId = anchor[0]?.userId;
   if (!workspaceId) throw new Error(`Продажа #${HISTORICAL_REACH_REPAIR_ANCHOR_SALE_ID} не найдена`);
+  const ownerResult = await db.select().from(users).where(eq(users.id, workspaceId)).limit(1);
+  const workspaceUser = ownerResult[0];
+  if (!workspaceUser) throw new Error(`Рабочая зона #${workspaceId} не найдена`);
 
   const [channels, sales, purchases] = await Promise.all([
     getChannelsByUser(workspaceId),
@@ -141,24 +167,33 @@ async function runHistoricalReachRepair(): Promise<HistoricalRepairSummary> {
   ];
 
   const summary: HistoricalRepairSummary = {
-    state: "running", workspaceId, candidates: records.length, supported: 0, updated: 0,
+    version: REPAIR_VERSION, state: "running", workspaceId, candidates: records.length, processed: 0, supported: 0, updated: 0,
     same: 0, ambiguous: 0, no24h: 0, unsupported: 0, errors: 0,
   };
   inMemorySummary = summary;
 
   for (const record of records) {
     const apiUrl = getHistoricalRepairApiUrl(record.link);
-    if (!apiUrl) {
-      summary.unsupported! += 1;
-      continue;
-    }
     try {
-      const response = await fetch(apiUrl, {
-        headers: { Accept: "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const decision = decideHistoricalRepair(await response.json(), record.channelName, record.reach);
+      let decision: Decision;
+      if (apiUrl) {
+        const response = await fetch(apiUrl, {
+          headers: { Accept: "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        decision = decideHistoricalRepair(await response.json(), record.channelName, record.reach);
+      } else {
+        const caller = appRouter.createCaller({
+          user: workspaceUser,
+          actorUser: workspaceUser,
+          workspaceId,
+          req: {} as any,
+          res: {} as any,
+        });
+        const analytics = await caller.ocr.analyzeLink({ url: record.link });
+        decision = decideHistoricalPosts(analytics.posts, record.channelName, record.reach);
+      }
       summary.supported! += 1;
       if (decision.status === "ready") {
         if (record.recordType === "sale") await updateSaleRecord(record.id, workspaceId, { reach: decision.proposedReach! });
@@ -171,6 +206,8 @@ async function runHistoricalReachRepair(): Promise<HistoricalRepairSummary> {
       summary.errors! += 1;
       console.warn(`[HistoricalReachRepair] ${record.recordType} #${record.id}: ${String(error)}`);
     }
+    summary.processed! += 1;
+    if (summary.processed! % 10 === 0) await writeSummary(summary);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
