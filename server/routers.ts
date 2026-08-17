@@ -88,6 +88,7 @@ import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_H
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 import { isReachVerificationCurrent } from "./reachCorrectionState";
+import { ensureReachVerificationSchema } from "./creativeSchema";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -2356,6 +2357,7 @@ const reachCorrectionRouter = router({
   candidates: workspaceAdminProcedure
     .input(z.object({ recordType: z.enum(["purchase", "sale", "all"]).default("all") }).optional())
     .query(async ({ ctx, input }) => {
+      await ensureReachVerificationSchema();
       const recordType = input?.recordType ?? "all";
       const [channels, purchases, sales] = await Promise.all([
         getChannelsByUser(ctx.user.id),
@@ -2389,6 +2391,7 @@ const reachCorrectionRouter = router({
       })).min(1).max(1_000),
     }))
     .mutation(async ({ ctx, input }) => {
+      await ensureReachVerificationSchema();
       let confirmed = 0;
       for (const item of input.records) {
         const record = item.recordType === "purchase"
