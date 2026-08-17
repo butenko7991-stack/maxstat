@@ -18,6 +18,7 @@ import {
   type AutocompleteSuggestions,
 } from "@/components/RecordFormModal";
 import { formatMonthLabel, formatCost, todayIso, currentMonth } from "@/lib/utils";
+import { getViews24h, selectPostForChannel } from "@/lib/reachExtraction";
 import * as XLSX from "xlsx";
 import { PostAnalyticsBadge } from "@/components/PostAnalyticsBadge";
 
@@ -149,37 +150,41 @@ export default function SalesPage() {
     onError: () => { /* silent — background operation */ },
   });
 
+  function autoFillReachFromPaidRecord(record: NonNullable<typeof records>[number]) {
+    if (!record.link?.startsWith("http")) return;
+
+    autoExtractMutation.mutate(
+      { url: record.link },
+      {
+        onSuccess: (data) => {
+          const selection = selectPostForChannel(data.posts, channelMap[record.channelId]);
+          if (selection.kind === "ambiguous") {
+            toast.info("Охваты не изменены", {
+              description: "Ссылка содержит несколько каналов. Откройте запись и выберите нужный канал вручную.",
+            });
+            return;
+          }
+
+          const reach = getViews24h(selection.post);
+          if (reach === null) {
+            toast.info("Охваты за 24 часа не найдены", {
+              description: "Значение записи оставлено без изменений.",
+            });
+            return;
+          }
+
+          autoSaveStatsMutation.mutate({ id: record.id, reach } as any);
+        },
+      }
+    );
+  }
+
   function handleQuickPay(record: NonNullable<typeof records>[number]) {
     const nextStatus = PAYMENT_CYCLE[record.paymentStatus as PaymentStatus] ?? "unpaid";
-    quickPayMutation.mutate({ id: record.id, paymentStatus: nextStatus });
-    // Auto-extract stats when switching to paid and link exists
-    if (nextStatus === "paid" && record.link?.startsWith("http")) {
-      autoExtractMutation.mutate(
-        { url: record.link },
-        {
-          onSuccess: (data) => {
-            // For multi-channel links: match post by channel name, fall back to first post
-            const recordChannelName = (channelMap[record.channelId] ?? "").toLowerCase();
-            const matchedPost = (data.posts ?? []).find((p: any) =>
-              p.channelTitle && recordChannelName &&
-              (p.channelTitle.toLowerCase().includes(recordChannelName) ||
-               recordChannelName.includes(p.channelTitle.toLowerCase()))
-            ) ?? data.posts?.[0];
-            if (!matchedPost) return;
-            const updatePayload: Record<string, unknown> = { id: record.id };
-            if (matchedPost.views24h != null) updatePayload.reach = matchedPost.views24h;
-            if (matchedPost.channelSubs != null) updatePayload.buyerSubscribers = matchedPost.channelSubs;
-            if (data.publishedAt) {
-              updatePayload.date = data.publishedAt.slice(0, 10);
-              updatePayload.month = data.publishedAt.slice(0, 7);
-            }
-            if (Object.keys(updatePayload).length > 1) {
-              autoSaveStatsMutation.mutate(updatePayload as any);
-            }
-          },
-        }
-      );
-    }
+    quickPayMutation.mutate(
+      { id: record.id, paymentStatus: nextStatus },
+      { onSuccess: () => { if (nextStatus === "paid") autoFillReachFromPaidRecord(record); } }
+    );
   }
 
   const duplicateMutation = trpc.sales.duplicate.useMutation({

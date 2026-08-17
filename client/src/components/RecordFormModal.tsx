@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2, Sparkles, XCircle, Zap } from "lucide-react";
 import { AutocompleteInput } from "./AutocompleteInput";
 import { trpc } from "@/lib/trpc";
+import { getViews24h, selectPostForChannel } from "@/lib/reachExtraction";
 import { toast } from "sonner";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
@@ -152,49 +153,27 @@ export function PurchaseFormModal({
     onSuccess: (data) => {
       setLinkAnalyzeResult(data);
       setLinkAnalyzeStatus("done");
-      // Pick best available reach: 24h > 48h > 72h > summary
-      function pickReach(post: any): string | null {
-        const v = post?.views24h ?? post?.views48h ?? post?.views72h
-          ?? data.summary?.views24h ?? data.summary?.views48h ?? data.summary?.views72h;
-        return v != null ? String(v) : null;
-      }
-      function pickSubs(post: any): string | null {
-        const v = post?.channelSubs ?? data.summary?.subscribersTotal;
-        return v != null ? String(v) : null;
-      }
-      // Auto-fill: for multi-channel links try to match by selected channel name
       if (data.posts && data.posts.length >= 1) {
         const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
-        const autoPost = data.posts.length > 1 && selectedChannelName
-          ? (data.posts.find((p: any) =>
-              p.channelTitle && (
-                p.channelTitle.toLowerCase().includes(selectedChannelName) ||
-                selectedChannelName.includes(p.channelTitle.toLowerCase())
-              )
-            ) ?? data.posts[0])
-          : data.posts[0];
-        const post = autoPost;
-        const reach = pickReach(post);
-        const subs = pickSubs(post);
-        setForm((f) => ({
+        const selection = selectPostForChannel(data.posts, selectedChannelName);
+        const reach = getViews24h(selection.post);
+        const sourceSubscribers = selection.post?.channelSubs;
+        if (selection.post) setForm((f) => ({
           ...f,
-          ...(reach ? { reach } : {}),
-          ...(subs ? { subscribersGained: subs } : {}),
-          ...(data.publishedAt ? { date: data.publishedAt.slice(0, 10), month: data.publishedAt.slice(0, 7) } : {}),
+          ...(reach !== null ? { reach: String(reach) } : {}),
+          ...(sourceSubscribers != null ? { sourceSubscribers: String(sourceSubscribers) } : {}),
         }));
         const channelCount = data.posts.length;
-        if (channelCount > 1) {
-          const matched = autoPost !== data.posts[0] || selectedChannelName;
-          toast.success(`Найдено ${channelCount} канала`, {
-            description: matched && autoPost.channelTitle
-              ? `Автовыбран канал «${autoPost.channelTitle}». Можно изменить ниже`
-              : "Выберите нужный канал в панели ниже",
+        if (selection.kind === "ambiguous") {
+          toast.info(`Найдено ${channelCount} канала`, {
+            description: "Охваты не изменены: выберите нужный канал в панели ниже.",
             duration: 4000,
           });
+        } else if (reach === null) {
+          toast.info("Охваты за 24 часа не найдены", { description: "Значение не менялось", duration: 3000 });
         } else {
-          const reachVal = reach ? parseInt(reach).toLocaleString() : null;
           toast.success("Охват извлечён", {
-            description: reachVal ? `Охваты: ${reachVal}${subs ? ` · Подписчики: ${parseInt(subs).toLocaleString()}` : ""}` : "Поля заполнены",
+            description: `Охваты 24ч: ${reach.toLocaleString()}`,
             duration: 3000,
           });
         }
@@ -221,14 +200,13 @@ export function PurchaseFormModal({
     analyzeLinkMutation.mutate({ url });
   }
 
-  function applyPostDataPurchase(post: any, publishedAt: string | null) {
-    const reach = post.views24h ?? post.views48h ?? post.views72h;
+  function applyPostDataPurchase(post: any) {
+    const reach = getViews24h(post);
     const subs = post.channelSubs;
     setForm((f) => ({
       ...f,
       ...(reach != null ? { reach: String(reach) } : {}),
-      ...(subs != null ? { subscribersGained: String(subs) } : {}),
-      ...(publishedAt ? { date: publishedAt.slice(0, 10), month: publishedAt.slice(0, 7) } : {}),
+      ...(subs != null ? { sourceSubscribers: String(subs) } : {}),
     }));
   }
 
@@ -565,7 +543,7 @@ export function PurchaseFormModal({
                         <button
                           key={i}
                           type="button"
-                          onClick={() => { applyPostDataPurchase(post, linkAnalyzeResult.publishedAt); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
+                          onClick={() => { applyPostDataPurchase(post); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
                           className="w-full text-left rounded-md border border-emerald-500/20 bg-card px-3 py-2.5 text-xs hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all duration-200 active:scale-[0.98]"
                         >
                           <div className="font-medium text-foreground">{post.channelTitle ?? `Канал ${i + 1}`}</div>
@@ -893,48 +871,27 @@ export function SaleFormModal({
     onSuccess: (data) => {
       setLinkAnalyzeResult(data);
       setLinkAnalyzeStatus("done");
-      // Pick best available reach: 24h > 48h > 72h > summary
-      function pickReach(post: any): string | null {
-        const v = post?.views24h ?? post?.views48h ?? post?.views72h
-          ?? data.summary?.views24h ?? data.summary?.views48h ?? data.summary?.views72h;
-        return v != null ? String(v) : null;
-      }
-      function pickSubs(post: any): string | null {
-        const v = post?.channelSubs ?? data.summary?.subscribersTotal;
-        return v != null ? String(v) : null;
-      }
-      // Auto-fill: for multi-channel links try to match by selected channel name
       if (data.posts && data.posts.length >= 1) {
         const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
-        const autoPost = data.posts.length > 1 && selectedChannelName
-          ? (data.posts.find((p: any) =>
-              p.channelTitle && (
-                p.channelTitle.toLowerCase().includes(selectedChannelName) ||
-                selectedChannelName.includes(p.channelTitle.toLowerCase())
-              )
-            ) ?? data.posts[0])
-          : data.posts[0];
-        const post = autoPost;
-        const reach = pickReach(post);
-        const subs = pickSubs(post);
-        setForm((f) => ({
+        const selection = selectPostForChannel(data.posts, selectedChannelName);
+        const reach = getViews24h(selection.post);
+        const buyerSubscribers = selection.post?.channelSubs;
+        if (selection.post) setForm((f) => ({
           ...f,
-          ...(reach ? { reach } : {}),
-          ...(subs ? { buyerSubscribers: subs } : {}),
-          ...(data.publishedAt ? { date: data.publishedAt.slice(0, 10), month: data.publishedAt.slice(0, 7) } : {}),
+          ...(reach !== null ? { reach: String(reach) } : {}),
+          ...(buyerSubscribers != null ? { buyerSubscribers: String(buyerSubscribers) } : {}),
         }));
         const channelCount = data.posts.length;
-        if (channelCount > 1) {
-          toast.success(`Найдено ${channelCount} канала`, {
-            description: autoPost.channelTitle
-              ? `Автовыбран канал «${autoPost.channelTitle}». Можно изменить ниже`
-              : "Выберите нужный канал в панели ниже",
+        if (selection.kind === "ambiguous") {
+          toast.info(`Найдено ${channelCount} канала`, {
+            description: "Охваты не изменены: выберите нужный канал в панели ниже.",
             duration: 4000,
           });
+        } else if (reach === null) {
+          toast.info("Охваты за 24 часа не найдены", { description: "Значение не менялось", duration: 3000 });
         } else {
-          const reachVal = reach ? parseInt(reach).toLocaleString() : null;
           toast.success("Охват извлечён", {
-            description: reachVal ? `Охваты: ${reachVal}${subs ? ` · Подписчики: ${parseInt(subs).toLocaleString()}` : ""}` : "Поля заполнены",
+            description: `Охваты 24ч: ${reach.toLocaleString()}`,
             duration: 3000,
           });
         }
@@ -961,14 +918,13 @@ export function SaleFormModal({
     analyzeLinkMutation.mutate({ url });
   }
 
-  function applyPostData(post: any, publishedAt: string | null) {
-    const reach = post.views24h ?? post.views48h ?? post.views72h;
+  function applyPostData(post: any) {
+    const reach = getViews24h(post);
     const subs = post.channelSubs;
     setForm((f) => ({
       ...f,
       ...(reach != null ? { reach: String(reach) } : {}),
       ...(subs != null ? { buyerSubscribers: String(subs) } : {}),
-      ...(publishedAt ? { date: publishedAt.slice(0, 10), month: publishedAt.slice(0, 7) } : {}),
     }));
   }
   // ── Auto-extract from link when status changes to paid ─────────────────
@@ -1254,7 +1210,7 @@ export function SaleFormModal({
                         <button
                           key={i}
                           type="button"
-                          onClick={() => { applyPostData(post, linkAnalyzeResult.publishedAt); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
+                          onClick={() => { applyPostData(post); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
                           className="w-full text-left rounded-md border border-emerald-500/20 bg-card px-3 py-2.5 text-xs hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all duration-200 active:scale-[0.98]"
                         >
                           <div className="font-medium text-foreground">{post.channelTitle ?? `Канал ${i + 1}`}</div>
