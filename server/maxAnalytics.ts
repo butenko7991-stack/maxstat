@@ -65,6 +65,11 @@ export function getMaxAnalyticsApiUrl(url: URL, reportCode: string): string {
   return new URL(`/api/ad/${encodeURIComponent(reportCode)}?hours=48`, url.origin).toString();
 }
 
+/** URL serialisation uses ASCII punycode and is safe for Fetch ByteString headers. */
+export function getMaxAnalyticsReferer(url: URL): string {
+  return url.toString();
+}
+
 /**
  * Converts the service API response to the application-wide post analytics
  * shape. The service stores its frozen 24-hour measurement in `views24`.
@@ -74,11 +79,18 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
   const channels = Array.isArray(root.channels) ? root.channels : [];
   const posts = channels.map((item): AnalyticsPost => {
     const channel = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const reportAfter = asNumber(getRecordValue(channel, "reportAfter", "report_after"));
+    const directViews24 = asNumber(getRecordValue(channel, "views24", "views_24h"));
+    // Older reports may only preserve the value that was frozen at report time.
+    // It is a valid 24-hour metric only when the report itself was scheduled for 24h.
+    const frozenViews24 = reportAfter === 24
+      ? asNumber(getRecordValue(channel, "frozenViews", "frozen_views"))
+      : null;
     return {
       channelTitle: asText(getRecordValue(channel, "channelTitle", "channel_title", "title")),
       channelSubs: asNumber(getRecordValue(channel, "channelSubs", "channel_subs", "subscribers")),
       currentViews: asNumber(getRecordValue(channel, "views", "currentViews", "current_views")),
-      views24h: asNumber(getRecordValue(channel, "views24", "views_24h")),
+      views24h: directViews24 ?? frozenViews24,
       views48h: asNumber(getRecordValue(channel, "views48", "views_48h")),
       views72h: asNumber(getRecordValue(channel, "views72", "views_72h")),
       er24h: null,
