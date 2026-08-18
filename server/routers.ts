@@ -1669,18 +1669,31 @@ const ocrRouter = router({
 
       // ── PostXbot public report ─────────────────────────────────────────────
       if (isPostXbotWatchUrl(parsedUrl)) {
-        const response = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!response.ok) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить отчёт PostXbot: ${response.status}` });
+        let lastFailure = "отчёт ещё не отдал показатель за 24 часа";
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const response = await fetch(url, {
+              cache: "no-store",
+              headers: {
+                "Accept": "text/html,application/xhtml+xml",
+                "Cache-Control": "no-cache",
+                "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)",
+              },
+              signal: AbortSignal.timeout(25_000),
+            });
+            if (!response.ok) {
+              lastFailure = `сервис ответил кодом ${response.status}`;
+            } else {
+              const report = parsePostXbotReport(await response.text(), url);
+              if (report.posts.length > 0) return report;
+              lastFailure = "временный ответ страницы не содержит показателя за 24 часа";
+            }
+          } catch (error) {
+            lastFailure = error instanceof Error ? error.message : "временная ошибка загрузки";
+          }
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700));
         }
-        const report = parsePostXbotReport(await response.text(), url);
-        if (report.posts.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте PostXbot не найдено однозначное размещение с охватом за 24 часа" });
-        }
-        return report;
+        throw new TRPCError({ code: "NOT_FOUND", message: `Не удалось получить охват 24ч из PostXbot: ${lastFailure}` });
       }
 
       // ── Analytics MAX public report link ──────────────────────────────────
