@@ -1,9 +1,9 @@
-import { AlertTriangle, CheckCircle2, CircleDashed, ExternalLink, Play, RefreshCw, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, ExternalLink, RefreshCw, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { decideHistoricalReach, shouldIncludeHistoricalReachDecision } from "@/lib/reachExtraction";
+import { decideHistoricalReach, shouldAutoCorrectHistoricalReach, shouldIncludeHistoricalReachDecision } from "@/lib/reachExtraction";
 
 type Candidate = {
   recordType: "purchase" | "sale";
@@ -45,9 +45,9 @@ export default function ReachCorrectionPage() {
 
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [hasReviewed, setHasReviewed] = useState(false);
+  const [reviewedCount, setReviewedCount] = useState(0);
 
   const summary = useMemo(() => {
     const count = (status: ReviewStatus) => reviews.filter((review) => review.status === status).length;
@@ -72,16 +72,44 @@ export default function ReachCorrectionPage() {
     setReviews([]);
     setProgress(0);
     setHasReviewed(false);
+    setReviewedCount(candidates.length);
     const next: Review[] = [];
     const verified: Array<{ recordType: "purchase" | "sale"; id: number; reach: number; link: string }> = [];
     let skippedSame = 0;
+    let autoUpdated = 0;
+    let updateFailed = 0;
 
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index];
       try {
         const data = await analyzeLink.mutateAsync({ url: candidate.link, recordType: candidate.recordType });
         const decision = decideHistoricalReach(data.posts, candidate.channelName, candidate.currentReach, candidate.channelId);
-        if (shouldIncludeHistoricalReachDecision(decision)) {
+        if (shouldAutoCorrectHistoricalReach(decision)) {
+          try {
+            if (candidate.recordType === "purchase") {
+              await updatePurchase.mutateAsync({ id: candidate.id, reach: decision.proposedReach });
+            } else {
+              await updateSale.mutateAsync({ id: candidate.id, reach: decision.proposedReach });
+            }
+            autoUpdated += 1;
+            verified.push({ recordType: candidate.recordType, id: candidate.id, reach: decision.proposedReach, link: candidate.link });
+            next.push({
+              ...candidate,
+              status: "updated",
+              currentReach: decision.proposedReach,
+              proposedReach: decision.proposedReach,
+              message: "Отклонение подтверждено и исправлено автоматически",
+            });
+          } catch (error) {
+            updateFailed += 1;
+            next.push({
+              ...candidate,
+              status: "error",
+              proposedReach: decision.proposedReach,
+              message: error instanceof Error ? `Не удалось сохранить исправление: ${error.message}` : "Не удалось сохранить исправление",
+            });
+          }
+        } else if (shouldIncludeHistoricalReachDecision(decision)) {
           next.push({ ...candidate, ...decision });
         } else {
           skippedSame += 1;
@@ -115,63 +143,18 @@ export default function ReachCorrectionPage() {
     }
     setIsReviewing(false);
     setHasReviewed(true);
-    toast.success("Предпросмотр готов", {
-      description: `Проверено: ${candidates.length}${skippedSame ? ` · Уже верно исключено: ${skippedSame}` : ""}`,
-    });
-  }
-
-  async function applyReadyReviews() {
-    const ready = reviews.filter((review) => review.status === "ready" && review.proposedReach !== null);
-    if (ready.length === 0) {
-      toast.info("Нет записей для автоматического обновления");
-      return;
-    }
-
-    setIsApplying(true);
-    let updated = 0;
-    let failed = 0;
-    const updatedIds = new Set<string>();
-    const verified: Array<{ recordType: "purchase" | "sale"; id: number; reach: number; link: string }> = [];
-
-    for (const review of ready) {
-      try {
-        if (review.recordType === "purchase") {
-          await updatePurchase.mutateAsync({ id: review.id, reach: review.proposedReach! });
-        } else {
-          await updateSale.mutateAsync({ id: review.id, reach: review.proposedReach! });
-        }
-        updated += 1;
-        updatedIds.add(`${review.recordType}:${review.id}`);
-        verified.push({ recordType: review.recordType, id: review.id, reach: review.proposedReach!, link: review.link });
-      } catch {
-        failed += 1;
-      }
-    }
-
-    if (verified.length > 0) {
-      try {
-        await confirmVerified.mutateAsync({ records: verified });
-      } catch {
-        toast.warning("Охваты обновлены, но отметки проверки не сохранены", { description: "Эти ссылки могут быть показаны при следующем запуске." });
-      }
-    }
-
-    setReviews((current) => current.map((review) =>
-      updatedIds.has(`${review.recordType}:${review.id}`)
-        ? { ...review, status: "updated", currentReach: review.proposedReach, message: "Охват за 24 часа сохранён" }
-        : review
-    ));
     await Promise.all([
       utils.purchases.list.invalidate(),
       utils.sales.list.invalidate(),
       utils.reachCorrection.candidates.invalidate(),
     ]);
-    setIsApplying(false);
-    toast.success("Обновление завершено", { description: `Обновлено: ${updated}${failed ? ` · Ошибки: ${failed}` : ""}` });
+    toast.success("Автоматическая проверка завершена", {
+      description: `Проверено: ${candidates.length} · Исправлено: ${autoUpdated}${skippedSame ? ` · Уже верно: ${skippedSame}` : ""}${updateFailed ? ` · Ошибки сохранения: ${updateFailed}` : ""}`,
+    });
   }
 
   const candidateCount = candidatesQuery.data?.length ?? 0;
-  const checkedAll = hasReviewed && candidateCount > 0;
+  const checkedAll = hasReviewed;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -186,9 +169,9 @@ export default function ReachCorrectionPage() {
               Система анализирует только оплаченные записи со ссылками. Автоматически обновляются лишь записи с однозначно найденным каналом и значением ровно за 24 часа. Неоднозначные ссылки не изменяются.
             </p>
           </div>
-          <Button onClick={reviewCandidates} disabled={isReviewing || candidatesQuery.isLoading || isApplying} className="gap-2 shrink-0">
+          <Button onClick={reviewCandidates} disabled={isReviewing || candidatesQuery.isLoading} className="gap-2 shrink-0">
             {isReviewing ? <CircleDashed className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {isReviewing ? `Проверка ${progress}/${candidateCount}` : `Проверить ${candidateCount} записей`}
+            {isReviewing ? `Проверка ${progress}/${reviewedCount || candidateCount}` : `Проверить и исправить ${candidateCount} записей`}
           </Button>
         </div>
         <div className="mt-5 grid sm:grid-cols-3 gap-3 text-xs">
@@ -208,21 +191,17 @@ export default function ReachCorrectionPage() {
         <section className="rounded-2xl border border-border bg-card p-5">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h2 className="font-semibold text-foreground">Результат предпросмотра</h2>
-              <p className="text-sm text-muted-foreground mt-1">Нажатие кнопки применит изменения только к зелёным строкам.</p>
+              <h2 className="font-semibold text-foreground">Результат автоматической коррекции</h2>
+              <p className="text-sm text-muted-foreground mt-1">Подтверждённые отклонения исправлены сразу; спорные строки оставлены без изменений.</p>
             </div>
-            <Button onClick={applyReadyReviews} disabled={isApplying || summary.ready === 0} className="gap-2 bg-emerald-600 hover:bg-emerald-500 text-white">
-              {isApplying ? <CircleDashed className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-              {isApplying ? "Сохраняем…" : `Обновить ${summary.ready} записей`}
-            </Button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">
             {([
-              ["Готово", summary.ready, "text-emerald-300"],
-              ["Проверить", summary.ambiguous, "text-amber-300"],
-              ["Нет 24ч", summary.no24h, "text-slate-300"],
-              ["Ошибки", summary.error, "text-red-300"],
-              ["Обновлено", summary.updated, "text-violet-300"],
+                  ["Исправлено", summary.updated, "text-violet-300"],
+                  ["Проверить", summary.ambiguous, "text-amber-300"],
+                  ["Нет 24ч", summary.no24h, "text-slate-300"],
+                  ["Ошибки", summary.error, "text-red-300"],
+                  ["Ожидают", summary.ready, "text-emerald-300"],
             ] as const).map(([label, count, color]) => (
               <div key={label} className="rounded-xl border border-border bg-background/40 p-3">
                 <div className={`text-xl font-semibold ${color}`}>{count}</div>
@@ -238,7 +217,7 @@ export default function ReachCorrectionPage() {
           <div className="p-5 border-b border-border flex items-center justify-between gap-4">
             <div>
               <h2 className="font-semibold text-foreground">Записи в предпросмотре</h2>
-              <p className="text-xs text-muted-foreground mt-1">Жёлтые, серые и красные строки не будут изменены автоматически.</p>
+              <p className="text-xs text-muted-foreground mt-1">Жёлтые, серые и красные строки оставлены без изменений и требуют отдельной проверки.</p>
             </div>
             <Button variant="outline" size="sm" onClick={() => candidatesQuery.refetch()} className="gap-2"><RefreshCw className="w-3.5 h-3.5" /> Обновить список</Button>
           </div>

@@ -57,6 +57,42 @@ function getRecordValue(record: Record<string, unknown>, ...keys: string[]): unk
   return null;
 }
 
+/** Returns a reach only when a time-series point is explicitly marked as hour 24. */
+function getChartViews24(value: unknown): number | null {
+  const points = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? getRecordValue(value as Record<string, unknown>, "data", "points", "items", "values")
+      : null;
+  if (!Array.isArray(points)) return null;
+
+  for (const item of points) {
+    if (!item || typeof item !== "object") continue;
+    const point = item as Record<string, unknown>;
+    const hour = asNumber(getRecordValue(point, "hour", "hours", "atHour", "at_hour"));
+    if (hour !== 24) continue;
+    const reach = asNumber(getRecordValue(point, "views", "value", "total", "reach"));
+    if (reach !== null) return reach;
+  }
+  return null;
+}
+
+function getConfirmedViews24(channel: Record<string, unknown>): number | null {
+  const direct = asNumber(getRecordValue(
+    channel,
+    "views24", "views_24h", "views_24", "viewsAt24", "views_at_24", "view24", "view_24",
+  ));
+  if (direct !== null) return direct;
+
+  const reportAfter = asNumber(getRecordValue(channel, "reportAfter", "report_after"));
+  if (reportAfter === 24) {
+    const frozen = asNumber(getRecordValue(channel, "frozenViews", "frozen_views", "viewsFrozen", "views_frozen"));
+    if (frozen !== null) return frozen;
+  }
+
+  return getChartViews24(getRecordValue(channel, "chart", "history", "statistics", "stats"));
+}
+
 /** Identifies public report pages in the format /ad/ad_... */
 export function getMaxAnalyticsReportCode(url: URL): string | null {
   if (url.hostname.toLowerCase() !== MAX_ANALYTICS_HOST) return null;
@@ -83,18 +119,11 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
   const channels = Array.isArray(root.channels) ? root.channels : [];
   const posts = channels.map((item): AnalyticsPost => {
     const channel = item && typeof item === "object" ? item as Record<string, unknown> : {};
-    const reportAfter = asNumber(getRecordValue(channel, "reportAfter", "report_after"));
-    const directViews24 = asNumber(getRecordValue(channel, "views24", "views_24h"));
-    // Older reports may only preserve the value that was frozen at report time.
-    // It is a valid 24-hour metric only when the report itself was scheduled for 24h.
-    const frozenViews24 = reportAfter === 24
-      ? asNumber(getRecordValue(channel, "frozenViews", "frozen_views"))
-      : null;
     return {
       channelTitle: asText(getRecordValue(channel, "channelTitle", "channel_title", "title")),
       channelSubs: asNumber(getRecordValue(channel, "channelSubs", "channel_subs", "subscribers")),
       currentViews: asNumber(getRecordValue(channel, "views", "currentViews", "current_views")),
-      views24h: directViews24 ?? frozenViews24,
+      views24h: getConfirmedViews24(channel),
       views48h: asNumber(getRecordValue(channel, "views48", "views_48h")),
       views72h: asNumber(getRecordValue(channel, "views72", "views_72h")),
       er24h: null,
@@ -107,6 +136,13 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
         : [],
     };
   });
+
+  // A single-channel report may store its confirmed metric only in totals.
+  if (posts.length === 1 && posts[0].views24h === null) {
+    const totals = root.totals && typeof root.totals === "object" ? root.totals as Record<string, unknown> : {};
+    posts[0].views24h = asNumber(getRecordValue(totals, "views24", "views_24h", "views_24"))
+      ?? getChartViews24(getRecordValue(totals, "chart", "history", "statistics", "stats"));
+  }
 
   const sum = (field: keyof AnalyticsPost): number | null => {
     const values = posts.map((post) => post[field]).filter((value): value is number => typeof value === "number");

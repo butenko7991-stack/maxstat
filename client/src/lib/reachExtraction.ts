@@ -21,6 +21,13 @@ export function shouldIncludeHistoricalReachDecision(decision: HistoricalReachDe
   return decision.status !== "same";
 }
 
+/** Only this decision is safe to write automatically without a human review. */
+export function shouldAutoCorrectHistoricalReach(
+  decision: HistoricalReachDecision,
+): decision is Extract<HistoricalReachDecision, { status: "ready" }> {
+  return decision.status === "ready";
+}
+
 function normalizeChannelName(value: string | null | undefined): string {
   return (value ?? "")
     .toLocaleLowerCase("ru-RU")
@@ -101,7 +108,7 @@ export function decideHistoricalReach(
     return {
       status: "no24h",
       proposedReach: null,
-      message: "Трекер не вернул охват ровно за 24 часа",
+      message: "Проверены основной показатель, архив и почасовая история: охват ровно за 24 часа не найден",
     };
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHistoricalReach, getViews24h, selectPostForChannel, shouldIncludeHistoricalReachDecision } from "../client/src/lib/reachExtraction";
+import { decideHistoricalReach, getViews24h, selectPostForChannel, shouldAutoCorrectHistoricalReach, shouldIncludeHistoricalReachDecision } from "../client/src/lib/reachExtraction";
 
 describe("selectPostForChannel", () => {
   it("использует единственный пост из ссылки", () => {
@@ -54,6 +54,13 @@ describe("getViews24h", () => {
 });
 
 describe("decideHistoricalReach", () => {
+  it("разрешает автоматическое исправление только для однозначно подтверждённого отклонения", () => {
+    expect(shouldAutoCorrectHistoricalReach({ status: "ready", proposedReach: 318, message: "ok" })).toBe(true);
+    expect(shouldAutoCorrectHistoricalReach({ status: "same", proposedReach: 318, message: "ok" })).toBe(false);
+    expect(shouldAutoCorrectHistoricalReach({ status: "ambiguous", proposedReach: null, message: "ok" })).toBe(false);
+    expect(shouldAutoCorrectHistoricalReach({ status: "no24h", proposedReach: null, message: "ok" })).toBe(false);
+  });
+
   it("разрешает пакетное обновление только для однозначного канала с охватом за 24 часа", () => {
     expect(decideHistoricalReach([
       { channelTitle: "Канал А", views24h: 2_500 },

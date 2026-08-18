@@ -49,4 +49,25 @@ describe("Аналитика МАХ", () => {
     expect(legacyReport.summary.views24h).toBe(420);
     expect(lateReport.posts[0].views24h).toBeNull();
   });
+
+  it("восстанавливает 24-часовой охват из архивной почасовой истории", () => {
+    const report = parseMaxAnalyticsReport({
+      channels: [{
+        channelTitle: "Канал",
+        chart: [{ hour: 1, views: 90 }, { hour: 12, views: 290 }, { hour: 24, views: 336 }, { hour: 30, views: 463 }],
+      }],
+    }, REPORT_URL.toString());
+
+    expect(report.posts[0].views24h).toBe(336);
+    expect(report.summary.views24h).toBe(336);
+  });
+
+  it("использует значение totals только в отчёте с одним каналом", () => {
+    const report = parseMaxAnalyticsReport({
+      channels: [{ channelTitle: "Канал", views: 900 }],
+      totals: { views24: 456 },
+    }, REPORT_URL.toString());
+
+    expect(report.posts[0].views24h).toBe(456);
+  });
 });
