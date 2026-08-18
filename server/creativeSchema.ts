@@ -3,6 +3,18 @@ import { getDb } from "./db";
 
 let reachVerificationSchemaReady: Promise<void> | null = null;
 
+export function isDuplicateColumnError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    if (typeof current !== "object") return false;
+    const details = current as { code?: unknown; errno?: unknown; message?: unknown; cause?: unknown };
+    if (details.code === "ER_DUP_FIELDNAME" || details.errno === 1060) return true;
+    if (typeof details.message === "string" && /duplicate column|duplicate field|already exists/i.test(details.message)) return true;
+    current = details.cause;
+  }
+  return false;
+}
+
 async function addColumn(
   table: "channel_creatives" | "purchase_records" | "sale_records",
   definition: string,
@@ -12,8 +24,7 @@ async function addColumn(
   try {
     await db.execute(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${definition}`));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/duplicate column|duplicate field|already exists/i.test(message)) throw error;
+    if (!isDuplicateColumnError(error)) throw error;
   }
 }
 
