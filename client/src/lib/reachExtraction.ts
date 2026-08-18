@@ -16,6 +16,11 @@ export type HistoricalReachDecision =
   | { status: "ready"; proposedReach: number; message: string }
   | { status: "same" | "ambiguous" | "no24h"; proposedReach: number | null; message: string };
 
+export type HistoricalReachOptions = {
+  recordType?: "purchase" | "sale";
+  summaryViews24h?: number | null;
+};
+
 /** Entries that already contain the verified value do not need review or display. */
 export function shouldIncludeHistoricalReachDecision(decision: HistoricalReachDecision): boolean {
   return decision.status !== "same";
@@ -93,7 +98,25 @@ export function decideHistoricalReach(
   channelName: string | null | undefined,
   currentReach: number | null,
   channelId?: number | null,
+  options?: HistoricalReachOptions,
 ): HistoricalReachDecision {
+  const isPurchase = options?.recordType === "purchase";
+  const campaignReach24h = getViews24h({ views24h: options?.summaryViews24h });
+  if (isPurchase && campaignReach24h !== null) {
+    if (campaignReach24h === currentReach) {
+      return {
+        status: "same",
+        proposedReach: campaignReach24h,
+        message: "Общий охват закупа уже совпадает с данными отчёта за 24 часа",
+      };
+    }
+    return {
+      status: "ready",
+      proposedReach: campaignReach24h,
+      message: `Будет установлен общий охват закупа за 24 часа: ${campaignReach24h.toLocaleString("ru-RU")}`,
+    };
+  }
+
   const selection = selectPostForChannel(posts, channelName, channelId);
   if (selection.kind === "ambiguous" || selection.kind === "empty") {
     return {

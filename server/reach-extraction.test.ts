@@ -75,6 +75,24 @@ describe("decideHistoricalReach", () => {
     ], "Канал В", 1_000)).toMatchObject({ status: "ambiguous", proposedReach: null });
   });
 
+  it("использует общий охват 24ч для одной записи закупа без выбора внутреннего канала", () => {
+    const decision = decideHistoricalReach([
+      { channelTitle: "Внешний канал А", views24h: 197 },
+      { channelTitle: "Внешний канал Б", views24h: 537 },
+    ], "Мой канал", 0, 10, { recordType: "purchase", summaryViews24h: 734 });
+
+    expect(decision).toMatchObject({ status: "ready", proposedReach: 734 });
+  });
+
+  it("не применяет общий охват закупа к записи продажи", () => {
+    const decision = decideHistoricalReach([
+      { channelTitle: "Внешний канал А", views24h: 197 },
+      { channelTitle: "Внешний канал Б", views24h: 537 },
+    ], "Мой канал", 0, 10, { recordType: "sale", summaryViews24h: 734 });
+
+    expect(decision).toMatchObject({ status: "ambiguous", proposedReach: null });
+  });
+
   it("оставляет неизменной запись с уже корректным значением", () => {
     const decision = decideHistoricalReach([{ channelTitle: "Канал А", views24h: 2_500 }], "Канал А", 2_500);
     expect(decision).toMatchObject({ status: "same", proposedReach: 2_500 });

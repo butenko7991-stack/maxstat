@@ -83,7 +83,13 @@ export default function ReachCorrectionPage() {
       const candidate = candidates[index];
       try {
         const data = await analyzeLink.mutateAsync({ url: candidate.link, recordType: candidate.recordType });
-        const decision = decideHistoricalReach(data.posts, candidate.channelName, candidate.currentReach, candidate.channelId);
+        const decision = decideHistoricalReach(
+          data.posts,
+          candidate.channelName,
+          candidate.currentReach,
+          candidate.channelId,
+          { recordType: candidate.recordType, summaryViews24h: data.summary?.views24h },
+        );
         if (shouldAutoCorrectHistoricalReach(decision)) {
           try {
             if (candidate.recordType === "purchase") {
@@ -166,7 +172,7 @@ export default function ReachCorrectionPage() {
             </div>
             <h1 className="text-2xl sm:text-3xl font-semibold text-foreground">Проверка старых охватов</h1>
             <p className="mt-3 text-sm sm:text-base text-muted-foreground leading-relaxed">
-              Система анализирует только оплаченные записи со ссылками. Автоматически обновляются лишь записи с однозначно найденным каналом и значением ровно за 24 часа. Неоднозначные ссылки не изменяются.
+              Для закупа система использует общий охват отчёта за 24 часа. Для продаж и составных ссылок применяется строгий выбор конкретного канала; неоднозначные данные не изменяются.
             </p>
           </div>
           <Button onClick={reviewCandidates} disabled={isReviewing || candidatesQuery.isLoading} className="gap-2 shrink-0">
@@ -176,7 +182,7 @@ export default function ReachCorrectionPage() {
         </div>
         <div className="mt-5 grid sm:grid-cols-3 gap-3 text-xs">
           <div className="rounded-xl bg-background/50 border border-border p-3"><CheckCircle2 className="w-4 h-4 text-emerald-400 mb-1.5" />Меняем только совпавшие 24ч-значения.</div>
-          <div className="rounded-xl bg-background/50 border border-border p-3"><AlertTriangle className="w-4 h-4 text-amber-400 mb-1.5" />Общие ссылки остаются на ручную проверку.</div>
+          <div className="rounded-xl bg-background/50 border border-border p-3"><AlertTriangle className="w-4 h-4 text-amber-400 mb-1.5" />В закупах берём общий 24ч-охват; для продаж нужны точные данные канала.</div>
           <div className="rounded-xl bg-background/50 border border-border p-3"><XCircle className="w-4 h-4 text-slate-400 mb-1.5" />48ч и 72ч никогда не используются вместо 24ч.</div>
         </div>
       </section>
