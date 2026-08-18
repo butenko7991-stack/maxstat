@@ -11,6 +11,7 @@ describe("SalesPage — сохранение ВП", () => {
   it("синхронизирует форму с ref при каждом изменении", () => {
     expect(salesPageSource).toContain("const formRef = useRef<SaleFormData>(EMPTY_FORM);");
     expect(salesPageSource).toContain("formRef.current = next;");
+    expect(salesPageSource).toMatch(/const previous = formRef\.current;[\s\S]{0,300}formRef\.current = next;[\s\S]{0,200}setForm\(next\);/);
     expect(salesPageSource).toContain("setForm={(updater) => { setConflictError(null); updateForm(updater); }}");
   });
 

@@ -70,11 +70,10 @@ export default function SalesPage() {
   const [form, setForm] = useState<SaleFormData>(EMPTY_FORM);
   const formRef = useRef<SaleFormData>(EMPTY_FORM);
   const updateForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
-    setForm((previous) => {
-      const next = typeof updater === "function" ? updater(previous) : updater;
-      formRef.current = next;
-      return next;
-    });
+    const previous = formRef.current;
+    const next = typeof updater === "function" ? updater(previous) : updater;
+    formRef.current = next;
+    setForm(next);
   }, []);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [exportPending, setExportPending] = useState(false);

@@ -10,6 +10,7 @@ const schedulePageSource = readFileSync(
 describe("SchedulePage — ВП в продажах", () => {
   it("synchronizes create-sale ref immediately when the form changes", () => {
     expect(schedulePageSource).toMatch(/const updateSaleForm = useCallback\([\s\S]{0,500}saleFormRef\.current = next;/);
+    expect(schedulePageSource).toMatch(/const previous = saleFormRef\.current;[\s\S]{0,300}saleFormRef\.current = next;[\s\S]{0,200}setSaleForm\(next\);/);
     expect(schedulePageSource).toContain("setForm={(updater: any) => { setConflictError(null); updateSaleForm(updater); }}");
   });
 

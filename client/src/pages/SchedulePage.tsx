@@ -167,18 +167,16 @@ export default function SchedulePage() {
   const editSaleFormRef = useRef(editSaleForm);
   useEffect(() => { editSaleFormRef.current = editSaleForm; }, [editSaleForm]);
   const updateSaleForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
-    setSaleForm((previous) => {
-      const next = typeof updater === "function" ? updater(previous) : updater;
-      saleFormRef.current = next;
-      return next;
-    });
+    const previous = saleFormRef.current;
+    const next = typeof updater === "function" ? updater(previous) : updater;
+    saleFormRef.current = next;
+    setSaleForm(next);
   }, []);
   const updateEditSaleForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
-    setEditSaleForm((previous) => {
-      const next = typeof updater === "function" ? updater(previous) : updater;
-      editSaleFormRef.current = next;
-      return next;
-    });
+    const previous = editSaleFormRef.current;
+    const next = typeof updater === "function" ? updater(previous) : updater;
+    editSaleFormRef.current = next;
+    setEditSaleForm(next);
   }, []);
   const [editSaleOpen, setEditSaleOpen] = useState(false);
   const [editSaleConflictError, setEditSaleConflictError] = useState<string | null>(null);
