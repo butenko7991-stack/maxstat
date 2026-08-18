@@ -85,6 +85,7 @@ import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
+import { isPostXbotWatchUrl, parsePostXbotReport } from "./postxbot";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 import { isReachVerificationCurrent } from "./reachCorrectionState";
@@ -1664,6 +1665,22 @@ const ocrRouter = router({
       // Block private/internal IP ranges to prevent SSRF
       if (/^(localhost|127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|0\.0\.0\.0|::1|\[::1\])/.test(hostname)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Доступ к локальным адресам запрещён' });
+      }
+
+      // ── PostXbot public report ─────────────────────────────────────────────
+      if (isPostXbotWatchUrl(parsedUrl)) {
+        const response = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить отчёт PostXbot: ${response.status}` });
+        }
+        const report = parsePostXbotReport(await response.text(), url);
+        if (report.posts.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте PostXbot не найдено однозначное размещение с охватом за 24 часа" });
+        }
+        return report;
       }
 
       // ── Analytics MAX public report link ──────────────────────────────────
