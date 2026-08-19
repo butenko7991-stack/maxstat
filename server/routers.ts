@@ -85,7 +85,7 @@ import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
-import { isPostXbotWatchUrl, parsePostXbotReport } from "./postxbot";
+import { getPostXbotReportHash, isPostXbotWatchUrl, parsePostXbotApiReport, parsePostXbotReport, POSTXBOT_WATCH_API_URL } from "./postxbot";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 import { isReachVerificationCurrent } from "./reachCorrectionState";
@@ -1669,7 +1669,33 @@ const ocrRouter = router({
 
       // ── PostXbot public report ─────────────────────────────────────────────
       if (isPostXbotWatchUrl(parsedUrl)) {
+        const reportHash = getPostXbotReportHash(parsedUrl);
         let lastFailure = "отчёт ещё не отдал показатель за 24 часа";
+        if (reportHash) {
+          try {
+            const apiResponse = await fetch(POSTXBOT_WATCH_API_URL, {
+              method: "POST",
+              headers: {
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+                "Origin": "https://max.postxbot.ru",
+                "Referer": url,
+                "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)",
+              },
+              body: JSON.stringify({ hash: reportHash }),
+              signal: AbortSignal.timeout(25_000),
+            });
+            if (apiResponse.ok) {
+              const report = parsePostXbotApiReport(await apiResponse.json(), url);
+              if (report.posts.length > 0) return report;
+              lastFailure = "API PostXbot не вернул снимок ровно на 24-м часу";
+            } else {
+              lastFailure = `API PostXbot ответил кодом ${apiResponse.status}`;
+            }
+          } catch (error) {
+            lastFailure = error instanceof Error ? error.message : "временная ошибка API PostXbot";
+          }
+        }
         for (let attempt = 0; attempt < 3; attempt += 1) {
           try {
             const response = await fetch(url, {
