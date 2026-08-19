@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { decideHistoricalReach, shouldAutoCorrectHistoricalReach, shouldIncludeHistoricalReachDecision } from "@/lib/reachExtraction";
+import { canRefreshReachCorrectionList, resetReachCorrectionView } from "@/lib/reachCorrectionUi";
 
 type Candidate = {
   recordType: "purchase" | "sale";
@@ -161,6 +162,29 @@ export default function ReachCorrectionPage() {
 
   const candidateCount = candidatesQuery.data?.length ?? 0;
   const checkedAll = hasReviewed;
+  const refreshListAvailable = canRefreshReachCorrectionList({
+    isReviewing,
+    isFetching: candidatesQuery.isFetching,
+  });
+
+  async function refreshCandidatesList() {
+    if (isReviewing) {
+      toast.info("Проверка ещё выполняется", { description: "Дождитесь завершения текущего прогона перед обновлением списка." });
+      return;
+    }
+
+    try {
+      await candidatesQuery.refetch();
+      const reset = resetReachCorrectionView();
+      setReviews([]);
+      setProgress(reset.progress);
+      setHasReviewed(reset.hasReviewed);
+      setReviewedCount(reset.reviewedCount);
+      toast.success("Список обновлён", { description: "Можно запустить новую автоматическую проверку." });
+    } catch (error) {
+      toast.error("Не удалось обновить список", { description: error instanceof Error ? error.message : "Повторите попытку позже." });
+    }
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -225,7 +249,16 @@ export default function ReachCorrectionPage() {
               <h2 className="font-semibold text-foreground">Записи в предпросмотре</h2>
               <p className="text-xs text-muted-foreground mt-1">Жёлтые, серые и красные строки оставлены без изменений и требуют отдельной проверки.</p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => candidatesQuery.refetch()} className="gap-2"><RefreshCw className="w-3.5 h-3.5" /> Обновить список</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshCandidatesList}
+              disabled={!refreshListAvailable}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${candidatesQuery.isFetching ? "animate-spin" : ""}`} />
+              {candidatesQuery.isFetching ? "Обновляем…" : "Обновить список"}
+            </Button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[860px]">
