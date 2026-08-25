@@ -133,6 +133,8 @@ export default function SchedulePage() {
   const [selectedSlots, setSelectedSlots] = useState<Array<{ channelId: number; channelName: string; dateStr: string; slot: Slot }>>([]);
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkForm, setBulkForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
+  const bulkFormRef = useRef(bulkForm);
+  useEffect(() => { bulkFormRef.current = bulkForm; }, [bulkForm]);
   const [bulkPurchaseDialogOpen, setBulkPurchaseDialogOpen] = useState(false);
   const [bulkPurchaseForm, setBulkPurchaseForm] = useState<PurchaseFormData>({ ...EMPTY_PURCHASE_FORM });
 
@@ -177,6 +179,12 @@ export default function SchedulePage() {
     const next = typeof updater === "function" ? updater(previous) : updater;
     editSaleFormRef.current = next;
     setEditSaleForm(next);
+  }, []);
+  const updateBulkSaleForm = useCallback((updater: SaleFormData | ((previous: SaleFormData) => SaleFormData)) => {
+    const previous = bulkFormRef.current;
+    const next = typeof updater === "function" ? updater(previous) : updater;
+    bulkFormRef.current = next;
+    setBulkForm(next);
   }, []);
   const [editSaleOpen, setEditSaleOpen] = useState(false);
   const [editSaleConflictError, setEditSaleConflictError] = useState<string | null>(null);
@@ -1201,7 +1209,7 @@ export default function SchedulePage() {
                       });
                       setBulkPurchaseDialogOpen(true);
                     } else {
-                      setBulkForm({
+                      updateBulkSaleForm({
                         ...EMPTY_SALE_FORM,
                         channelId: String(first.channelId),
                         date: first.dateStr,
@@ -1231,7 +1239,7 @@ export default function SchedulePage() {
             onOpenChange={(v) => setBulkDialogOpen(v)}
             title={`Новая запись — ${selectedSlots.length} слотов`}
             form={bulkForm as any}
-            setForm={(updater: any) => setBulkForm(updater)}
+            setForm={(updater: any) => updateBulkSaleForm(updater)}
             bulkSlotsSummary={
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
                 <p className="text-sm font-medium text-primary">Выбрано слотов: {selectedSlots.length}</p>
@@ -1246,7 +1254,7 @@ export default function SchedulePage() {
             }
             onSubmit={(e: React.FormEvent) => {
               e.preventDefault();
-              const f = bulkForm;
+              const f = bulkFormRef.current;
               bulkCreateMutation.mutate({
                 slots: selectedSlots.map((s) => ({
                   channelId: s.channelId,
@@ -1264,6 +1272,13 @@ export default function SchedulePage() {
                 cost: f.cost || undefined,
                 paymentStatus: f.paymentStatus as "paid" | "unpaid" | "partial",
                 postNotNeeded: f.postNotNeeded,
+                isExternal: f.isExternal,
+                isMutual: f.isMutual,
+                partnerChannel: f.partnerChannel || undefined,
+                ourReach: f.ourReach ? Number(f.ourReach) : undefined,
+                partnerReach: f.partnerReach ? Number(f.partnerReach) : undefined,
+                dopDirection: f.dopDirection !== "none" ? f.dopDirection : undefined,
+                dopAmount: f.dopAmount || undefined,
                 notes: f.notes || undefined,
               });
             }}

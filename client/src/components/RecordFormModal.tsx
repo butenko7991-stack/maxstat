@@ -1288,17 +1288,29 @@ export function SaleFormModal({
               </label>
             </div>
 
-            {/* ВП checkbox */}
+            {/* ВП toggle: explicit button makes the tap target reliable on mobile browsers. */}
             <div className="col-span-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={form.isMutual}
-                  onChange={(e) => setForm((f) => ({ ...f, isMutual: e.target.checked }))}
-                  className="h-4 w-4 rounded border-border accent-violet-500"
-                />
-                <span className="text-sm font-medium text-violet-400">Взаимная подписка (ВП)</span>
-              </label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.isMutual}
+                onClick={() => setForm((f) => ({ ...f, isMutual: !f.isMutual }))}
+                className={`flex w-full min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors active:scale-[0.98] ${
+                  form.isMutual
+                    ? "border-violet-500/60 bg-violet-500/15 text-violet-300"
+                    : "border-border bg-muted/20 text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                <span className="text-sm font-medium">Взаимная подписка (ВП)</span>
+                <span
+                  aria-hidden="true"
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${form.isMutual ? "bg-violet-500" : "bg-muted"}`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${form.isMutual ? "translate-x-5" : "translate-x-0.5"}`}
+                  />
+                </span>
+              </button>
             </div>
 
             {/* ВП conditional fields */}

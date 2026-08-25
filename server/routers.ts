@@ -757,6 +757,13 @@ const salesRouter = router({
       paymentStatus: paymentStatusEnum.optional(),
       postNotNeeded: z.boolean().optional(),
       buyerSubscribers: z.number().int().nonnegative().optional(),
+      isExternal: z.boolean().optional(),
+      isMutual: z.boolean().optional(),
+      partnerChannel: z.string().max(255).optional(),
+      ourReach: z.number().int().nonnegative().optional(),
+      partnerReach: z.number().int().nonnegative().optional(),
+      dopDirection: z.enum(["we_pay", "they_pay", "none"]).optional(),
+      dopAmount: z.string().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -794,6 +801,13 @@ const salesRouter = router({
           paymentStatus: input.paymentStatus ?? "unpaid",
           month: slot.month,
           postNotNeeded: input.postNotNeeded ?? false,
+          isExternal: input.isExternal ?? false,
+          isMutual: input.isMutual ?? false,
+          partnerChannel: input.partnerChannel ?? null,
+          ourReach: input.ourReach ?? null,
+          partnerReach: input.partnerReach ?? null,
+          dopDirection: input.dopDirection ?? "none",
+          dopAmount: input.dopAmount ?? null,
           buyerSubscribers: input.buyerSubscribers ?? null,
           notes: input.notes ?? null,
         });
