@@ -16,10 +16,12 @@ const routersSource = readFileSync(
 );
 
 describe("ВП при создании продажи с мобильного", () => {
-  it("использует явный доступный переключатель вместо нативного чекбокса", () => {
+  it("использует явные доступные переключатели вместо нативных чекбоксов", () => {
     expect(modalSource).toContain('role="switch"');
     expect(modalSource).toContain("aria-checked={form.isMutual}");
     expect(modalSource).toContain("onClick={() => setForm((f) => ({ ...f, isMutual: !f.isMutual }))}");
+    expect(modalSource).toContain("aria-checked={form.isExternal}");
+    expect(modalSource).toContain("onClick={() => setForm((f) => ({ ...f, isExternal: !f.isExternal }))}");
     expect(modalSource).toContain("min-h-11");
   });
 

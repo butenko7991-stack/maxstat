@@ -1275,17 +1275,29 @@ export function SaleFormModal({
                 <span className="text-sm text-muted-foreground">Пост не нужен (автобот)</span>
               </label>
             </div>
-            {/* External advertiser checkbox */}
+            {/* External advertiser toggle: use a large explicit tap target on mobile. */}
             <div className="col-span-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={form.isExternal}
-                  onChange={(e) => setForm((f) => ({ ...f, isExternal: e.target.checked }))}
-                  className="h-4 w-4 rounded border-border accent-orange-500"
-                />
-                <span className="text-sm font-medium text-orange-400">Внешка (внешний рекламодатель)</span>
-              </label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.isExternal}
+                onClick={() => setForm((f) => ({ ...f, isExternal: !f.isExternal }))}
+                className={`flex w-full min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors active:scale-[0.98] ${
+                  form.isExternal
+                    ? "border-orange-500/60 bg-orange-500/15 text-orange-300"
+                    : "border-border bg-muted/20 text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                <span className="text-sm font-medium">Внешка (внешний рекламодатель)</span>
+                <span
+                  aria-hidden="true"
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${form.isExternal ? "bg-orange-500" : "bg-muted"}`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${form.isExternal ? "translate-x-5" : "translate-x-0.5"}`}
+                  />
+                </span>
+              </button>
             </div>
 
             {/* ВП toggle: explicit button makes the tap target reliable on mobile browsers. */}
