@@ -66,5 +66,8 @@ export async function ensureCreativeSchema(): Promise<void> {
     )
   `));
   await addColumn("channel_creatives", "recognizedText TEXT AFTER postText");
+  // VPS deployment unpacks the build without running Drizzle migrations.
+  // Add this flag before sales.create can insert a new external record.
+  await addColumn("sale_records", "isExternal BOOLEAN NOT NULL DEFAULT FALSE AFTER postNotNeeded");
   await ensureReachVerificationSchema();
 }

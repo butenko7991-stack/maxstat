@@ -159,6 +159,8 @@ export const saleRecords = mysqlTable("sale_records", {
   month: varchar("month", { length: 7 }).notNull(),
   /** Post not needed — autobot handles posting automatically */
   postNotNeeded: boolean("postNotNeeded").default(false).notNull(),
+  /** External advertiser flag (Внешка) */
+  isExternal: boolean("isExternal").default(false).notNull(),
   /** Approximate subscriber count of the buyer's channel (for size analysis) */
   buyerSubscribers: bigint("buyerSubscribers", { mode: "number" }),
   /** Mutual subscription deal (ВП) flag */
