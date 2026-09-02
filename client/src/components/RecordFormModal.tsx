@@ -1284,11 +1284,12 @@ export function SaleFormModal({
                 onClick={() => setForm((f) => ({ ...f, isExternal: !f.isExternal }))}
                 className={`flex w-full min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors active:scale-[0.98] ${
                   form.isExternal
-                    ? "border-orange-500/60 bg-orange-500/15 text-orange-300"
-                    : "border-border bg-muted/20 text-muted-foreground hover:bg-accent"
+                    ? "border-orange-300 bg-orange-500 text-slate-950 shadow-[0_0_0_2px_rgba(249,115,22,0.35)]"
+                    : "border-border bg-slate-900 text-muted-foreground hover:bg-accent"
                 }`}
               >
                 <span className="text-sm font-medium">Внешка (внешний рекламодатель)</span>
+                <span className="text-xs font-bold uppercase tracking-wide">{form.isExternal ? "Включена" : "Выключена"}</span>
                 <span
                   aria-hidden="true"
                   className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${form.isExternal ? "bg-orange-500" : "bg-muted"}`}
