@@ -23,6 +23,7 @@ describe("ВП при создании продажи с мобильного", 
     expect(modalSource).toContain("aria-checked={form.isExternal}");
     expect(modalSource).toContain("onClick={() => setForm((f) => ({ ...f, isExternal: !f.isExternal }))}");
     expect(modalSource).toContain("bg-orange-500 text-slate-950");
+    expect(modalSource).toContain('backgroundColor: form.isExternal ? "#f97316" : "#0f172a"');
     expect(modalSource).toContain('{form.isExternal ? "Включена" : "Выключена"}');
     expect(modalSource).toContain("min-h-11");
   });

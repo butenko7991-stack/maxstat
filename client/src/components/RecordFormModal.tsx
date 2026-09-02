@@ -1286,13 +1286,19 @@ export function SaleFormModal({
                   form.isExternal
                     ? "border-orange-300 bg-orange-500 text-slate-950 shadow-[0_0_0_2px_rgba(249,115,22,0.35)]"
                     : "border-border bg-slate-900 text-muted-foreground hover:bg-accent"
-                }`}
+                }}`}
+                style={{
+                  backgroundColor: form.isExternal ? "#f97316" : "#0f172a",
+                  color: form.isExternal ? "#0f172a" : "#cbd5e1",
+                  borderColor: form.isExternal ? "#fdba74" : "#475569",
+                }}
               >
                 <span className="text-sm font-medium">Внешка (внешний рекламодатель)</span>
                 <span className="text-xs font-bold uppercase tracking-wide">{form.isExternal ? "Включена" : "Выключена"}</span>
                 <span
                   aria-hidden="true"
                   className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${form.isExternal ? "bg-orange-500" : "bg-muted"}`}
+                  style={{ backgroundColor: form.isExternal ? "#9a3412" : "#475569" }}
                 >
                   <span
                     className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${form.isExternal ? "translate-x-5" : "translate-x-0.5"}`}
