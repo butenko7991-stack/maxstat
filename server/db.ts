@@ -850,7 +850,7 @@ export async function getScheduleData(
   endDate: string,
   allowedChannelIds?: number[]
 ): Promise<{
-  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded" | "isMutual" | "partnerChannel" | "dopDirection" | "dopAmount">>;
+  sales: Array<Pick<SaleRecord, "id" | "channelId" | "date" | "timeSlot" | "bookingSlot" | "admin" | "cost" | "paymentStatus" | "link" | "tariff" | "postNotNeeded" | "isExternal" | "isMutual" | "partnerChannel" | "dopDirection" | "dopAmount">>;
   purchases: Array<Pick<PurchaseRecord, "id" | "channelId" | "date" | "admin" | "cost" | "paymentStatus" | "bookingSlot" | "timeSlot" | "isMutual">>;
   mutuals: Array<Pick<MutualDeal, "id" | "ourChannelId" | "dealDate" | "partnerChannelName" | "dealType" | "dopDirection" | "dopAmount" | "status" | "ourPostLink">>;
 }> {
@@ -872,6 +872,7 @@ export async function getScheduleData(
         link: saleRecords.link,
         tariff: saleRecords.tariff,
         postNotNeeded: saleRecords.postNotNeeded,
+        isExternal: saleRecords.isExternal,
         isMutual: saleRecords.isMutual,
         partnerChannel: saleRecords.partnerChannel,
         dopDirection: saleRecords.dopDirection,

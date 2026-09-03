@@ -48,6 +48,16 @@ const MUTUAL_CELL = {
   icon: "text-violet-400/60",
 };
 
+// External advertiser cell color; VP keeps its violet priority when both flags are present.
+const EXTERNAL_CELL = {
+  bg: "bg-orange-500/20",
+  border: "border-orange-500/60",
+  hover: "hover:bg-orange-500/30",
+  text: "text-orange-300",
+  icon: "text-orange-400/70",
+  badge: "bg-orange-600",
+};
+
 const PAYMENT_LABELS: Record<string, string> = {
   paid: "Оплачено",
   unpaid: "Не оплачено",
@@ -761,7 +771,12 @@ export default function SchedulePage() {
                           if (booked) {
                             const status = records[0]?.paymentStatus ?? "unpaid";
                             const isVpSale = (((mutualDateMap[channel.id]?.[dateStr]?.[slot] ?? mutualDateMap[channel.id]?.[dateStr]?.["__any__"])?.length ?? 0)) > 0;
-                            const cc = isVpSale ? MUTUAL_CELL : (CELL_COLORS[status] ?? CELL_COLORS.unpaid);
+                            const isExternalSale = records[0]?.isExternal === true;
+                            const cc = isVpSale
+                              ? MUTUAL_CELL
+                              : isExternalSale
+                                ? EXTERNAL_CELL
+                                : (CELL_COLORS[status] ?? CELL_COLORS.unpaid);
                             return (
                               <button
                                 key={dateStr}
@@ -782,6 +797,11 @@ export default function SchedulePage() {
                                 <div className={cn("text-[9px] mt-0.5 truncate", PAYMENT_COLORS[status])}>
                                   {PAYMENT_LABELS[status]}
                                 </div>
+                                {isExternalSale && (
+                                  <div className="mt-0.5 truncate text-[9px] font-bold text-orange-300">
+                                    🌐 Внешняя
+                                  </div>
+                                )}
                                 {records.some((rec: any) => !rec.link && !rec.postNotNeeded) && (
                                   <div className={cn("text-[9px] mt-0.5 truncate font-medium",
                                     (() => {

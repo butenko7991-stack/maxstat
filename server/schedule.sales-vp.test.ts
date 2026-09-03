@@ -6,6 +6,7 @@ const schedulePageSource = readFileSync(
   resolve(process.cwd(), "client/src/pages/SchedulePage.tsx"),
   "utf8"
 );
+const dbSource = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
 
 describe("SchedulePage — ВП в продажах", () => {
   it("synchronizes create-sale ref immediately when the form changes", () => {
@@ -24,5 +25,12 @@ describe("SchedulePage — ВП в продажах", () => {
     expect(schedulePageSource).toContain("const editSaleFormRef = useRef(editSaleForm);");
     expect(schedulePageSource).toContain("const f = editSaleFormRef.current;");
     expect(schedulePageSource).toMatch(/const f = editSaleFormRef\.current;[\s\S]{0,900}isMutual: f\.isMutual,/);
+  });
+
+  it("получает isExternal из данных расписания и выделяет внешнюю продажу оранжевым", () => {
+    expect(dbSource).toContain("isExternal: saleRecords.isExternal");
+    expect(schedulePageSource).toContain("const isExternalSale = records[0]?.isExternal === true;");
+    expect(schedulePageSource).toContain("bg-orange-500/20");
+    expect(schedulePageSource).toContain("🌐 Внешняя");
   });
 });
