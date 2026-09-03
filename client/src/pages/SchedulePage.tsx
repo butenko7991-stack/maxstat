@@ -46,6 +46,7 @@ const MUTUAL_CELL = {
   hover: "hover:bg-violet-500/25",
   text: "text-violet-300",
   icon: "text-violet-400/60",
+  badge: "bg-violet-500",
 };
 
 // External advertiser cell color; VP keeps its violet priority when both flags are present.
@@ -110,6 +111,59 @@ function isToday(d: Date): boolean {
   return toIso(d) === toIso(today);
 }
 
+const SCHEDULE_GRID_TEMPLATE = "140px repeat(7, minmax(0, 1fr))";
+
+function ScheduleDayHeaders({ weekDates, scrollLeft }: { weekDates: Date[]; scrollLeft: number }) {
+  return (
+    <div
+      data-testid="schedule-sticky-dates"
+      className="sticky top-0 z-30 mb-2 overflow-hidden border-b border-primary/15 bg-background/95 py-1 shadow-lg shadow-black/20 backdrop-blur-md"
+    >
+      <div
+        className="grid min-w-[640px] gap-1 will-change-transform"
+        style={{ gridTemplateColumns: SCHEDULE_GRID_TEMPLATE, transform: `translateX(-${scrollLeft}px)` }}
+      >
+        <div />
+        {weekDates.map((d) => {
+          const { weekday, day, month } = formatDay(d);
+          const today = isToday(d);
+          return (
+            <div
+              key={toIso(d)}
+              className={cn(
+                "text-center py-2 rounded-xl text-xs font-medium",
+                today ? "bg-primary/20 text-primary ring-1 ring-primary/35" : "text-muted-foreground"
+              )}
+            >
+              <div className="capitalize">{weekday}</div>
+              <div className={cn("text-base font-semibold", today ? "text-primary" : "text-foreground")}>{day}</div>
+              <div className="text-[10px] opacity-60">{month}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TodayColumnHighlight({ weekDates }: { weekDates: Date[] }) {
+  const todayIndex = weekDates.findIndex(isToday);
+  if (todayIndex < 0) return null;
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="schedule-today-column"
+      className="pointer-events-none absolute inset-0 z-10 grid gap-1"
+      style={{ gridTemplateColumns: SCHEDULE_GRID_TEMPLATE }}
+    >
+      <div
+        className="border-x border-primary/20 bg-primary/[0.055]"
+        style={{ gridColumn: todayIndex + 2 }}
+      />
+    </div>
+  );
+}
+
 const EMPTY_SALE_FORM: SaleFormData = {
   channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер" | "ночной топ",
   tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
@@ -131,6 +185,8 @@ export default function SchedulePage() {
   const [baseDate, setBaseDate] = useState(() => new Date());
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<"sales" | "purchases">("sales");
+  const [gridScrollLeft, setGridScrollLeft] = useState(0);
+  useEffect(() => { setGridScrollLeft(0); }, [activeTab]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saleForm, setSaleForm] = useState<typeof EMPTY_SALE_FORM>({ ...EMPTY_SALE_FORM });
   const saleFormRef = useRef(saleForm);
@@ -659,33 +715,17 @@ export default function SchedulePage() {
         </div>
 
         {/* Calendar grid — scrollable horizontally on mobile */}
-        {activeTab === "sales" && <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
-          <div className="min-w-[640px]">
-            {/* Day headers */}
-            <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
-              <div /> {/* empty corner */}
-              {weekDates.map((d) => {
-                const { weekday, day, month } = formatDay(d);
-                const today = isToday(d);
-                return (
-                  <div
-                    key={toIso(d)}
-                    className={cn(
-                      "text-center py-2 rounded-xl text-xs font-medium",
-                      today ? "bg-primary/15 text-primary" : "text-muted-foreground"
-                    )}
-                  >
-                    <div className="capitalize">{weekday}</div>
-                    <div className={cn("text-base font-semibold", today ? "text-primary" : "text-foreground")}>
-                      {day}
-                    </div>
-                    <div className="text-[10px] opacity-60">{month}</div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Channel rows */}
+        {activeTab === "sales" && <div className="-mx-4 lg:mx-0">
+          <div className="px-4 lg:px-0">
+            <ScheduleDayHeaders weekDates={weekDates} scrollLeft={gridScrollLeft} />
+          </div>
+          <div
+            className="overflow-x-auto px-4 lg:px-0"
+            onScroll={(event) => setGridScrollLeft(event.currentTarget.scrollLeft)}
+          >
+            <div className="relative isolate min-w-[640px]">
+              <TodayColumnHighlight weekDates={weekDates} />
+              {/* Channel rows */}
             {(channelsLoading || scheduleLoading) ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -903,36 +943,24 @@ export default function SchedulePage() {
                   </div>
                 ))}
               </div>
-            )}
+              )}
+            </div>
           </div>
         </div>}
 
         {/* Purchase grid */}
         {activeTab === "purchases" && (
-          <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
-            <div className="min-w-[640px]">
-              {/* Day headers */}
-              <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: "140px repeat(7, minmax(0, 1fr))" }}>
-                <div />
-                {weekDates.map((d) => {
-                  const { weekday, day, month } = formatDay(d);
-                  const today = isToday(d);
-                  return (
-                    <div
-                      key={toIso(d)}
-                      className={cn(
-                        "text-center py-2 rounded-xl text-xs font-medium",
-                        today ? "bg-primary/15 text-primary" : "text-muted-foreground"
-                      )}
-                    >
-                      <div className="capitalize">{weekday}</div>
-                      <div className={cn("text-base font-semibold", today ? "text-primary" : "text-foreground")}>{day}</div>
-                      <div className="text-[10px] opacity-60">{month}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Channel rows */}
+          <div className="-mx-4 lg:mx-0">
+            <div className="px-4 lg:px-0">
+              <ScheduleDayHeaders weekDates={weekDates} scrollLeft={gridScrollLeft} />
+            </div>
+            <div
+              className="overflow-x-auto px-4 lg:px-0"
+              onScroll={(event) => setGridScrollLeft(event.currentTarget.scrollLeft)}
+            >
+              <div className="relative isolate min-w-[640px]">
+                <TodayColumnHighlight weekDates={weekDates} />
+                {/* Channel rows */}
               {(channelsLoading || scheduleLoading) ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
@@ -1096,7 +1124,8 @@ export default function SchedulePage() {
                     </div>
                   ))}
                 </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         )}

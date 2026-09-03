@@ -33,4 +33,19 @@ describe("SchedulePage — ВП в продажах", () => {
     expect(schedulePageSource).toContain("bg-orange-500/20");
     expect(schedulePageSource).toContain("🌐 Внешняя");
   });
+
+  it("закрепляет даты и синхронизирует их с горизонтальной прокруткой обеих сеток", () => {
+    expect(schedulePageSource).toContain('data-testid="schedule-sticky-dates"');
+    expect(schedulePageSource).toContain("sticky top-0 z-30");
+    expect(schedulePageSource).toContain('transform: `translateX(-${scrollLeft}px)`');
+    expect(schedulePageSource.match(/onScroll=\{\(event\) => setGridScrollLeft\(event\.currentTarget\.scrollLeft\)\}/g)).toHaveLength(2);
+    expect(schedulePageSource).toContain("useEffect(() => { setGridScrollLeft(0); }, [activeTab]);");
+  });
+
+  it("подсвечивает текущую дату полупрозрачной колонкой, не перехватывая нажатия", () => {
+    expect(schedulePageSource).toContain('data-testid="schedule-today-column"');
+    expect(schedulePageSource).toContain("pointer-events-none absolute inset-0");
+    expect(schedulePageSource).toContain("bg-primary/[0.055]");
+    expect(schedulePageSource).toContain("gridColumn: todayIndex + 2");
+  });
 });
