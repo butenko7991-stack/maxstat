@@ -293,6 +293,8 @@ const channelsRouter = router({
 });
 
 // ─── Purchases router ─────────────────────────────────────────────────────────
+const DEFAULT_PLACEMENT_DURATION = "1/48";
+
 const purchaseInput = z.object({
   channelId: z.number().int().positive(),
   date: z.string(), // ISO date string
@@ -349,7 +351,7 @@ const purchasesRouter = router({
       link: input.link ?? null,
       targetChannels: input.targetChannels ?? null,
       direction: input.direction ?? null,
-      tariff: input.tariff ?? null,
+      tariff: input.tariff?.trim() || DEFAULT_PLACEMENT_DURATION,
       buyer: input.buyer ?? null,
       spm: input.spm ?? null,
       reach: input.reach ?? null,
@@ -481,7 +483,7 @@ const purchasesRouter = router({
           link: input.link ?? null,
           targetChannels: input.targetChannels ?? null,
           direction: input.direction ?? null,
-          tariff: input.tariff ?? null,
+          tariff: input.tariff?.trim() || DEFAULT_PLACEMENT_DURATION,
           buyer: input.buyer ?? null,
           spm: input.spm ?? null,
           reach: input.reach ?? null,
@@ -643,7 +645,7 @@ const salesRouter = router({
       link: input.link ?? null,
       timeSlot: input.timeSlot ?? null,
       bookingSlot: input.bookingSlot ?? deriveBookingSlot(input.timeSlot),
-      tariff: input.tariff ?? null,
+      tariff: input.tariff?.trim() || DEFAULT_PLACEMENT_DURATION,
       platform: input.platform ?? null,
       spm: input.spm ?? null,
       reach: input.reach ?? null,
@@ -793,7 +795,7 @@ const salesRouter = router({
           link: input.link ?? null,
           timeSlot: slot.timeSlot ?? null,
           bookingSlot: slot.bookingSlot ?? deriveBookingSlot(slot.timeSlot),
-          tariff: input.tariff ?? null,
+          tariff: input.tariff?.trim() || DEFAULT_PLACEMENT_DURATION,
           platform: input.platform ?? null,
           spm: input.spm ?? null,
           reach: input.reach ?? null,

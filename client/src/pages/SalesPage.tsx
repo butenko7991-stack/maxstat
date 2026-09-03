@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import {
   SaleFormModal,
+  DEFAULT_PLACEMENT_DURATION,
   type SaleFormData,
   type PaymentStatus,
   type TimeSlot,
@@ -24,7 +25,7 @@ import { PostAnalyticsBadge } from "@/components/PostAnalyticsBadge";
 
 const EMPTY_FORM: SaleFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", timeSlot: "", bookingSlot: "",
-  tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
+  tariff: DEFAULT_PLACEMENT_DURATION, platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   month: currentMonth(), postNotNeeded: false, isExternal: false,
   buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",

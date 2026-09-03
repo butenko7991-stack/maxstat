@@ -19,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SaleFormModal, PurchaseFormModal, type PurchaseFormData, type SaleFormData } from "@/components/RecordFormModal";
+import { DEFAULT_PLACEMENT_DURATION, SaleFormModal, PurchaseFormModal, type PurchaseFormData, type SaleFormData } from "@/components/RecordFormModal";
 import { toast } from "sonner";
 
 const SLOTS = ["утро", "обед", "вечер", "ночной топ"] as const;
@@ -166,7 +166,7 @@ function TodayColumnHighlight({ weekDates }: { weekDates: Date[] }) {
 
 const EMPTY_SALE_FORM: SaleFormData = {
   channelId: "", date: "", admin: "", link: "", timeSlot: "", bookingSlot: "" as "" | "утро" | "обед" | "вечер" | "ночной топ",
-  tariff: "", platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
+  tariff: DEFAULT_PLACEMENT_DURATION, platform: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid" as const,
   month: "", postNotNeeded: false, isExternal: false,
   buyerSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
@@ -175,7 +175,7 @@ const EMPTY_SALE_FORM: SaleFormData = {
 
 const EMPTY_PURCHASE_FORM: PurchaseFormData = {
   channelId: "", date: "", admin: "", link: "", targetChannels: "",
-  direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "",
+  direction: "", tariff: DEFAULT_PLACEMENT_DURATION, buyer: "", spm: "", reach: "", cost: "",
   paymentStatus: "unpaid", subscribersGained: "",
   month: "", notes: "", timeSlot: "", bookingSlot: "", sourceSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",

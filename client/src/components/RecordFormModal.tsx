@@ -24,6 +24,8 @@ import { toast } from "sonner";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";
 export type TimeSlot = string;
+export const DEFAULT_PLACEMENT_DURATION = "1/48";
+const PLACEMENT_DURATION_OPTIONS = ["1/24", "1/48"] as const;
 
 export interface PurchaseFormData {
   channelId: string;
@@ -103,6 +105,42 @@ function calcCostFromSpm(reach: string, spm: string): string {
   const spmNum = parseFloat(spmMatch[0].replace(",", "."));
   if (!isFinite(reachNum) || !isFinite(spmNum) || reachNum <= 0 || spmNum <= 0) return "";
   return String(Math.round((reachNum * spmNum) / 1000));
+}
+
+function PlacementDurationField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const isLegacyValue = Boolean(value) && !PLACEMENT_DURATION_OPTIONS.includes(value as (typeof PLACEMENT_DURATION_OPTIONS)[number]);
+
+  return (
+    <div className="space-y-1.5">
+      <Label>Время размещения</Label>
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Время размещения">
+        {PLACEMENT_DURATION_OPTIONS.map((duration) => {
+          const selected = value === duration;
+          return (
+            <button
+              key={duration}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(duration)}
+              className={cn(
+                "min-h-10 rounded-lg border px-3 text-sm font-semibold transition-all active:scale-[0.97]",
+                selected
+                  ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                  : "border-border bg-input text-muted-foreground hover:border-primary/50 hover:text-foreground"
+              )}
+            >
+              {duration}
+            </button>
+          );
+        })}
+      </div>
+      {isLegacyValue && (
+        <p className="text-[11px] text-amber-400">
+          Сохранено ранее: {value}. Выберите 1/24 или 1/48, чтобы изменить.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ─── Purchase Form Modal ──────────────────────────────────────────────────────
@@ -389,15 +427,10 @@ export function PurchaseFormModal({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Тариф</Label>
-              <Input
-                value={form.tariff}
-                onChange={(e) => setForm((f) => ({ ...f, tariff: e.target.value }))}
-                placeholder="1/48, фикс..."
-                className="bg-input border-border"
-              />
-            </div>
+            <PlacementDurationField
+              value={form.tariff}
+              onChange={(tariff) => setForm((f) => ({ ...f, tariff }))}
+            />
 
             {/* SPM + Reach + Auto-calculated cost block */}
             <div className="col-span-2 rounded-xl border border-border/60 bg-muted/20 p-3 space-y-3">
@@ -1056,15 +1089,10 @@ export function SaleFormModal({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Тариф</Label>
-              <Input
-                value={form.tariff}
-                onChange={(e) => setForm((f) => ({ ...f, tariff: e.target.value }))}
-                placeholder="1/48, фикс..."
-                className="bg-input border-border"
-              />
-            </div>
+            <PlacementDurationField
+              value={form.tariff}
+              onChange={(tariff) => setForm((f) => ({ ...f, tariff }))}
+            />
 
             {/* SPM + Reach + Auto-calculated cost block */}
             <div className="col-span-2 rounded-xl border border-border/60 bg-muted/20 p-3 space-y-3">

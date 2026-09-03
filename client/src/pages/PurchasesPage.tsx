@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import {
   PurchaseFormModal,
+  DEFAULT_PLACEMENT_DURATION,
   type PurchaseFormData,
   type PaymentStatus,
   type AutocompleteSuggestions,
@@ -24,7 +25,7 @@ import { PostAnalyticsBadge } from "@/components/PostAnalyticsBadge";
 
 const EMPTY_FORM: PurchaseFormData = {
   channelId: "", date: todayIso(), admin: "", link: "", targetChannels: "",
-  direction: "", tariff: "", buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
+  direction: "", tariff: DEFAULT_PLACEMENT_DURATION, buyer: "", spm: "", reach: "", cost: "", paymentStatus: "unpaid",
   subscribersGained: "", month: currentMonth(), notes: "",
   timeSlot: "", bookingSlot: "", sourceSubscribers: "",
   isMutual: false, partnerChannel: "", ourReach: "", partnerReach: "", dopDirection: "none", dopAmount: "",
