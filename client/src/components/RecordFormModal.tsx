@@ -20,6 +20,7 @@ import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2, Sparkles, XCirc
 import { AutocompleteInput } from "./AutocompleteInput";
 import { trpc } from "@/lib/trpc";
 import { getViews24h, selectPostForChannel } from "@/lib/reachExtraction";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 export type PaymentStatus = "paid" | "unpaid" | "partial";

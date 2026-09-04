@@ -10,6 +10,7 @@ const routersSource = readFileSync(resolve(process.cwd(), "server/routers.ts"), 
 
 describe("выбор времени размещения", () => {
   it("показывает только варианты 1/24 и 1/48 с явным активным состоянием", () => {
+    expect(formSource).toContain('import { cn } from "@/lib/utils";');
     expect(formSource).toContain('const PLACEMENT_DURATION_OPTIONS = ["1/24", "1/48"] as const;');
     expect(formSource).toContain("<Label>Время размещения</Label>");
     expect(formSource).toContain("aria-pressed={selected}");
