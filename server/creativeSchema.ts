@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "./db";
 
 let reachVerificationSchemaReady: Promise<void> | null = null;
+let invitationsSchemaReady: Promise<void> | null = null;
 
 export function isDuplicateColumnError(error: unknown): boolean {
   let current: unknown = error;
@@ -45,6 +46,37 @@ export function ensureReachVerificationSchema(): Promise<void> {
   return reachVerificationSchemaReady;
 }
 
+/** The VPS deploy does not run migrations, so create the additive invitation table at startup. */
+export function ensureInvitationsSchema(): Promise<void> {
+  if (!invitationsSchemaReady) {
+    invitationsSchemaReady = (async () => {
+      const db = await getDb();
+      if (!db) return;
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS workspace_invitations (
+          id INT NOT NULL AUTO_INCREMENT,
+          tokenHash VARCHAR(64) NOT NULL,
+          email VARCHAR(320) NOT NULL,
+          role ENUM('admin', 'buyer', 'manager') NOT NULL,
+          workspaceId INT NOT NULL,
+          createdByUserId INT NOT NULL,
+          expiresAt TIMESTAMP NOT NULL,
+          revokedAt TIMESTAMP NULL,
+          acceptedAt TIMESTAMP NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY workspace_invitations_token_hash_unique (tokenHash),
+          KEY workspace_invitations_workspace_state_idx (workspaceId, acceptedAt, revokedAt, expiresAt)
+        )
+      `));
+    })().catch((error) => {
+      invitationsSchemaReady = null;
+      throw error;
+    });
+  }
+  return invitationsSchemaReady;
+}
+
 /** The VPS deploy does not run Drizzle migrations, so keep this additive schema change idempotent at startup. */
 export async function ensureCreativeSchema(): Promise<void> {
   const db = await getDb();
@@ -70,4 +102,5 @@ export async function ensureCreativeSchema(): Promise<void> {
   // Add this flag before sales.create can insert a new external record.
   await addColumn("sale_records", "isExternal BOOLEAN NOT NULL DEFAULT FALSE AFTER postNotNeeded");
   await ensureReachVerificationSchema();
+  await ensureInvitationsSchema();
 }

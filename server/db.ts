@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   Channel,
@@ -33,6 +33,7 @@ import {
   clientChannels,
   ClientChannel,
   InsertClientChannel,
+  workspaceInvitations,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -130,6 +131,148 @@ export async function updateUserPasswordHash(openId: string, passwordHash: strin
 }
 
 export type ManagedRole = "admin" | "buyer" | "manager" | "user";
+
+export type InvitationRole = "admin" | "buyer" | "manager";
+
+export async function createWorkspaceInvitation(data: {
+  tokenHash: string;
+  email: string;
+  role: InvitationRole;
+  workspaceId: number;
+  createdByUserId: number;
+  expiresAt: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("База данных недоступна");
+  await db.insert(workspaceInvitations).values(data);
+}
+
+export async function revokeActiveWorkspaceInvitationsByEmail(email: string, workspaceId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("База данных недоступна");
+  await db
+    .update(workspaceInvitations)
+    .set({ revokedAt: new Date() })
+    .where(and(
+      eq(workspaceInvitations.email, email),
+      eq(workspaceInvitations.workspaceId, workspaceId),
+      isNull(workspaceInvitations.acceptedAt),
+      isNull(workspaceInvitations.revokedAt),
+    ));
+}
+
+export async function listWorkspaceInvitations(workspaceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: workspaceInvitations.id,
+      email: workspaceInvitations.email,
+      role: workspaceInvitations.role,
+      expiresAt: workspaceInvitations.expiresAt,
+      revokedAt: workspaceInvitations.revokedAt,
+      acceptedAt: workspaceInvitations.acceptedAt,
+      createdAt: workspaceInvitations.createdAt,
+    })
+    .from(workspaceInvitations)
+    .where(eq(workspaceInvitations.workspaceId, workspaceId))
+    .orderBy(desc(workspaceInvitations.createdAt));
+}
+
+export async function revokeWorkspaceInvitation(invitationId: number, workspaceId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db
+    .update(workspaceInvitations)
+    .set({ revokedAt: new Date() })
+    .where(and(
+      eq(workspaceInvitations.id, invitationId),
+      eq(workspaceInvitations.workspaceId, workspaceId),
+      isNull(workspaceInvitations.acceptedAt),
+      isNull(workspaceInvitations.revokedAt),
+    ));
+  return ((result as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0) > 0;
+}
+
+export async function getActiveWorkspaceInvitation(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select({
+      id: workspaceInvitations.id,
+      email: workspaceInvitations.email,
+      role: workspaceInvitations.role,
+      workspaceId: workspaceInvitations.workspaceId,
+      expiresAt: workspaceInvitations.expiresAt,
+    })
+    .from(workspaceInvitations)
+    .where(and(
+      eq(workspaceInvitations.tokenHash, tokenHash),
+      isNull(workspaceInvitations.acceptedAt),
+      isNull(workspaceInvitations.revokedAt),
+      gt(workspaceInvitations.expiresAt, new Date()),
+    ))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * Consumes the invitation only if it is still active, then creates the local
+ * account in the same transaction. The conditional update makes a link
+ * single-use even if two requests arrive at the same moment.
+ */
+export async function acceptWorkspaceInvitation(data: {
+  tokenHash: string;
+  name: string;
+  passwordHash: string;
+}): Promise<{ openId: string } | undefined> {
+  const db = await getDb();
+  if (!db) throw new Error("База данных недоступна");
+
+  return db.transaction(async (tx) => {
+    const invitations = await tx
+      .select()
+      .from(workspaceInvitations)
+      .where(and(
+        eq(workspaceInvitations.tokenHash, data.tokenHash),
+        isNull(workspaceInvitations.acceptedAt),
+        isNull(workspaceInvitations.revokedAt),
+        gt(workspaceInvitations.expiresAt, new Date()),
+      ))
+      .limit(1);
+    const invitation = invitations[0];
+    if (!invitation) return undefined;
+
+    const existingUsers = await tx.select({ id: users.id }).from(users).where(eq(users.email, invitation.email)).limit(1);
+    if (existingUsers.length > 0) throw new Error("EMAIL_ALREADY_REGISTERED");
+
+    const now = new Date();
+    const consumeResult = await tx
+      .update(workspaceInvitations)
+      .set({ acceptedAt: now })
+      .where(and(
+        eq(workspaceInvitations.id, invitation.id),
+        isNull(workspaceInvitations.acceptedAt),
+        isNull(workspaceInvitations.revokedAt),
+        gt(workspaceInvitations.expiresAt, now),
+      ));
+    const affectedRows = (consumeResult as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0;
+    if (affectedRows !== 1) return undefined;
+
+    const openId = crypto.randomUUID();
+    await tx.insert(users).values({
+      openId,
+      name: data.name,
+      email: invitation.email,
+      passwordHash: data.passwordHash,
+      loginMethod: "local",
+      role: invitation.role,
+      teamOwnerId: invitation.workspaceId,
+      lastSignedIn: now,
+    });
+    return { openId };
+  });
+}
 
 export async function getWorkspaceUsers(workspaceId: number) {
   const db = await getDb();

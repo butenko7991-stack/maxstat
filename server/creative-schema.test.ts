@@ -20,4 +20,10 @@ describe("совместимые миграции креативов и пров
   it("добавляет isExternal до записи новых продаж на VPS", () => {
     expect(creativeSchemaSource).toContain('await addColumn("sale_records", "isExternal BOOLEAN NOT NULL DEFAULT FALSE AFTER postNotNeeded")');
   });
+
+  it("создаёт таблицу одноразовых приглашений при запуске VPS", () => {
+    expect(creativeSchemaSource).toContain("CREATE TABLE IF NOT EXISTS workspace_invitations");
+    expect(creativeSchemaSource).toContain("UNIQUE KEY workspace_invitations_token_hash_unique (tokenHash)");
+    expect(creativeSchemaSource).toContain("await ensureInvitationsSchema()");
+  });
 });

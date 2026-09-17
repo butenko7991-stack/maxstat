@@ -73,6 +73,10 @@ import {
   getClientAttributedCpf,
   getExternalSalesAnalytics,
   getDb,
+  createWorkspaceInvitation,
+  listWorkspaceInvitations,
+  revokeActiveWorkspaceInvitationsByEmail,
+  revokeWorkspaceInvitation,
   listChannelCreatives,
   listWorkspaceCreatives,
   createChannelCreative,
@@ -90,6 +94,14 @@ import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveC
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 import { isReachVerificationCurrent } from "./reachCorrectionState";
 import { ensureReachVerificationSchema } from "./creativeSchema";
+import {
+  canCreateInvitation,
+  generateInvitationToken,
+  getInvitationExpiry,
+  hashInvitationToken,
+  invitationRoles,
+  normalizeInvitationEmail,
+} from "./invitationSecurity";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
 const paymentStatusEnum = z.enum(["paid", "unpaid", "partial"]);
@@ -1285,6 +1297,47 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
 const adminRouter = router({
   /** List only the members of the current owner's or admin's own team. */
   users: adminProcedure.query(({ ctx }) => getWorkspaceUsers(ctx.user.id)),
+
+  /** Invitation metadata only. The secret link is returned once when it is created. */
+  invitations: adminProcedure.query(({ ctx }) => listWorkspaceInvitations(ctx.user.id)),
+
+  /** Owner invites independent admins; an admin invites buyers or managers to their own workspace. */
+  createInvitation: adminProcedure
+    .input(z.object({
+      email: z.string().trim().email().max(320),
+      role: z.enum(invitationRoles),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!canCreateInvitation(ctx.user.role, input.role)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: ctx.user.role === "owner"
+            ? "Владелец может приглашать только независимых администраторов"
+            : "Администратор может приглашать только закупщиков и менеджеров своей команды",
+        });
+      }
+      const email = normalizeInvitationEmail(input.email);
+      const token = generateInvitationToken();
+      const expiresAt = getInvitationExpiry();
+      await revokeActiveWorkspaceInvitationsByEmail(email, ctx.user.id);
+      await createWorkspaceInvitation({
+        tokenHash: hashInvitationToken(token),
+        email,
+        role: input.role,
+        workspaceId: ctx.user.id,
+        createdByUserId: ctx.user.id,
+        expiresAt,
+      });
+      return { token, email, role: input.role, expiresAt };
+    }),
+
+  revokeInvitation: adminProcedure
+    .input(z.object({ invitationId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const revoked = await revokeWorkspaceInvitation(input.invitationId, ctx.user.id);
+      if (!revoked) throw new TRPCError({ code: "NOT_FOUND", message: "Активное приглашение не найдено" });
+      return { success: true } as const;
+    }),
 
   /** Owner can create independent admins; any admin can add employees to their own team. */
   createUser: adminProcedure

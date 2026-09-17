@@ -30,6 +30,26 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
+ * One-time employee invitations. The plaintext token is never stored in the
+ * database; only its SHA-256 hash is persisted.
+ */
+export const workspaceInvitations = mysqlTable("workspace_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  email: varchar("email", { length: 320 }).notNull(),
+  role: mysqlEnum("role", ["admin", "buyer", "manager"]).notNull(),
+  workspaceId: int("workspaceId").notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  revokedAt: timestamp("revokedAt"),
+  acceptedAt: timestamp("acceptedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
+export type InsertWorkspaceInvitation = typeof workspaceInvitations.$inferInsert;
+
+/**
  * Advertising channels (projects) — e.g. "Твоя Алиса", "Жабетта", etc.
  * Managed entirely by the owner; no hardcoded names.
  */

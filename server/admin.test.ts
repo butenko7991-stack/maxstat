@@ -49,6 +49,10 @@ vi.mock("./db", () => ({
     { id: 1, channelId: 1, channelName: "Канал 1" },
   ]),
   setWorkspaceUserChannelAssignments: vi.fn().mockResolvedValue(true),
+  listWorkspaceInvitations: vi.fn().mockResolvedValue([]),
+  revokeActiveWorkspaceInvitationsByEmail: vi.fn().mockResolvedValue(undefined),
+  createWorkspaceInvitation: vi.fn().mockResolvedValue(undefined),
+  revokeWorkspaceInvitation: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("./_core/llm", () => ({
@@ -196,6 +200,46 @@ describe("admin.createUser", () => {
       password: "secure-test-password",
       role: "admin",
     })).rejects.toThrow("Администратор создаёт только закупщиков и менеджеров своей команды");
+  });
+});
+
+describe("admin invitations", () => {
+  it("admin creates an invitation for a manager in their own workspace", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    const result = await caller.admin.createInvitation({ email: "manager-new@test.com", role: "manager" });
+    expect(result.token).toHaveLength(43);
+    expect(result.role).toBe("manager");
+
+    const db = await import("./db");
+    expect(db.revokeActiveWorkspaceInvitationsByEmail).toHaveBeenCalledWith("manager-new@test.com", 1);
+    expect(db.createWorkspaceInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      email: "manager-new@test.com",
+      role: "manager",
+      workspaceId: 1,
+      createdByUserId: 1,
+      tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+  });
+
+  it("does not allow an admin to invite another administrator", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    await expect(caller.admin.createInvitation({ email: "admin-new@test.com", role: "admin" })).rejects.toThrow(
+      "Администратор может приглашать только закупщиков и менеджеров своей команды"
+    );
+  });
+
+  it("allows the owner to invite only an independent administrator", async () => {
+    const caller = appRouter.createCaller(makeOwnerCtx());
+    const result = await caller.admin.createInvitation({ email: "admin-new@test.com", role: "admin" });
+    expect(result.role).toBe("admin");
+    await expect(caller.admin.createInvitation({ email: "manager-new@test.com", role: "manager" })).rejects.toThrow(
+      "Владелец может приглашать только независимых администраторов"
+    );
+  });
+
+  it("allows an administrator to revoke an active invitation from their workspace", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    await expect(caller.admin.revokeInvitation({ invitationId: 12 })).resolves.toEqual({ success: true });
   });
 });
 
