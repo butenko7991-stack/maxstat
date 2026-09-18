@@ -36,7 +36,8 @@ export type InsertUser = typeof users.$inferInsert;
 export const workspaceInvitations = mysqlTable("workspace_invitations", {
   id: int("id").autoincrement().primaryKey(),
   tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
-  email: varchar("email", { length: 320 }).notNull(),
+  /** Legacy compatibility column. New links deliberately do not store an invitee email. */
+  email: varchar("email", { length: 320 }),
   role: mysqlEnum("role", ["admin", "buyer", "manager"]).notNull(),
   workspaceId: int("workspaceId").notNull(),
   createdByUserId: int("createdByUserId").notNull(),

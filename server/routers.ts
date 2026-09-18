@@ -75,7 +75,6 @@ import {
   getDb,
   createWorkspaceInvitation,
   listWorkspaceInvitations,
-  revokeActiveWorkspaceInvitationsByEmail,
   revokeWorkspaceInvitation,
   listChannelCreatives,
   listWorkspaceCreatives,
@@ -100,7 +99,6 @@ import {
   getInvitationExpiry,
   hashInvitationToken,
   invitationRoles,
-  normalizeInvitationEmail,
 } from "./invitationSecurity";
 
 // ─── Shared validators ────────────────────────────────────────────────────────
@@ -1304,7 +1302,6 @@ const adminRouter = router({
   /** Owner invites independent admins; an admin invites buyers or managers to their own workspace. */
   createInvitation: adminProcedure
     .input(z.object({
-      email: z.string().trim().email().max(320),
       role: z.enum(invitationRoles),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1316,19 +1313,16 @@ const adminRouter = router({
             : "Администратор может приглашать только закупщиков и менеджеров своей команды",
         });
       }
-      const email = normalizeInvitationEmail(input.email);
       const token = generateInvitationToken();
       const expiresAt = getInvitationExpiry();
-      await revokeActiveWorkspaceInvitationsByEmail(email, ctx.user.id);
       await createWorkspaceInvitation({
         tokenHash: hashInvitationToken(token),
-        email,
         role: input.role,
         workspaceId: ctx.user.id,
         createdByUserId: ctx.user.id,
         expiresAt,
       });
-      return { token, email, role: input.role, expiresAt };
+      return { token, role: input.role, expiresAt };
     }),
 
   revokeInvitation: adminProcedure

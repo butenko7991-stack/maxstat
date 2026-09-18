@@ -18,7 +18,9 @@ import {
   hashPassword,
   verifyPassword,
 } from "./localAuth";
-import { hashInvitationToken } from "../invitationSecurity";
+import { hashInvitationToken, normalizeInvitationEmail } from "../invitationSecurity";
+
+const invitationEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function registerLocalAuthRoutes(app: Express) {
   // ── Register ─────────────────────────────────────────────────────────────
@@ -43,24 +45,27 @@ export function registerLocalAuthRoutes(app: Express) {
       return;
     }
     res.setHeader("Cache-Control", "no-store");
-    res.json({ email: invitation.email, role: invitation.role, expiresAt: invitation.expiresAt });
+    res.json({ role: invitation.role, expiresAt: invitation.expiresAt });
   });
 
   // ── Accept invitation ────────────────────────────────────────────────────
   app.post("/api/auth/invitation/accept", async (req: Request, res: Response) => {
-    const { token, name, password } = req.body ?? {};
+    const { token, name, email, password } = req.body ?? {};
+    const normalizedEmail = typeof email === "string" ? normalizeInvitationEmail(email) : "";
     if (
       typeof token !== "string" || token.length < 32 ||
       typeof name !== "string" || name.trim().length < 2 || name.trim().length > 255 ||
+      normalizedEmail.length > 320 || !invitationEmailPattern.test(normalizedEmail) ||
       typeof password !== "string" || password.length < 8 || password.length > 128
     ) {
-      res.status(400).json({ error: "Проверьте имя и пароль: пароль должен содержать не менее 8 символов" });
+      res.status(400).json({ error: "Проверьте email, имя и пароль: пароль должен содержать не менее 8 символов" });
       return;
     }
     try {
       const accepted = await acceptWorkspaceInvitation({
         tokenHash: hashInvitationToken(token),
         name: name.trim(),
+        email: normalizedEmail,
         passwordHash: await hashPassword(password),
       });
       if (!accepted) {

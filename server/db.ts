@@ -136,7 +136,6 @@ export type InvitationRole = "admin" | "buyer" | "manager";
 
 export async function createWorkspaceInvitation(data: {
   tokenHash: string;
-  email: string;
   role: InvitationRole;
   workspaceId: number;
   createdByUserId: number;
@@ -147,27 +146,12 @@ export async function createWorkspaceInvitation(data: {
   await db.insert(workspaceInvitations).values(data);
 }
 
-export async function revokeActiveWorkspaceInvitationsByEmail(email: string, workspaceId: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("База данных недоступна");
-  await db
-    .update(workspaceInvitations)
-    .set({ revokedAt: new Date() })
-    .where(and(
-      eq(workspaceInvitations.email, email),
-      eq(workspaceInvitations.workspaceId, workspaceId),
-      isNull(workspaceInvitations.acceptedAt),
-      isNull(workspaceInvitations.revokedAt),
-    ));
-}
-
 export async function listWorkspaceInvitations(workspaceId: number) {
   const db = await getDb();
   if (!db) return [];
   return db
     .select({
       id: workspaceInvitations.id,
-      email: workspaceInvitations.email,
       role: workspaceInvitations.role,
       expiresAt: workspaceInvitations.expiresAt,
       revokedAt: workspaceInvitations.revokedAt,
@@ -200,7 +184,6 @@ export async function getActiveWorkspaceInvitation(tokenHash: string) {
   const rows = await db
     .select({
       id: workspaceInvitations.id,
-      email: workspaceInvitations.email,
       role: workspaceInvitations.role,
       workspaceId: workspaceInvitations.workspaceId,
       expiresAt: workspaceInvitations.expiresAt,
@@ -224,6 +207,7 @@ export async function getActiveWorkspaceInvitation(tokenHash: string) {
 export async function acceptWorkspaceInvitation(data: {
   tokenHash: string;
   name: string;
+  email: string;
   passwordHash: string;
 }): Promise<{ openId: string } | undefined> {
   const db = await getDb();
@@ -243,7 +227,7 @@ export async function acceptWorkspaceInvitation(data: {
     const invitation = invitations[0];
     if (!invitation) return undefined;
 
-    const existingUsers = await tx.select({ id: users.id }).from(users).where(eq(users.email, invitation.email)).limit(1);
+    const existingUsers = await tx.select({ id: users.id }).from(users).where(eq(users.email, data.email)).limit(1);
     if (existingUsers.length > 0) throw new Error("EMAIL_ALREADY_REGISTERED");
 
     const now = new Date();
@@ -263,7 +247,7 @@ export async function acceptWorkspaceInvitation(data: {
     await tx.insert(users).values({
       openId,
       name: data.name,
-      email: invitation.email,
+      email: data.email,
       passwordHash: data.passwordHash,
       loginMethod: "local",
       role: invitation.role,

@@ -13,7 +13,7 @@ const ROLE_LABELS: Record<string, string> = {
   manager: "Менеджер",
 };
 
-type InvitationInfo = { email: string; role: string; expiresAt: string };
+type InvitationInfo = { role: string; expiresAt: string };
 
 function getInvitationToken(): string | null {
   return new URLSearchParams(window.location.hash.slice(1)).get("invite");
@@ -25,6 +25,7 @@ export default function RegisterPage() {
   const [token] = useState(getInvitationToken);
   const [invitation, setInvitation] = useState<InvitationInfo | null>(null);
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordRepeat, setPasswordRepeat] = useState("");
   const [loading, setLoading] = useState(Boolean(token));
@@ -68,7 +69,7 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         cache: "no-store",
-        body: JSON.stringify({ token, name, password }),
+        body: JSON.stringify({ token, name, email, password }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Не удалось завершить регистрацию");
@@ -82,7 +83,7 @@ export default function RegisterPage() {
     }
   }
 
-  const disabled = submitting || !name.trim() || password.length < 8 || password !== passwordRepeat;
+  const disabled = submitting || !name.trim() || !email.trim() || password.length < 8 || password !== passwordRepeat;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
@@ -109,12 +110,16 @@ export default function RegisterPage() {
             <form onSubmit={acceptInvitation} className="space-y-4">
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">
                 <p className="font-medium text-foreground">{ROLE_LABELS[invitation.role] ?? "Сотрудник"}</p>
-                <p className="mt-1 text-muted-foreground">Приглашение для {invitation.email}</p>
+                <p className="mt-1 text-muted-foreground">Ссылка назначает эту роль после регистрации.</p>
                 <p className="mt-1 text-xs text-muted-foreground">Действует до {new Date(invitation.expiresAt).toLocaleString("ru-RU")}</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="invite-name">Ваше имя</Label>
                 <Input id="invite-name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Анна" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="invite-email">Ваш email</Label>
+                <Input id="invite-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required maxLength={320} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="invite-password">Придумайте пароль</Label>

@@ -16,6 +16,17 @@ export function isDuplicateColumnError(error: unknown): boolean {
   return false;
 }
 
+/** Supports both mysql2's [rows, fields] result and a plain rows array. */
+export function invitationEmailColumnNeedsNullableUpgrade(result: unknown): boolean {
+  if (!Array.isArray(result)) return false;
+  const first = Array.isArray(result[0]) ? result[0][0] : result[0];
+  return Boolean(
+    first
+    && typeof first === "object"
+    && (first as { isNullable?: unknown }).isNullable === "NO",
+  );
+}
+
 async function addColumn(
   table: "channel_creatives" | "purchase_records" | "sale_records",
   definition: string,
@@ -56,7 +67,7 @@ export function ensureInvitationsSchema(): Promise<void> {
         CREATE TABLE IF NOT EXISTS workspace_invitations (
           id INT NOT NULL AUTO_INCREMENT,
           tokenHash VARCHAR(64) NOT NULL,
-          email VARCHAR(320) NOT NULL,
+          email VARCHAR(320) NULL,
           role ENUM('admin', 'buyer', 'manager') NOT NULL,
           workspaceId INT NOT NULL,
           createdByUserId INT NOT NULL,
@@ -69,6 +80,17 @@ export function ensureInvitationsSchema(): Promise<void> {
           KEY workspace_invitations_workspace_state_idx (workspaceId, acceptedAt, revokedAt, expiresAt)
         )
       `));
+      const emailColumn = await db.execute(sql.raw(`
+        SELECT IS_NULLABLE AS isNullable
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'workspace_invitations'
+          AND COLUMN_NAME = 'email'
+        LIMIT 1
+      `));
+      if (invitationEmailColumnNeedsNullableUpgrade(emailColumn)) {
+        await db.execute(sql.raw("ALTER TABLE workspace_invitations MODIFY COLUMN email VARCHAR(320) NULL"));
+      }
     })().catch((error) => {
       invitationsSchemaReady = null;
       throw error;

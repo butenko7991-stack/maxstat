@@ -50,7 +50,6 @@ vi.mock("./db", () => ({
   ]),
   setWorkspaceUserChannelAssignments: vi.fn().mockResolvedValue(true),
   listWorkspaceInvitations: vi.fn().mockResolvedValue([]),
-  revokeActiveWorkspaceInvitationsByEmail: vi.fn().mockResolvedValue(undefined),
   createWorkspaceInvitation: vi.fn().mockResolvedValue(undefined),
   revokeWorkspaceInvitation: vi.fn().mockResolvedValue(true),
 }));
@@ -204,35 +203,35 @@ describe("admin.createUser", () => {
 });
 
 describe("admin invitations", () => {
-  it("admin creates an invitation for a manager in their own workspace", async () => {
+  it("admin creates a role-only invitation for a manager in their own workspace", async () => {
     const caller = appRouter.createCaller(makeAdminCtx());
-    const result = await caller.admin.createInvitation({ email: "manager-new@test.com", role: "manager" });
+    const result = await caller.admin.createInvitation({ role: "manager" });
     expect(result.token).toHaveLength(43);
     expect(result.role).toBe("manager");
+    expect(result).not.toHaveProperty("email");
 
     const db = await import("./db");
-    expect(db.revokeActiveWorkspaceInvitationsByEmail).toHaveBeenCalledWith("manager-new@test.com", 1);
     expect(db.createWorkspaceInvitation).toHaveBeenCalledWith(expect.objectContaining({
-      email: "manager-new@test.com",
       role: "manager",
       workspaceId: 1,
       createdByUserId: 1,
       tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }));
+    expect(vi.mocked(db.createWorkspaceInvitation).mock.calls.at(-1)?.[0]).not.toHaveProperty("email");
   });
 
   it("does not allow an admin to invite another administrator", async () => {
     const caller = appRouter.createCaller(makeAdminCtx());
-    await expect(caller.admin.createInvitation({ email: "admin-new@test.com", role: "admin" })).rejects.toThrow(
+    await expect(caller.admin.createInvitation({ role: "admin" })).rejects.toThrow(
       "Администратор может приглашать только закупщиков и менеджеров своей команды"
     );
   });
 
   it("allows the owner to invite only an independent administrator", async () => {
     const caller = appRouter.createCaller(makeOwnerCtx());
-    const result = await caller.admin.createInvitation({ email: "admin-new@test.com", role: "admin" });
+    const result = await caller.admin.createInvitation({ role: "admin" });
     expect(result.role).toBe("admin");
-    await expect(caller.admin.createInvitation({ email: "manager-new@test.com", role: "manager" })).rejects.toThrow(
+    await expect(caller.admin.createInvitation({ role: "manager" })).rejects.toThrow(
       "Владелец может приглашать только независимых администраторов"
     );
   });
