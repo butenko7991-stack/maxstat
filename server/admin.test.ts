@@ -52,6 +52,7 @@ vi.mock("./db", () => ({
   listWorkspaceInvitations: vi.fn().mockResolvedValue([]),
   createWorkspaceInvitation: vi.fn().mockResolvedValue(undefined),
   revokeWorkspaceInvitation: vi.fn().mockResolvedValue(true),
+  deleteWorkspaceInvitation: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("./_core/llm", () => ({
@@ -209,6 +210,7 @@ describe("admin invitations", () => {
     expect(result.token).toHaveLength(43);
     expect(result.role).toBe("manager");
     expect(result).not.toHaveProperty("email");
+    expect(result).not.toHaveProperty("expiresAt");
 
     const db = await import("./db");
     expect(db.createWorkspaceInvitation).toHaveBeenCalledWith(expect.objectContaining({
@@ -239,6 +241,14 @@ describe("admin invitations", () => {
   it("allows an administrator to revoke an active invitation from their workspace", async () => {
     const caller = appRouter.createCaller(makeAdminCtx());
     await expect(caller.admin.revokeInvitation({ invitationId: 12 })).resolves.toEqual({ success: true });
+  });
+
+  it("allows an administrator to delete an invitation from their workspace", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    await expect(caller.admin.deleteInvitation({ invitationId: 12 })).resolves.toEqual({ success: true });
+
+    const db = await import("./db");
+    expect(db.deleteWorkspaceInvitation).toHaveBeenCalledWith(12, 1);
   });
 });
 

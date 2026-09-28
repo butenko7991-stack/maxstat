@@ -41,11 +41,11 @@ export function registerLocalAuthRoutes(app: Express) {
     }
     const invitation = await getActiveWorkspaceInvitation(hashInvitationToken(token));
     if (!invitation) {
-      res.status(404).json({ error: "Приглашение не найдено, уже использовано или срок его действия истёк" });
+      res.status(404).json({ error: "Приглашение не найдено, уже использовано или отозвано" });
       return;
     }
     res.setHeader("Cache-Control", "no-store");
-    res.json({ role: invitation.role, expiresAt: invitation.expiresAt });
+    res.json({ role: invitation.role });
   });
 
   // ── Accept invitation ────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export function registerLocalAuthRoutes(app: Express) {
         passwordHash: await hashPassword(password),
       });
       if (!accepted) {
-        res.status(410).json({ error: "Приглашение уже использовано, отозвано или срок его действия истёк" });
+        res.status(410).json({ error: "Приглашение уже использовано, отозвано или удалено" });
         return;
       }
       const sessionToken = await createSessionToken(accepted.openId);

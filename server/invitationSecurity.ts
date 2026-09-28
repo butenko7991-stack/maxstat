@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-export const INVITATION_EXPIRY_DAYS = 7;
 export const invitationRoles = ["admin", "buyer", "manager"] as const;
 export type InvitationRole = (typeof invitationRoles)[number];
 
@@ -25,8 +24,4 @@ export function hashInvitationToken(token: string): string {
 
 export function normalizeInvitationEmail(email: string): string {
   return email.trim().toLowerCase();
-}
-
-export function getInvitationExpiry(now = new Date()): Date {
-  return new Date(now.getTime() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 }

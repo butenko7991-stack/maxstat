@@ -139,7 +139,6 @@ export async function createWorkspaceInvitation(data: {
   role: InvitationRole;
   workspaceId: number;
   createdByUserId: number;
-  expiresAt: Date;
 }) {
   const db = await getDb();
   if (!db) throw new Error("База данных недоступна");
@@ -153,7 +152,6 @@ export async function listWorkspaceInvitations(workspaceId: number) {
     .select({
       id: workspaceInvitations.id,
       role: workspaceInvitations.role,
-      expiresAt: workspaceInvitations.expiresAt,
       revokedAt: workspaceInvitations.revokedAt,
       acceptedAt: workspaceInvitations.acceptedAt,
       createdAt: workspaceInvitations.createdAt,
@@ -178,6 +176,19 @@ export async function revokeWorkspaceInvitation(invitationId: number, workspaceI
   return ((result as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0) > 0;
 }
 
+/** Removes invitation metadata completely; an accepted account remains intact. */
+export async function deleteWorkspaceInvitation(invitationId: number, workspaceId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db
+    .delete(workspaceInvitations)
+    .where(and(
+      eq(workspaceInvitations.id, invitationId),
+      eq(workspaceInvitations.workspaceId, workspaceId),
+    ));
+  return ((result as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0) > 0;
+}
+
 export async function getActiveWorkspaceInvitation(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
@@ -186,14 +197,13 @@ export async function getActiveWorkspaceInvitation(tokenHash: string) {
       id: workspaceInvitations.id,
       role: workspaceInvitations.role,
       workspaceId: workspaceInvitations.workspaceId,
-      expiresAt: workspaceInvitations.expiresAt,
     })
     .from(workspaceInvitations)
     .where(and(
       eq(workspaceInvitations.tokenHash, tokenHash),
       isNull(workspaceInvitations.acceptedAt),
       isNull(workspaceInvitations.revokedAt),
-      gt(workspaceInvitations.expiresAt, new Date()),
+      or(isNull(workspaceInvitations.expiresAt), gt(workspaceInvitations.expiresAt, new Date())),
     ))
     .limit(1);
   return rows[0];
@@ -221,7 +231,7 @@ export async function acceptWorkspaceInvitation(data: {
         eq(workspaceInvitations.tokenHash, data.tokenHash),
         isNull(workspaceInvitations.acceptedAt),
         isNull(workspaceInvitations.revokedAt),
-        gt(workspaceInvitations.expiresAt, new Date()),
+        or(isNull(workspaceInvitations.expiresAt), gt(workspaceInvitations.expiresAt, new Date())),
       ))
       .limit(1);
     const invitation = invitations[0];
@@ -238,7 +248,7 @@ export async function acceptWorkspaceInvitation(data: {
         eq(workspaceInvitations.id, invitation.id),
         isNull(workspaceInvitations.acceptedAt),
         isNull(workspaceInvitations.revokedAt),
-        gt(workspaceInvitations.expiresAt, now),
+        or(isNull(workspaceInvitations.expiresAt), gt(workspaceInvitations.expiresAt, now)),
       ));
     const affectedRows = (consumeResult as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0;
     if (affectedRows !== 1) return undefined;

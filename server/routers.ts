@@ -74,6 +74,7 @@ import {
   getExternalSalesAnalytics,
   getDb,
   createWorkspaceInvitation,
+  deleteWorkspaceInvitation,
   listWorkspaceInvitations,
   revokeWorkspaceInvitation,
   listChannelCreatives,
@@ -96,7 +97,6 @@ import { ensureReachVerificationSchema } from "./creativeSchema";
 import {
   canCreateInvitation,
   generateInvitationToken,
-  getInvitationExpiry,
   hashInvitationToken,
   invitationRoles,
 } from "./invitationSecurity";
@@ -1314,15 +1314,13 @@ const adminRouter = router({
         });
       }
       const token = generateInvitationToken();
-      const expiresAt = getInvitationExpiry();
       await createWorkspaceInvitation({
         tokenHash: hashInvitationToken(token),
         role: input.role,
         workspaceId: ctx.user.id,
         createdByUserId: ctx.user.id,
-        expiresAt,
       });
-      return { token, role: input.role, expiresAt };
+      return { token, role: input.role };
     }),
 
   revokeInvitation: adminProcedure
@@ -1330,6 +1328,14 @@ const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const revoked = await revokeWorkspaceInvitation(input.invitationId, ctx.user.id);
       if (!revoked) throw new TRPCError({ code: "NOT_FOUND", message: "Активное приглашение не найдено" });
+      return { success: true } as const;
+    }),
+
+  deleteInvitation: adminProcedure
+    .input(z.object({ invitationId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const deleted = await deleteWorkspaceInvitation(input.invitationId, ctx.user.id);
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "Приглашение не найдено" });
       return { success: true } as const;
     }),
 

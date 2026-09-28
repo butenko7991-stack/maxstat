@@ -47,7 +47,6 @@ describe("регистрация по ссылке-приглашению", () =
       id: 7,
       role: "manager",
       workspaceId: 1,
-      expiresAt: new Date("2026-09-25T00:00:00.000Z"),
     });
     vi.mocked(acceptWorkspaceInvitation).mockResolvedValue({ openId: "new-member" });
   });
@@ -60,7 +59,6 @@ describe("регистрация по ссылке-приглашению", () =
       email: "legacy-member@example.com",
       role: "manager",
       workspaceId: 1,
-      expiresAt: new Date("2026-09-25T00:00:00.000Z"),
     });
 
     const result = await postInvitation("/api/auth/invitation/preview", { token: "a".repeat(43) });
@@ -68,6 +66,7 @@ describe("регистрация по ссылке-приглашению", () =
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ role: "manager" });
     expect(result.body).not.toHaveProperty("email");
+    expect(result.body).not.toHaveProperty("expiresAt");
   });
 
   it("требует email, который вводит сам сотрудник", async () => {

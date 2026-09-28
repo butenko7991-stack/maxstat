@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   canCreateInvitation,
   generateInvitationToken,
-  getInvitationExpiry,
   hashInvitationToken,
   normalizeInvitationEmail,
 } from "./invitationSecurity";
@@ -30,9 +29,7 @@ describe("безопасность приглашений сотрудников
     expect(hashInvitationToken(first)).not.toContain(first);
   });
 
-  it("нормализует email и задаёт семидневный срок действия", () => {
-    const now = new Date("2026-09-16T00:00:00.000Z");
+  it("нормализует email, который сотрудник вводит при регистрации", () => {
     expect(normalizeInvitationEmail("  Team.Member@Example.COM ")).toBe("team.member@example.com");
-    expect(getInvitationExpiry(now).toISOString()).toBe("2026-09-23T00:00:00.000Z");
   });
 });

@@ -17,7 +17,7 @@ export function isDuplicateColumnError(error: unknown): boolean {
 }
 
 /** Supports both mysql2's [rows, fields] result and a plain rows array. */
-export function invitationEmailColumnNeedsNullableUpgrade(result: unknown): boolean {
+export function invitationColumnNeedsNullableUpgrade(result: unknown): boolean {
   if (!Array.isArray(result)) return false;
   const first = Array.isArray(result[0]) ? result[0][0] : result[0];
   return Boolean(
@@ -71,7 +71,7 @@ export function ensureInvitationsSchema(): Promise<void> {
           role ENUM('admin', 'buyer', 'manager') NOT NULL,
           workspaceId INT NOT NULL,
           createdByUserId INT NOT NULL,
-          expiresAt TIMESTAMP NOT NULL,
+          expiresAt TIMESTAMP NULL,
           revokedAt TIMESTAMP NULL,
           acceptedAt TIMESTAMP NULL,
           createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -88,9 +88,28 @@ export function ensureInvitationsSchema(): Promise<void> {
           AND COLUMN_NAME = 'email'
         LIMIT 1
       `));
-      if (invitationEmailColumnNeedsNullableUpgrade(emailColumn)) {
+      if (invitationColumnNeedsNullableUpgrade(emailColumn)) {
         await db.execute(sql.raw("ALTER TABLE workspace_invitations MODIFY COLUMN email VARCHAR(320) NULL"));
       }
+      const expiresAtColumn = await db.execute(sql.raw(`
+        SELECT IS_NULLABLE AS isNullable
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'workspace_invitations'
+          AND COLUMN_NAME = 'expiresAt'
+        LIMIT 1
+      `));
+      if (invitationColumnNeedsNullableUpgrade(expiresAtColumn)) {
+        await db.execute(sql.raw("ALTER TABLE workspace_invitations MODIFY COLUMN expiresAt TIMESTAMP NULL"));
+      }
+      // All pending legacy links become permanent; accepted and revoked records keep their history intact.
+      await db.execute(sql.raw(`
+        UPDATE workspace_invitations
+        SET expiresAt = NULL
+        WHERE expiresAt IS NOT NULL
+          AND acceptedAt IS NULL
+          AND revokedAt IS NULL
+      `));
     })().catch((error) => {
       invitationsSchemaReady = null;
       throw error;

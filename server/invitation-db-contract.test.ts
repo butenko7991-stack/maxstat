@@ -16,7 +16,24 @@ describe("контракт принятия role-only приглашения", (
     );
 
     expect(createBlock).not.toContain("email:");
+    expect(createBlock).not.toContain("expiresAt:");
     expect(listBlock).not.toContain("email: workspaceInvitations.email");
+    expect(listBlock).not.toContain("expiresAt: workspaceInvitations.expiresAt");
+  });
+
+  it("признаёт постоянную ссылку активной до регистрации, отзыва или удаления", () => {
+    const activeBlock = dbSource.slice(
+      dbSource.indexOf("export async function getActiveWorkspaceInvitation"),
+      dbSource.indexOf("export async function acceptWorkspaceInvitation"),
+    );
+    const acceptanceBlock = dbSource.slice(
+      dbSource.indexOf("export async function acceptWorkspaceInvitation"),
+      dbSource.indexOf("export async function getWorkspaceUsers"),
+    );
+
+    expect(activeBlock).toContain("or(isNull(workspaceInvitations.expiresAt), gt(workspaceInvitations.expiresAt, new Date()))");
+    expect(acceptanceBlock).toContain("or(isNull(workspaceInvitations.expiresAt), gt(workspaceInvitations.expiresAt, new Date()))");
+    expect(dbSource).toContain("export async function deleteWorkspaceInvitation");
   });
 
   it("сверяет введённый email до расходования ссылки и сохраняет его в новом аккаунте", () => {

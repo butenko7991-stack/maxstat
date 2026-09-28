@@ -41,7 +41,8 @@ export const workspaceInvitations = mysqlTable("workspace_invitations", {
   role: mysqlEnum("role", ["admin", "buyer", "manager"]).notNull(),
   workspaceId: int("workspaceId").notNull(),
   createdByUserId: int("createdByUserId").notNull(),
-  expiresAt: timestamp("expiresAt").notNull(),
+  /** Null means a permanent link. A non-null date is supported only for legacy links. */
+  expiresAt: timestamp("expiresAt"),
   revokedAt: timestamp("revokedAt"),
   acceptedAt: timestamp("acceptedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

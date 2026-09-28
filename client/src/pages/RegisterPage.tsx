@@ -13,7 +13,7 @@ const ROLE_LABELS: Record<string, string> = {
   manager: "Менеджер",
 };
 
-type InvitationInfo = { role: string; expiresAt: string };
+type InvitationInfo = { role: string };
 
 function getInvitationToken(): string | null {
   return new URLSearchParams(window.location.hash.slice(1)).get("invite");
@@ -111,7 +111,7 @@ export default function RegisterPage() {
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">
                 <p className="font-medium text-foreground">{ROLE_LABELS[invitation.role] ?? "Сотрудник"}</p>
                 <p className="mt-1 text-muted-foreground">Ссылка назначает эту роль после регистрации.</p>
-                <p className="mt-1 text-xs text-muted-foreground">Действует до {new Date(invitation.expiresAt).toLocaleString("ru-RU")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Ссылка действует до регистрации или отзыва администратором.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="invite-name">Ваше имя</Label>
