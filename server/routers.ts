@@ -2081,15 +2081,21 @@ const ocrRouter = router({
       }
 
       const firstPost = extractedPosts[0];
+      const sumCompleteMetric = (field: "currentViews" | "views24h" | "views48h" | "views72h"): number | null => {
+        const values = extractedPosts.map((post) => post[field]);
+        return values.length > 0 && values.every((value) => typeof value === "number" && Number.isFinite(value))
+          ? values.reduce((total, value) => total + value, 0)
+          : null;
+      };
       return {
         type: "generic" as const,
         draftName: extracted.draftName ?? null,
         publishedAt: extracted.postedAt ?? firstPost.postedAt ?? null,
         summary: {
-          currentViews: firstPost.currentViews ?? null,
-          views24h: firstPost.views24h ?? null,
-          views48h: firstPost.views48h ?? null,
-          views72h: firstPost.views72h ?? null,
+          currentViews: sumCompleteMetric("currentViews"),
+          views24h: sumCompleteMetric("views24h"),
+          views48h: sumCompleteMetric("views48h"),
+          views72h: sumCompleteMetric("views72h"),
           er24h: firstPost.er24h ?? null,
           subscribersTotal: firstPost.channelSubs ?? null,
         },

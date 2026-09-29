@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHistoricalReach, getViews24h, selectPostForChannel, shouldAutoCorrectHistoricalReach, shouldIncludeHistoricalReachDecision } from "../client/src/lib/reachExtraction";
+import { decideHistoricalReach, getPurchaseReach24h, getViews24h, selectPostForChannel, shouldAutoCorrectHistoricalReach, shouldIncludeHistoricalReachDecision } from "../client/src/lib/reachExtraction";
 
 describe("selectPostForChannel", () => {
   it("использует единственный пост из ссылки", () => {
@@ -50,6 +50,27 @@ describe("getViews24h", () => {
   it("не принимает отрицательные и нечисловые значения", () => {
     expect(getViews24h({ views24h: -1 })).toBeNull();
     expect(getViews24h({ views24h: Number.NaN })).toBeNull();
+  });
+});
+
+describe("getPurchaseReach24h", () => {
+  it("берёт подтверждённый общий охват кампании из отчёта сетки", () => {
+    expect(getPurchaseReach24h({
+      summary: { views24h: 734 },
+      posts: [{ views24h: 197 }, { views24h: 537 }],
+    })).toBe(734);
+  });
+
+  it("суммирует все размещения, если трекер не передал общий показатель", () => {
+    expect(getPurchaseReach24h({
+      posts: [{ views24h: 197 }, { views24h: 537 }, { views24h: 266 }],
+    })).toBe(1_000);
+  });
+
+  it("не записывает частичную сумму, когда у одного размещения нет показателя 24ч", () => {
+    expect(getPurchaseReach24h({
+      posts: [{ views24h: 197 }, { views48h: 537 }],
+    })).toBeNull();
   });
 });
 

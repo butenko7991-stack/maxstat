@@ -19,7 +19,7 @@ import {
   type AutocompleteSuggestions,
 } from "@/components/RecordFormModal";
 import { formatMonthLabel, formatCost, todayIso, currentMonth } from "@/lib/utils";
-import { getViews24h, selectPostForChannel } from "@/lib/reachExtraction";
+import { getPurchaseReach24h } from "@/lib/reachExtraction";
 import * as XLSX from "xlsx";
 import { PostAnalyticsBadge } from "@/components/PostAnalyticsBadge";
 
@@ -314,15 +314,7 @@ export default function PurchasesPage() {
       { url: record.link, recordType: "purchase" },
       {
         onSuccess: (data) => {
-          const selection = selectPostForChannel(data.posts, channelMap[record.channelId], record.channelId);
-          if (selection.kind === "ambiguous") {
-            toast.info("Охваты не изменены", {
-              description: "Ссылка содержит несколько каналов. Откройте запись и выберите нужный канал вручную.",
-            });
-            return;
-          }
-
-          const reach = getViews24h(selection.post);
+          const reach = getPurchaseReach24h(data);
           if (reach === null) {
             toast.info("Охваты за 24 часа не найдены", {
               description: "Значение записи оставлено без изменений.",

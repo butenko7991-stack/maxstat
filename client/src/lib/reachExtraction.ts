@@ -90,6 +90,27 @@ export function getViews24h(post: LinkAnalyticsPost | null | undefined): number 
 }
 
 /**
+ * A purchase can represent a campaign distributed through several posts.
+ * Prefer the tracker’s campaign total; if it is absent, add all and only the
+ * complete 24-hour post metrics. This avoids silently using a first channel or
+ * presenting an incomplete partial total as the campaign reach.
+ */
+export function getPurchaseReach24h(report: {
+  summary?: { views24h?: number | null } | null;
+  posts?: LinkAnalyticsPost[] | null;
+} | null | undefined): number | null {
+  const summaryReach = getViews24h(report?.summary);
+  if (summaryReach !== null) return summaryReach;
+
+  const posts = report?.posts ?? [];
+  if (posts.length === 0) return null;
+  const reaches = posts.map(getViews24h);
+  const confirmedReaches = reaches.filter((reach): reach is number => reach !== null);
+  if (confirmedReaches.length !== posts.length) return null;
+  return confirmedReaches.reduce((total, reach) => total + reach, 0);
+}
+
+/**
  * Decides whether a historical record is safe to update without human review.
  * Only an unambiguous channel selection and a real 24-hour metric are eligible.
  */

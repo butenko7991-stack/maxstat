@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Calculator, Camera, CheckCircle2, Loader2, Sparkles, XCircle, Zap } from "lucide-react";
 import { AutocompleteInput } from "./AutocompleteInput";
 import { trpc } from "@/lib/trpc";
-import { getViews24h, selectPostForChannel } from "@/lib/reachExtraction";
+import { getPurchaseReach24h, getViews24h, selectPostForChannel } from "@/lib/reachExtraction";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -195,15 +195,20 @@ export function PurchaseFormModal({
       if (data.posts && data.posts.length >= 1) {
         const selectedChannelName = (channels.find(c => String(c.id) === form.channelId)?.name ?? "").toLowerCase();
         const selection = selectPostForChannel(data.posts, selectedChannelName, Number(form.channelId));
-        const reach = getViews24h(selection.post);
+        const reach = getPurchaseReach24h(data) ?? getViews24h(selection.post);
         const sourceSubscribers = selection.post?.channelSubs;
-        if (selection.post) setForm((f) => ({
+        setForm((f) => ({
           ...f,
           ...(reach !== null ? { reach: String(reach) } : {}),
           ...(sourceSubscribers != null ? { sourceSubscribers: String(sourceSubscribers) } : {}),
         }));
         const channelCount = data.posts.length;
-        if (selection.kind === "ambiguous") {
+        if (reach !== null && channelCount > 1) {
+          toast.success("Суммарный охват извлечён", {
+            description: `Охваты всех размещений за 24ч: ${reach.toLocaleString()}`,
+            duration: 3000,
+          });
+        } else if (selection.kind === "ambiguous") {
           toast.info(`Найдено ${channelCount} канала`, {
             description: "Охваты не изменены: выберите нужный канал в панели ниже.",
             duration: 4000,
@@ -570,15 +575,31 @@ export function PurchaseFormModal({
                       <span className="text-xs text-muted-foreground truncate ml-auto">{linkAnalyzeResult.draftName}</span>
                     )}
                   </div>
+                  {getPurchaseReach24h(linkAnalyzeResult) !== null && (
+                    <div className="flex justify-between rounded-md border border-emerald-500/15 bg-emerald-500/5 px-2 py-1.5 text-xs">
+                      <span className="text-muted-foreground">Общий охват 24ч</span>
+                      <span className="font-semibold text-emerald-400">{getPurchaseReach24h(linkAnalyzeResult)?.toLocaleString()}</span>
+                    </div>
+                  )}
                   {linkAnalyzeResult.posts && linkAnalyzeResult.posts.length > 1 ? (
                     <div className="space-y-1.5">
-                      <p className="text-xs text-muted-foreground">Выберите канал для заполнения:</p>
+                      <p className="text-xs text-muted-foreground">
+                        {getPurchaseReach24h(linkAnalyzeResult) !== null
+                          ? "Состав общего охвата по размещениям:"
+                          : "Выберите канал для заполнения:"}
+                      </p>
                       {linkAnalyzeResult.posts.map((post: any, i: number) => (
                         <button
                           key={i}
                           type="button"
+                          disabled={getPurchaseReach24h(linkAnalyzeResult) !== null}
                           onClick={() => { applyPostDataPurchase(post); toast.success(`Канал «${post.channelTitle ?? i + 1}» выбран`); }}
-                          className="w-full text-left rounded-md border border-emerald-500/20 bg-card px-3 py-2.5 text-xs hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all duration-200 active:scale-[0.98]"
+                          className={cn(
+                            "w-full text-left rounded-md border border-emerald-500/20 bg-card px-3 py-2.5 text-xs transition-all duration-200",
+                            getPurchaseReach24h(linkAnalyzeResult) !== null
+                              ? "cursor-default opacity-80"
+                              : "hover:bg-emerald-500/10 hover:border-emerald-500/40 active:scale-[0.98]"
+                          )}
                         >
                           <div className="font-medium text-foreground">{post.channelTitle ?? `Канал ${i + 1}`}</div>
                           <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-2">
