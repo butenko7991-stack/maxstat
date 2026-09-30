@@ -150,6 +150,10 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
   };
 
   const rootSummary = root.summary && typeof root.summary === "object" ? root.summary as Record<string, unknown> : {};
+  // For a grid campaign the source API puts the verified campaign total here.
+  // It must be preferred over a derived sum: individual channel rows may omit
+  // their frozen 24-hour value while the campaign total remains available.
+  const totals = root.totals && typeof root.totals === "object" ? root.totals as Record<string, unknown> : {};
   const firstPostedAt = posts.find((post) => post.postedAt)?.postedAt ?? null;
   return {
     type: "max-analytics",
@@ -161,6 +165,8 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
         ?? sum("currentViews"),
       views24h: asNumber(getRecordValue(rootSummary, "views24", "views_24h"))
         ?? asNumber(getRecordValue(root, "views24", "views_24h"))
+        ?? asNumber(getRecordValue(totals, "views24", "views_24h", "views_24"))
+        ?? getChartViews24(getRecordValue(totals, "chart", "history", "statistics", "stats"))
         ?? sum("views24h"),
       views48h: asNumber(getRecordValue(rootSummary, "views48", "views_48h"))
         ?? asNumber(getRecordValue(root, "views48", "views_48h"))

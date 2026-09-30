@@ -33,6 +33,21 @@ describe("Аналитика МАХ", () => {
     ]);
   });
 
+  it("берёт общий 24-часовой охват сетки из totals даже при неполных строках каналов", () => {
+    const report = parseMaxAnalyticsReport({
+      totals: { channels: 2, views24: 924 },
+      channels: [
+        { channelTitle: "Первый канал", views: 809, reportAfter: 24, frozenViews: 346 },
+        { channelTitle: "Второй канал", views: 1_216 },
+      ],
+    }, REPORT_URL.toString());
+
+    expect(report.posts).toHaveLength(2);
+    expect(report.posts[0].views24h).toBe(346);
+    expect(report.posts[1].views24h).toBeNull();
+    expect(report.summary.views24h).toBe(924);
+  });
+
   it("не принимает ссылки другого хоста как отчёты Аналитики МАХ", () => {
     expect(getMaxAnalyticsReportCode(new URL("https://example.com/ad/ad_123"))).toBeNull();
   });
