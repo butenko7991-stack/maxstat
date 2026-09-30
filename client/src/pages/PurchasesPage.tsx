@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   Plus, ShoppingCart, Pencil, Trash2, X, Check,
   ExternalLink, Copy, Download, Search, ArrowUpDown, ChevronRight,
-  Users, DollarSign, Calendar, Tag, Link2, FileText, Layers,
+  Users, DollarSign, Calendar, Tag, Link2, FileText, Layers, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,14 @@ const PAYMENT_CLASSES: Record<string, string> = {
   paid: "badge-paid cursor-pointer hover:opacity-75 transition-opacity select-none",
   unpaid: "badge-unpaid cursor-pointer hover:opacity-75 transition-opacity select-none",
   partial: "badge-partial cursor-pointer hover:opacity-75 transition-opacity select-none",
+};
+
+type ReachExtractionProgress = {
+  total: number;
+  processed: number;
+  updated: number;
+  unavailable: number;
+  failed: number;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -247,6 +255,7 @@ export default function PurchasesPage() {
   const [form, setForm] = useState<PurchaseFormData>(EMPTY_FORM);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [exportPending, setExportPending] = useState(false);
+  const [reachExtractionProgress, setReachExtractionProgress] = useState<ReachExtractionProgress | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [viewRecord, setViewRecord] = useState<any | null>(null);
 
@@ -288,6 +297,7 @@ export default function PurchasesPage() {
     onSettled: () => { utils.purchases.list.invalidate(); },
     onError: () => { /* silent background operation */ },
   });
+  const bulkSaveReachMutation = trpc.purchases.update.useMutation();
   const autoExtractMutation = trpc.ocr.analyzeLink.useMutation({
     onError: () => { /* silent — background operation */ },
   });
@@ -372,6 +382,71 @@ export default function PurchasesPage() {
       return sortDir === "asc" ? cmp : -cmp;
     });
   }, [records, searchQuery, channelMap, sortField, sortDir]);
+
+  const paidRecordsMissingReach = useMemo(() => (
+    filteredRecords.filter((record) => {
+      const reach = Number(record.reach ?? 0);
+      return record.paymentStatus === "paid"
+        && record.link?.startsWith("http")
+        && (!Number.isFinite(reach) || reach <= 0);
+    })
+  ), [filteredRecords]);
+
+  const isReachExtractionRunning = reachExtractionProgress !== null
+    && reachExtractionProgress.processed < reachExtractionProgress.total;
+
+  async function handleExtractMissingReaches() {
+    const targets = paidRecordsMissingReach;
+    if (targets.length === 0) {
+      toast.info("Нет оплаченных закупов без охвата", {
+        description: "Измените фильтры, если нужные записи не попали в текущий список.",
+      });
+      return;
+    }
+
+    let progress: ReachExtractionProgress = {
+      total: targets.length,
+      processed: 0,
+      updated: 0,
+      unavailable: 0,
+      failed: 0,
+    };
+    setReachExtractionProgress(progress);
+
+    for (const record of targets) {
+      try {
+        const report = await autoExtractMutation.mutateAsync({
+          url: record.link!,
+          recordType: "purchase",
+        });
+        const reach = getPurchaseReach24h(report);
+        if (reach === null) {
+          progress = { ...progress, unavailable: progress.unavailable + 1 };
+        } else {
+          await bulkSaveReachMutation.mutateAsync({ id: record.id, reach });
+          progress = { ...progress, updated: progress.updated + 1 };
+        }
+      } catch {
+        progress = { ...progress, failed: progress.failed + 1 };
+      }
+
+      progress = { ...progress, processed: progress.processed + 1 };
+      setReachExtractionProgress(progress);
+    }
+
+    await utils.purchases.list.invalidate();
+    await utils.summary.financial.invalidate();
+    const description = [
+      `Обновлено: ${progress.updated}`,
+      progress.unavailable > 0 ? `нет показателя 24ч: ${progress.unavailable}` : null,
+      progress.failed > 0 ? `ошибки загрузки: ${progress.failed}` : null,
+    ].filter(Boolean).join(" · ");
+    if (progress.updated > 0) {
+      toast.success("Разовое извлечение завершено", { description });
+    } else {
+      toast.info("Разовое извлечение завершено", { description });
+    }
+  }
 
   const totalCost = useMemo(
     () => filteredRecords.reduce((s, r) => s + (parseFloat(r.cost ?? "0") || 0), 0),
@@ -490,6 +565,21 @@ export default function PurchasesPage() {
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Excel</span>
           </Button>
+          <Button
+            onClick={handleExtractMissingReaches}
+            variant="outline"
+            size="sm"
+            className="gap-2 bg-transparent"
+            disabled={isReachExtractionRunning}
+            title="Разово извлечь общий охват 24ч для оплаченных закупов без охвата в текущем списке"
+          >
+            <RefreshCw className={`w-4 h-4 ${isReachExtractionRunning ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">
+              {isReachExtractionRunning
+                ? `Проверяю ${reachExtractionProgress.processed}/${reachExtractionProgress.total}`
+                : "Извлечь охваты"}
+            </span>
+          </Button>
           <Button onClick={openCreate} size="sm" className="gap-2">
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Добавить</span>
@@ -575,6 +665,31 @@ export default function PurchasesPage() {
         </div>
       </div>
 
+      {reachExtractionProgress && (
+        <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex items-center gap-2 font-medium text-foreground">
+              <RefreshCw className={`w-4 h-4 text-primary ${isReachExtractionRunning ? "animate-spin" : ""}`} />
+              {isReachExtractionRunning ? "Разовое извлечение охватов" : "Разовое извлечение завершено"}
+            </span>
+            <span className="text-muted-foreground">
+              {reachExtractionProgress.processed} / {reachExtractionProgress.total}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-primary/15">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-300"
+              style={{ width: `${Math.round((reachExtractionProgress.processed / reachExtractionProgress.total) * 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Обновлено: {reachExtractionProgress.updated}
+            {reachExtractionProgress.unavailable > 0 && ` · нет показателя 24ч: ${reachExtractionProgress.unavailable}`}
+            {reachExtractionProgress.failed > 0 && ` · ошибки загрузки: ${reachExtractionProgress.failed}`}
+          </p>
+        </div>
+      )}
+
       {/* Summary bar */}
       {filteredRecords.length > 0 && (
         <div className="glass rounded-xl px-4 py-3 flex items-center gap-6 text-sm">
@@ -588,6 +703,11 @@ export default function PurchasesPage() {
             <span className="text-muted-foreground">
               Подп.: <span className="text-emerald-400 font-semibold">+{totalSubscribers}</span>
               {avgCostPerSub && <span className="text-muted-foreground ml-1">({avgCostPerSub} ₽/подп.)</span>}
+            </span>
+          )}
+          {paidRecordsMissingReach.length > 0 && (
+            <span className="text-muted-foreground">
+              Без охвата: <span className="text-primary font-semibold">{paidRecordsMissingReach.length}</span>
             </span>
           )}
         </div>
