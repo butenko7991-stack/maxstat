@@ -7,6 +7,8 @@ describe("отчёты PostXbot", () => {
   it("распознаёт публичную ссылку отчёта", () => {
     expect(isPostXbotWatchUrl(new URL(REPORT_URL))).toBe(true);
     expect(getPostXbotReportHash(new URL(REPORT_URL))).toBe("rZP5IHTIZiqZSNUGc1k1eg");
+    expect(isPostXbotWatchUrl(new URL("https://maxapp.postxbot.ru/watchpost/rZP5IHTIZiqZSNUGc1k1eg"))).toBe(true);
+    expect(getPostXbotReportHash(new URL("https://maxapp.postxbot.ru/watchpost/rZP5IHTIZiqZSNUGc1k1eg"))).toBe("rZP5IHTIZiqZSNUGc1k1eg");
     expect(isPostXbotWatchUrl(new URL("https://max.postxbot.ru/"))).toBe(false);
   });
 

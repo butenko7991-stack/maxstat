@@ -89,6 +89,7 @@ import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
+import { isMarketlyAnalyticsUrl, parseMarketlyAnalyticsPage } from "./marketly";
 import { getPostXbotReportHash, isPostXbotWatchUrl, parsePostXbotApiReport, parsePostXbotReport, POSTXBOT_WATCH_API_URL } from "./postxbot";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
@@ -1903,9 +1904,10 @@ const ocrRouter = router({
         };
       }
 
-      // ── Otlozhka / Marketly analytics link ─────────────────────────────────
-      const otlozhkaMatch = url.match(/otlozhka\.marketly\.ru\/analytics\/stats\/([a-f0-9-]+)/i);
-      if (otlozhkaMatch) {
+      // ── Marketly analytics link ────────────────────────────────────────────
+      // Both marketly.ru and its former otlozhka.marketly.ru subdomain contain
+      // reports with a shared targetsData format.
+      if (isMarketlyAnalyticsUrl(parsedUrl)) {
         const resp = await fetch(url, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -1915,60 +1917,16 @@ const ocrRouter = router({
           signal: AbortSignal.timeout(15_000),
         });
         if (!resp.ok) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу otlozhka: ${resp.status}` });
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу Marketly: ${resp.status}` });
         }
-        const html = await resp.text();
-
-        // Extract targetsData JSON from the HTML
-        const targetsMatch = html.match(/var targetsData = (\[.*?\]);/);
-        if (!targetsMatch) {
-          // Session expired or no data - fall through to LLM
-          throw new TRPCError({ code: "NOT_FOUND", message: "Данные otlozhka не найдены. Возможно, ссылка устарела (сессия истекла)." });
+        const report = parseMarketlyAnalyticsPage(await resp.text(), url);
+        if (report.posts.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Marketly не найдены размещения. Возможно, ссылка устарела." });
         }
-
-        let targets: any[];
-        try {
-          targets = JSON.parse(targetsMatch[1]);
-        } catch {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось разобрать данные otlozhka" });
-        }
-
-        const posts = targets.map((t: any) => {
-          // statistics is an object {"minutes": views}, compute views at 24h (1440min), 48h (2880min), 72h (4320min)
-          const stats: Record<string, number> = t.statistics ?? {};
-          const getViews = (minutes: number): number | null => {
-            // Find the closest key <= minutes
-            const keys = Object.keys(stats).map(Number).filter(k => k <= minutes).sort((a, b) => b - a);
-            return keys.length > 0 ? stats[String(keys[0])] ?? null : null;
-          };
-          return {
-            channelTitle: t.channel_title ?? null,
-            channelSubs: t.subscribers_count ?? null,
-            currentViews: t.current_views ?? null,
-            views24h: getViews(1440),
-            views48h: getViews(2880),
-            views72h: getViews(4320),
-            er24h: null,
-            postedAt: t.published_at ?? null,
-            postUrl: url,
-          };
-        });
-
-        const firstPost = posts[0] ?? { channelTitle: null, channelSubs: null, currentViews: null, views24h: null, views48h: null, views72h: null, er24h: null, postedAt: null, postUrl: url };
-        return {
-          type: "generic" as const,
-          draftName: null,
-          publishedAt: firstPost.postedAt ?? null,
-          summary: {
-            currentViews: posts.reduce((s: number, p: any) => s + (p.currentViews ?? 0), 0) || null,
-            views24h: posts.reduce((s: number, p: any) => s + (p.views24h ?? 0), 0) || null,
-            views48h: posts.reduce((s: number, p: any) => s + (p.views48h ?? 0), 0) || null,
-            views72h: posts.reduce((s: number, p: any) => s + (p.views72h ?? 0), 0) || null,
-            er24h: null,
-            subscribersTotal: posts.reduce((s: number, p: any) => s + (p.channelSubs ?? 0), 0) || null,
-          },
-          posts,
-        };
+        const posts = shouldUseCreativeMatching(input.recordType)
+          ? await attachCreativeMatches(report.posts, ctx.user.id)
+          : report.posts;
+        return { ...report, posts };
       }
 
       // ── Generic URL fallback: fetch HTML and ask LLM to extract stats ─────

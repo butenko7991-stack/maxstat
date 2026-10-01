@@ -26,7 +26,9 @@ export type PostXbotReport = {
   }>;
 };
 
-const POSTXBOT_HOST = "max.postxbot.ru";
+// `maxapp.postxbot.ru` is the historical public domain. Both hosts use the
+// same watch-report API and have links stored in existing purchase records.
+const POSTXBOT_HOSTS = new Set(["max.postxbot.ru", "maxapp.postxbot.ru"]);
 export const POSTXBOT_WATCH_API_URL = "https://maxapi.postxbot.ru/cabinet/v1/max/watchpost";
 
 function parseMetric(value: string | undefined): number | null {
@@ -51,7 +53,7 @@ function decodeHtml(value: string): string {
 }
 
 export function isPostXbotWatchUrl(url: URL): boolean {
-  return url.hostname.toLowerCase() === POSTXBOT_HOST
+  return POSTXBOT_HOSTS.has(url.hostname.toLowerCase())
     && /^\/watchpost\/[A-Za-z0-9_-]+\/?$/.test(url.pathname);
 }
 
