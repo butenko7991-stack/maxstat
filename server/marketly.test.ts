@@ -49,6 +49,19 @@ describe("отчёты Marketly", () => {
     expect(report.summary.views24h).toBe(457);
   });
 
+  it("восстанавливает общую сетку, когда в полной истории есть пауза вокруг 24 часов", () => {
+    const report = parseMarketlyAnalyticsPage(pageWithTargets([
+      { channel_title: "Канал А", statistics: { "1020": 300, "2580": 900, "2880": 1_000 } },
+      { channel_title: "Канал Б", statistics: { "1020": 200, "2580": 800, "2880": 900 } },
+    ]), MARKETLY_URL);
+
+    expect(report.posts).toMatchObject([
+      { views24h: 462, views24hEstimated: true },
+      { views24h: 362, views24hEstimated: true },
+    ]);
+    expect(report.summary).toMatchObject({ views24h: 824, views24hEstimated: true });
+  });
+
   it("не возвращает частичную сумму, если хотя бы у одного канала нет 24-часового показателя", () => {
     const report = parseMarketlyAnalyticsPage(pageWithTargets([
       { channel_title: "Канал А", statistics: { "1440": 620, "2880": 810 } },

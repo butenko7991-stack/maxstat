@@ -3,6 +3,7 @@ export type MarketlyAnalyticsPost = {
   channelSubs: number | null;
   currentViews: number | null;
   views24h: number | null;
+  views24hEstimated: boolean;
   views48h: number | null;
   views72h: number | null;
   er24h: number | null;
@@ -19,6 +20,8 @@ export type MarketlyAnalyticsReport = {
   summary: {
     currentViews: number | null;
     views24h: number | null;
+    /** True only when the source omitted hour 24 and it was restored from two surrounding snapshots. */
+    views24hEstimated: boolean;
     views48h: number | null;
     views72h: number | null;
     er24h: number | null;
@@ -121,23 +124,25 @@ function getStatisticsEntries(target: Record<string, unknown>): Array<{ time: nu
   });
 }
 
-function metricAtHours(target: Record<string, unknown>, hours: number): number | null {
+type TimedMetric = { value: number | null; estimated: boolean };
+
+function metricAtHours(target: Record<string, unknown>, hours: number): TimedMetric {
   const directKeys = hours === 24
     ? ["views24", "views24h", "views_24h", "viewsAt24", "views_at_24"]
     : hours === 48
       ? ["views48", "views48h", "views_48h", "viewsAt48", "views_at_48"]
       : ["views72", "views72h", "views_72h", "viewsAt72", "views_at_72"];
   const direct = asMetric(getValue(target, ...directKeys));
-  if (direct !== null) return direct;
+  if (direct !== null) return { value: direct, estimated: false };
 
   const reportAfter = asMetric(getValue(target, "reportAfter", "report_after"));
   if (reportAfter === hours) {
     const frozen = asMetric(getValue(target, "frozenViews", "frozen_views", "viewsFrozen", "views_frozen"));
-    if (frozen !== null) return frozen;
+    if (frozen !== null) return { value: frozen, estimated: false };
   }
 
   const entries = getStatisticsEntries(target);
-  if (entries.length === 0) return null;
+  if (entries.length === 0) return { value: null, estimated: false };
   // Marketly has published both minute-based history (1,440) and second-based
   // history (86,400). Infer the unit from the stored time scale.
   const seconds = Math.max(...entries.map((entry) => entry.time)) > 10_000;
@@ -146,7 +151,28 @@ function metricAtHours(target: Record<string, unknown>, hours: number): number |
   const candidates = entries
     .filter((entry) => entry.time <= targetTime && entry.time >= targetTime - allowedGap)
     .sort((left, right) => right.time - left.time);
-  return candidates[0]?.value ?? null;
+  if (candidates[0]) {
+    return { value: candidates[0].value, estimated: candidates[0].time !== targetTime };
+  }
+
+  // Some historic Marketly reports retain a complete graph but have a collection
+  // pause around hour 24 (for example, 17h then 43h). Use both surrounding
+  // cumulative snapshots to restore the 24-hour point rather than dropping the
+  // whole campaign. A single-sided value is never used, so a partial grid total
+  // cannot be written by accident.
+  const before = entries
+    .filter((entry) => entry.time < targetTime && entry.time >= targetTime - (seconds ? 43_200 : 720))
+    .sort((left, right) => right.time - left.time)[0];
+  const after = entries
+    .filter((entry) => entry.time > targetTime && entry.time <= targetTime + (seconds ? 86_400 : 1_440))
+    .sort((left, right) => left.time - right.time)[0];
+  if (!before || !after || after.time === before.time) return { value: null, estimated: false };
+
+  const progress = (targetTime - before.time) / (after.time - before.time);
+  const interpolated = before.value + (after.value - before.value) * progress;
+  return Number.isFinite(interpolated) && interpolated >= 0
+    ? { value: Math.round(interpolated), estimated: true }
+    : { value: null, estimated: false };
 }
 
 function currentViews(target: Record<string, unknown>): number | null {
@@ -179,13 +205,15 @@ export function parseMarketlyAnalyticsPage(html: string, reportUrl: string): Mar
   const posts = targets.flatMap((rawTarget): MarketlyAnalyticsPost[] => {
     const target = asRecord(rawTarget);
     if (!target) return [];
+    const at24h = metricAtHours(target, 24);
     return [{
       channelTitle: asText(getValue(target, "channel_title", "channelTitle", "channel_name", "channelName", "title")),
       channelSubs: asMetric(getValue(target, "subscribers_count", "channelSubs", "channel_subs", "subscribers")),
       currentViews: currentViews(target),
-      views24h: metricAtHours(target, 24),
-      views48h: metricAtHours(target, 48),
-      views72h: metricAtHours(target, 72),
+      views24h: at24h.value,
+      views24hEstimated: at24h.estimated,
+      views48h: metricAtHours(target, 48).value,
+      views72h: metricAtHours(target, 72).value,
       er24h: null,
       postedAt: asText(getValue(target, "published_at", "publishedAt", "date")),
       postUrl: reportUrl,
@@ -194,6 +222,7 @@ export function parseMarketlyAnalyticsPage(html: string, reportUrl: string): Mar
     }];
   });
   const firstPost = posts[0] ?? null;
+  const views24h = sumIfComplete(posts, "views24h");
 
   return {
     type: "marketly",
@@ -201,7 +230,8 @@ export function parseMarketlyAnalyticsPage(html: string, reportUrl: string): Mar
     publishedAt: firstPost?.postedAt ?? null,
     summary: {
       currentViews: sumIfComplete(posts, "currentViews"),
-      views24h: sumIfComplete(posts, "views24h"),
+      views24h,
+      views24hEstimated: views24h !== null && posts.some((post) => post.views24hEstimated),
       views48h: sumIfComplete(posts, "views48h"),
       views72h: sumIfComplete(posts, "views72h"),
       er24h: null,
