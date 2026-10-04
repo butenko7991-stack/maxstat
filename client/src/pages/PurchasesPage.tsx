@@ -53,7 +53,18 @@ type ReachExtractionProgress = {
   updated: number;
   unavailable: number;
   failed: number;
+  failedSources: string[];
 };
+
+const SAME_SOURCE_REQUEST_PAUSE_MS = 1_100;
+
+function getAnalyticsSource(link: string): string {
+  try {
+    return new URL(link).hostname.replace(/^www\./, "");
+  } catch {
+    return "неизвестный источник";
+  }
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function PurchaseDetailDrawer({ record, channelMap, onClose, onEdit }: { record: any; channelMap: Record<number, string>; onClose: () => void; onEdit: () => void }) {
@@ -412,37 +423,61 @@ export default function PurchasesPage() {
       updated: 0,
       unavailable: 0,
       failed: 0,
+      failedSources: [],
     };
     setReachExtractionProgress(progress);
 
-    // Three concurrent requests accelerate a large backlog without flooding a
-    // tracker or causing the mobile browser to lose the current session.
-    let nextTargetIndex = 0;
+    // Process records from one tracker in a strict sequence. Several bots have
+    // public rate limits, so concurrent calls to the same hostname resulted in
+    // avoidable 429 errors. Up to three *different* trackers run in parallel.
+    const queuesBySource = new Map<string, typeof targets>();
+    for (const record of targets) {
+      const source = getAnalyticsSource(record.link!);
+      const queue = queuesBySource.get(source) ?? [];
+      queue.push(record);
+      queuesBySource.set(source, queue);
+    }
+    const queues = Array.from(queuesBySource.entries());
+    let nextQueueIndex = 0;
     const worker = async () => {
-      while (nextTargetIndex < targets.length) {
-        const record = targets[nextTargetIndex];
-        nextTargetIndex += 1;
-        try {
-          const report = await autoExtractMutation.mutateAsync({
-            url: record.link!,
-            recordType: "purchase",
-          });
-          const reach = getPurchaseReach24h(report);
-          if (reach === null) {
-            progress = { ...progress, unavailable: progress.unavailable + 1 };
-          } else {
-            await bulkSaveReachMutation.mutateAsync({ id: record.id, reach });
-            progress = { ...progress, updated: progress.updated + 1 };
+      while (nextQueueIndex < queues.length) {
+        const [source, queue] = queues[nextQueueIndex];
+        nextQueueIndex += 1;
+        for (let index = 0; index < queue.length; index += 1) {
+          const record = queue[index];
+          try {
+            const report = await autoExtractMutation.mutateAsync({
+              url: record.link!,
+              recordType: "purchase",
+            });
+            const reach = getPurchaseReach24h(report);
+            if (reach === null) {
+              progress = { ...progress, unavailable: progress.unavailable + 1 };
+            } else {
+              await bulkSaveReachMutation.mutateAsync({ id: record.id, reach });
+              progress = { ...progress, updated: progress.updated + 1 };
+            }
+          } catch (error) {
+            const message = error instanceof Error && error.message ? error.message : "ошибка загрузки";
+            const sourceError = `${source}: ${message}`;
+            progress = {
+              ...progress,
+              failed: progress.failed + 1,
+              failedSources: progress.failedSources.includes(sourceError)
+                ? progress.failedSources
+                : [...progress.failedSources, sourceError].slice(0, 3),
+            };
           }
-        } catch {
-          progress = { ...progress, failed: progress.failed + 1 };
-        }
 
-        progress = { ...progress, processed: progress.processed + 1 };
-        setReachExtractionProgress(progress);
+          progress = { ...progress, processed: progress.processed + 1 };
+          setReachExtractionProgress(progress);
+          if (index < queue.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, SAME_SOURCE_REQUEST_PAUSE_MS));
+          }
+        }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(3, targets.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(3, queues.length) }, worker));
 
     await utils.purchases.list.invalidate();
     await utils.summary.financial.invalidate();
@@ -697,6 +732,11 @@ export default function PurchasesPage() {
             {reachExtractionProgress.unavailable > 0 && ` · нет показателя 24ч: ${reachExtractionProgress.unavailable}`}
             {reachExtractionProgress.failed > 0 && ` · ошибки загрузки: ${reachExtractionProgress.failed}`}
           </p>
+          {reachExtractionProgress.failedSources.length > 0 && (
+            <ul className="space-y-1 text-xs text-amber-400/90">
+              {reachExtractionProgress.failedSources.map((reason) => <li key={reason}>• {reason}</li>)}
+            </ul>
+          )}
         </div>
       )}
 

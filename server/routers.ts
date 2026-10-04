@@ -91,6 +91,7 @@ import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
 import { isMarketlyAnalyticsUrl, parseMarketlyAnalyticsPage } from "./marketly";
 import { getPostXbotReportHash, isPostXbotWatchUrl, parsePostXbotApiReport, parsePostXbotReport, POSTXBOT_WATCH_API_URL } from "./postxbot";
+import { normalizeGenericAnalyticsReport } from "./genericAnalytics";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
 import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
 import { isReachVerificationCurrent } from "./reachCorrectionState";
@@ -1929,6 +1930,16 @@ const ocrRouter = router({
         return { ...report, posts };
       }
 
+      // A regular MAX channel/post URL exposes no public historical 24-hour
+      // metric to a server-side request. It is not an analytics-bot report, so
+      // do not send an access-denied page to the generic AI fallback.
+      if (hostname === "max.ru" || hostname.endsWith(".max.ru")) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Обычная ссылка MAX не содержит публичный охват за 24 часа. Нужна ссылка отчёта аналитического бота.",
+        });
+      }
+
       // ── Generic URL fallback: fetch HTML and ask LLM to extract stats ─────
       let pageText = "";
       let pageHtml = "";
@@ -1941,6 +1952,14 @@ const ocrRouter = router({
           },
           signal: AbortSignal.timeout(15_000),
         });
+        if (!resp.ok) {
+          const retryAfter = resp.status === 429 ? resp.headers.get("retry-after") : null;
+          const retryHint = retryAfter ? ` Повторите через ${retryAfter} сек.` : "";
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Источник ${hostname} временно недоступен (HTTP ${resp.status}).${retryHint}`,
+          });
+        }
         pageHtml = await resp.text();
         // Strip tags, keep text - increase limit for multi-channel pages
         pageText = pageHtml
@@ -1949,8 +1968,10 @@ const ocrRouter = router({
           .replace(/<[^>]+>/g, " ")
           .replace(/\s+/g, " ")
           .slice(0, 12000);
-      } catch (e: any) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу: ${e.message}` });
+      } catch (e: unknown) {
+        if (e instanceof TRPCError) throw e;
+        const message = e instanceof Error ? e.message : "неизвестная ошибка";
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу: ${message}` });
       }
 
       const llmResult = await invokeLLM({
@@ -1964,6 +1985,7 @@ const ocrRouter = router({
 Важно:
 - Если на странице данные по нескольким каналам/постам — заполни массив posts для каждого.
 - Если данные только по одному каналу — помести его в posts[0].
+- Если страница явно показывает общий итог кампании/сетки, обязательно помести его в summary. Не вычисляй итог по неполным строкам каналов: если общего итога нет — оставь соответствующее поле summary равным null.
 - views24h/48h/72h: число просмотров за соответствующий период (может быть обозначено как "24ч", "48ч", "72ч", "1 день", "2 дня" и т.д.)
 - channelSubs: количество подписчиков канала (не путать с просмотрами)
 - er24h: процент вовлеченности (ERR/ER) за 24ч
@@ -1984,6 +2006,20 @@ const ocrRouter = router({
               properties: {
                 postedAt: { type: ["string", "null"] },
                 draftName: { type: ["string", "null"] },
+                summary: {
+                  type: "object",
+                  properties: {
+                    channelSubs: { type: ["integer", "null"] },
+                    currentViews: { type: ["integer", "null"] },
+                    views24h: { type: ["integer", "null"] },
+                    views48h: { type: ["integer", "null"] },
+                    views72h: { type: ["integer", "null"] },
+                    er24h: { type: ["number", "null"] },
+                    subscribersTotal: { type: ["integer", "null"] },
+                  },
+                  required: ["channelSubs", "currentViews", "views24h", "views48h", "views72h", "er24h", "subscribersTotal"],
+                  additionalProperties: false,
+                },
                 posts: {
                   type: "array",
                   items: {
@@ -2003,62 +2039,20 @@ const ocrRouter = router({
                   },
                 },
               },
-              required: ["postedAt", "draftName", "posts"],
+              required: ["postedAt", "draftName", "summary", "posts"],
               additionalProperties: false,
             },
           },
         },
       });
 
-      let extracted: any = { posts: [], postedAt: null, draftName: null };
+      let extracted: unknown = { posts: [], postedAt: null, draftName: null, summary: {} };
       try {
         extracted = JSON.parse(llmResult.choices[0].message.content as string);
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось разобрать ответ AI" });
       }
-
-      const extractedPosts: Array<any> = (extracted.posts ?? []).map((p: any) => ({
-        channelTitle: p.channelTitle ?? null,
-        channelSubs: p.channelSubs ?? null,
-        currentViews: p.currentViews ?? null,
-        views24h: p.views24h ?? null,
-        views48h: p.views48h ?? null,
-        views72h: p.views72h ?? null,
-        er24h: p.er24h ?? null,
-        postedAt: p.postedAt ?? extracted.postedAt ?? null,
-        postUrl: url,
-      }));
-
-      // If LLM returned no posts, create a fallback empty post
-      if (extractedPosts.length === 0) {
-        extractedPosts.push({
-          channelTitle: null, channelSubs: null, currentViews: null,
-          views24h: null, views48h: null, views72h: null,
-          er24h: null, postedAt: extracted.postedAt ?? null, postUrl: url,
-        });
-      }
-
-      const firstPost = extractedPosts[0];
-      const sumCompleteMetric = (field: "currentViews" | "views24h" | "views48h" | "views72h"): number | null => {
-        const values = extractedPosts.map((post) => post[field]);
-        return values.length > 0 && values.every((value) => typeof value === "number" && Number.isFinite(value))
-          ? values.reduce((total, value) => total + value, 0)
-          : null;
-      };
-      return {
-        type: "generic" as const,
-        draftName: extracted.draftName ?? null,
-        publishedAt: extracted.postedAt ?? firstPost.postedAt ?? null,
-        summary: {
-          currentViews: sumCompleteMetric("currentViews"),
-          views24h: sumCompleteMetric("views24h"),
-          views48h: sumCompleteMetric("views48h"),
-          views72h: sumCompleteMetric("views72h"),
-          er24h: firstPost.er24h ?? null,
-          subscribersTotal: firstPost.channelSubs ?? null,
-        },
-        posts: extractedPosts,
-      };
+      return normalizeGenericAnalyticsReport(extracted, url);
     }),
 
   /**
