@@ -383,11 +383,13 @@ export default function PurchasesPage() {
     });
   }, [records, searchQuery, channelMap, sortField, sortDir]);
 
-  const paidRecordsMissingReach = useMemo(() => (
+  // Manual reach extraction is intentionally independent of payment status:
+  // an unpaid placement can already have a public analytics report, and users
+  // need to fill its reach before changing the financial status.
+  const recordsMissingReach = useMemo(() => (
     filteredRecords.filter((record) => {
       const reach = Number(record.reach ?? 0);
-      return record.paymentStatus === "paid"
-        && record.link?.startsWith("http")
+      return record.link?.startsWith("http")
         && (!Number.isFinite(reach) || reach <= 0);
     })
   ), [filteredRecords]);
@@ -396,9 +398,9 @@ export default function PurchasesPage() {
     && reachExtractionProgress.processed < reachExtractionProgress.total;
 
   async function handleExtractMissingReaches() {
-    const targets = paidRecordsMissingReach;
+    const targets = recordsMissingReach;
     if (targets.length === 0) {
-      toast.info("Нет оплаченных закупов без охвата", {
+      toast.info("Нет закупов с ссылкой без охвата", {
         description: "Измените фильтры, если нужные записи не попали в текущий список.",
       });
       return;
@@ -413,26 +415,34 @@ export default function PurchasesPage() {
     };
     setReachExtractionProgress(progress);
 
-    for (const record of targets) {
-      try {
-        const report = await autoExtractMutation.mutateAsync({
-          url: record.link!,
-          recordType: "purchase",
-        });
-        const reach = getPurchaseReach24h(report);
-        if (reach === null) {
-          progress = { ...progress, unavailable: progress.unavailable + 1 };
-        } else {
-          await bulkSaveReachMutation.mutateAsync({ id: record.id, reach });
-          progress = { ...progress, updated: progress.updated + 1 };
+    // Three concurrent requests accelerate a large backlog without flooding a
+    // tracker or causing the mobile browser to lose the current session.
+    let nextTargetIndex = 0;
+    const worker = async () => {
+      while (nextTargetIndex < targets.length) {
+        const record = targets[nextTargetIndex];
+        nextTargetIndex += 1;
+        try {
+          const report = await autoExtractMutation.mutateAsync({
+            url: record.link!,
+            recordType: "purchase",
+          });
+          const reach = getPurchaseReach24h(report);
+          if (reach === null) {
+            progress = { ...progress, unavailable: progress.unavailable + 1 };
+          } else {
+            await bulkSaveReachMutation.mutateAsync({ id: record.id, reach });
+            progress = { ...progress, updated: progress.updated + 1 };
+          }
+        } catch {
+          progress = { ...progress, failed: progress.failed + 1 };
         }
-      } catch {
-        progress = { ...progress, failed: progress.failed + 1 };
-      }
 
-      progress = { ...progress, processed: progress.processed + 1 };
-      setReachExtractionProgress(progress);
-    }
+        progress = { ...progress, processed: progress.processed + 1 };
+        setReachExtractionProgress(progress);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, targets.length) }, worker));
 
     await utils.purchases.list.invalidate();
     await utils.summary.financial.invalidate();
@@ -571,7 +581,7 @@ export default function PurchasesPage() {
             size="sm"
             className="gap-2 bg-transparent"
             disabled={isReachExtractionRunning}
-            title="Разово извлечь общий охват 24ч для оплаченных закупов без охвата в текущем списке"
+            title="Разово извлечь общий охват 24ч для всех закупов с ссылкой без охвата в текущем списке"
           >
             <RefreshCw className={`w-4 h-4 ${isReachExtractionRunning ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">
@@ -705,9 +715,9 @@ export default function PurchasesPage() {
               {avgCostPerSub && <span className="text-muted-foreground ml-1">({avgCostPerSub} ₽/подп.)</span>}
             </span>
           )}
-          {paidRecordsMissingReach.length > 0 && (
+          {recordsMissingReach.length > 0 && (
             <span className="text-muted-foreground">
-              Без охвата: <span className="text-primary font-semibold">{paidRecordsMissingReach.length}</span>
+              Без охвата: <span className="text-primary font-semibold">{recordsMissingReach.length}</span>
             </span>
           )}
         </div>
