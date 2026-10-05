@@ -145,8 +145,11 @@ export function parseMaxAnalyticsReport(payload: unknown, reportUrl: string): An
   }
 
   const sum = (field: keyof AnalyticsPost): number | null => {
-    const values = posts.map((post) => post[field]).filter((value): value is number => typeof value === "number");
-    return values.length ? values.reduce((total, value) => total + value, 0) : null;
+    if (posts.length === 0) return null;
+    const values = posts.map((post) => post[field]);
+    return values.every((value): value is number => typeof value === "number" && Number.isFinite(value))
+      ? values.reduce((total, value) => total + value, 0)
+      : null;
   };
 
   const rootSummary = root.summary && typeof root.summary === "object" ? root.summary as Record<string, unknown> : {};

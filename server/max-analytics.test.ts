@@ -48,6 +48,17 @@ describe("Аналитика МАХ", () => {
     expect(report.summary.views24h).toBe(924);
   });
 
+  it("не складывает неполные строки сетки, когда общий итог отсутствует", () => {
+    const report = parseMaxAnalyticsReport({
+      channels: [
+        { channelTitle: "Первый канал", reportAfter: 24, frozenViews: 346 },
+        { channelTitle: "Второй канал", views: 1_216 },
+      ],
+    }, REPORT_URL.toString());
+
+    expect(report.summary.views24h).toBeNull();
+  });
+
   it("не принимает ссылки другого хоста как отчёты Аналитики МАХ", () => {
     expect(getMaxAnalyticsReportCode(new URL("https://example.com/ad/ad_123"))).toBeNull();
   });

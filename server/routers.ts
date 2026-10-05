@@ -89,7 +89,13 @@ import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
-import { isMarketlyAnalyticsUrl, parseMarketlyAnalyticsPage } from "./marketly";
+import {
+  getMarketlyReportMirrors,
+  isMarketlyAnalyticsUrl,
+  MARKETLY_FETCH_HEADERS,
+  parseMarketlyAnalyticsPage,
+  parseMarketlyReaderMarkdown,
+} from "./marketly";
 import { getPostXbotReportHash, isPostXbotWatchUrl, parsePostXbotApiReport, parsePostXbotReport, POSTXBOT_WATCH_API_URL } from "./postxbot";
 import { normalizeGenericAnalyticsReport } from "./genericAnalytics";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
@@ -1909,25 +1915,57 @@ const ocrRouter = router({
       // Both marketly.ru and its former otlozhka.marketly.ru subdomain contain
       // reports with a shared targetsData format.
       if (isMarketlyAnalyticsUrl(parsedUrl)) {
-        const resp = await fetch(url, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "ru-RU,ru;q=0.9",
-          },
-          signal: AbortSignal.timeout(15_000),
+        let lastFailure = "источник не ответил";
+        for (const reportUrl of getMarketlyReportMirrors(parsedUrl)) {
+          try {
+            const resp = await fetch(reportUrl, {
+              headers: { ...MARKETLY_FETCH_HEADERS, "Referer": "https://marketly.ru/" },
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!resp.ok) {
+              lastFailure = `${new URL(reportUrl).hostname}: HTTP ${resp.status}`;
+              continue;
+            }
+            const report = parseMarketlyAnalyticsPage(await resp.text(), url);
+            if (report.posts.length === 0) {
+              lastFailure = `${new URL(reportUrl).hostname}: в отчёте нет размещений`;
+              continue;
+            }
+            const posts = shouldUseCreativeMatching(input.recordType)
+              ? await attachCreativeMatches(report.posts, ctx.user.id)
+              : report.posts;
+            return { ...report, posts };
+          } catch (error) {
+            lastFailure = error instanceof Error ? error.message : "ошибка загрузки";
+          }
+        }
+
+        // Some hosting providers route the VPS address to a stale Marketly
+        // edge. Reader gives a read-only Markdown representation of the same
+        // public page and retains its explicit total for 24 hours.
+        try {
+          const readerUrl = `https://r.jina.ai/http://${parsedUrl.hostname}${parsedUrl.pathname}${parsedUrl.search}`;
+          const readerResponse = await fetch(readerUrl, {
+            headers: { "Accept": "text/plain", "User-Agent": "Mozilla/5.0 (compatible; MaxAdsManager/1.0)" },
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (readerResponse.ok) {
+            const report = parseMarketlyReaderMarkdown(await readerResponse.text(), url);
+            if (report) {
+              const posts = shouldUseCreativeMatching(input.recordType)
+                ? await attachCreativeMatches(report.posts, ctx.user.id)
+                : report.posts;
+              return { ...report, posts };
+            }
+          }
+        } catch {
+          // Keep the direct-source failure as the diagnostic message below.
+        }
+
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `Не удалось получить отчёт Marketly (${lastFailure}). Возможно, ссылка удалена или бот временно недоступен.`,
         });
-        if (!resp.ok) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `Не удалось загрузить страницу Marketly: ${resp.status}` });
-        }
-        const report = parseMarketlyAnalyticsPage(await resp.text(), url);
-        if (report.posts.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Marketly не найдены размещения. Возможно, ссылка устарела." });
-        }
-        const posts = shouldUseCreativeMatching(input.recordType)
-          ? await attachCreativeMatches(report.posts, ctx.user.id)
-          : report.posts;
-        return { ...report, posts };
       }
 
       // A regular MAX channel/post URL exposes no public historical 24-hour

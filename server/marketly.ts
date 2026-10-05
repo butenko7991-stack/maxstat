@@ -31,6 +31,13 @@ export type MarketlyAnalyticsReport = {
 };
 
 const MARKETLY_HOSTS = new Set(["marketly.ru", "otlozhka.marketly.ru"]);
+const MARKETLY_STATS_PATH = /^\/analytics\/stats\/([a-f0-9-]+)\/?$/i;
+
+export const MARKETLY_FETCH_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "ru-RU,ru;q=0.9",
+} as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -192,7 +199,76 @@ function sumIfComplete(posts: MarketlyAnalyticsPost[], field: keyof Pick<Marketl
 
 export function isMarketlyAnalyticsUrl(url: URL): boolean {
   return MARKETLY_HOSTS.has(url.hostname.toLowerCase())
-    && /^\/analytics\/stats\/[a-f0-9-]+\/?$/i.test(url.pathname);
+    && MARKETLY_STATS_PATH.test(url.pathname);
+}
+
+/**
+ * Marketly moved reports between marketly.ru and otlozhka.marketly.ru.
+ * A report can still work on only one of the two hosts, so try both without
+ * changing the link kept in the user's purchase record.
+ */
+export function getMarketlyReportMirrors(url: URL): string[] {
+  const reportId = url.pathname.match(MARKETLY_STATS_PATH)?.[1];
+  if (!reportId) return [url.toString()];
+  const path = `/analytics/stats/${reportId}`;
+  return Array.from(new Set([
+    url.toString(),
+    `https://otlozhka.marketly.ru${path}`,
+    `https://marketly.ru${path}`,
+  ]));
+}
+
+function metricAfterLabel(source: string, label: RegExp): number | null {
+  const match = label.exec(source);
+  if (!match || match.index === undefined) return null;
+  const nearby = source.slice(match.index + match[0].length, match.index + match[0].length + 180);
+  const number = /\b\d[\d\s\u00A0]*\b/.exec(nearby)?.[0];
+  return number ? asMetric(number) : null;
+}
+
+/**
+ * Jina Reader is used only as a read-only fallback when a VPS cannot reach a
+ * public Marketly report directly. Its Markdown retains the source's campaign
+ * total ("За 24 ч"), which is safer than summing incomplete channel rows.
+ */
+export function parseMarketlyReaderMarkdown(markdown: string, reportUrl: string): MarketlyAnalyticsReport | null {
+  const views24h = metricAfterLabel(markdown, /За\s*24\s*ч\.?/i);
+  if (views24h === null) return null;
+  const currentViews = metricAfterLabel(markdown, /Сейчас[\s\S]{0,80}?Просмотры/i);
+  const published = /Обновлено:\s*(\d{2})\.(\d{2})\.(\d{4}),\s*(\d{2}):(\d{2})/i.exec(markdown);
+  const publishedAt = published
+    ? new Date(`${published[3]}-${published[2]}-${published[1]}T${published[4]}:${published[5]}:00+03:00`).toISOString()
+    : null;
+  const postTitle = /^\*\*(.+?)\*\*/m.exec(markdown)?.[1]?.trim() ?? null;
+
+  return {
+    type: "marketly",
+    draftName: postTitle,
+    publishedAt,
+    summary: {
+      currentViews,
+      views24h,
+      views24hEstimated: false,
+      views48h: null,
+      views72h: null,
+      er24h: null,
+      subscribersTotal: null,
+    },
+    posts: [{
+      channelTitle: null,
+      channelSubs: null,
+      currentViews,
+      views24h,
+      views24hEstimated: false,
+      views48h: null,
+      views72h: null,
+      er24h: null,
+      postedAt: publishedAt,
+      postUrl: reportUrl,
+      postText: postTitle,
+      postPreview: postTitle,
+    }],
+  };
 }
 
 /**

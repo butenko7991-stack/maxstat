@@ -74,10 +74,11 @@ function sumTargetMetric(targets: unknown[], seconds: number): number | null {
         ? (target as { statistics?: Record<string, unknown> }).statistics
         : undefined;
       return asMetric(statistics?.[String(seconds)]);
-    })
-    .filter((value): value is number => value !== null);
+    });
 
-  return values.length > 0 ? values.reduce((total, value) => total + value, 0) : null;
+  return values.length > 0 && values.every((value): value is number => value !== null)
+    ? values.reduce((total, value) => total + value, 0)
+    : null;
 }
 
 function getLatestTargetMetric(target: unknown): number | null {

@@ -29,6 +29,18 @@ describe("отчёты PostXbot", () => {
     expect(report.posts).toMatchObject([{ views24h: 1753, postText: "Текст рекламного поста" }]);
   });
 
+  it("не возвращает частичную сумму, когда у одного размещения нет снимка за 24 часа", () => {
+    const report = parsePostXbotApiReport({
+      targets: [
+        { statistics: { "86400": 437 } },
+        { statistics: { "172800": 459 } },
+      ],
+    }, REPORT_URL);
+
+    expect(report.summary.views24h).toBeNull();
+    expect(report.posts).toEqual([]);
+  });
+
   it("извлекает точный общий охват за 24 часа из рекламной кампании", () => {
     const report = parsePostXbotReport(`
       <h1>Страница статистики поста</h1>

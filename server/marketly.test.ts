@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { extractMarketlyTargets, isMarketlyAnalyticsUrl, parseMarketlyAnalyticsPage } from "./marketly";
+import {
+  extractMarketlyTargets,
+  getMarketlyReportMirrors,
+  isMarketlyAnalyticsUrl,
+  parseMarketlyAnalyticsPage,
+  parseMarketlyReaderMarkdown,
+} from "./marketly";
 
 const MARKETLY_URL = "https://marketly.ru/analytics/stats/ba08bc8a-1234-5678-9abc-def012345678";
 
@@ -12,6 +18,29 @@ describe("отчёты Marketly", () => {
     expect(isMarketlyAnalyticsUrl(new URL(MARKETLY_URL))).toBe(true);
     expect(isMarketlyAnalyticsUrl(new URL("https://otlozhka.marketly.ru/analytics/stats/ba08bc8a-1234-5678-9abc-def012345678"))).toBe(true);
     expect(isMarketlyAnalyticsUrl(new URL("https://marketly.ru/catalog"))).toBe(false);
+  });
+
+  it("проверяет оба публичных домена для сохранённого отчёта", () => {
+    expect(getMarketlyReportMirrors(new URL(MARKETLY_URL))).toEqual([
+      MARKETLY_URL,
+      "https://otlozhka.marketly.ru/analytics/stats/ba08bc8a-1234-5678-9abc-def012345678",
+    ]);
+  });
+
+  it("извлекает явный общий итог из резервного Markdown-ответа", () => {
+    const report = parseMarketlyReaderMarkdown(`
+      ### Общая статистика
+      Статистика по ссылке · Обновлено: 23.07.2026, 20:00
+      Сейчас
+      Просмотры
+      864
+      За 24 ч
+      1 057
+      Всего
+    `, MARKETLY_URL);
+
+    expect(report?.summary).toMatchObject({ currentViews: 864, views24h: 1_057 });
+    expect(report?.posts).toMatchObject([{ views24h: 1_057 }]);
   });
 
   it("извлекает и суммирует точные 24-часовые показатели всех размещений", () => {
