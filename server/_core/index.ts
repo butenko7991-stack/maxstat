@@ -46,6 +46,12 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), { fallthrough: false, maxAge: "7d" }));
 
+  // Public readiness exposes only a boolean, never proxy credentials.
+  app.get("/api/analytics-gateway-ready", (_req, res) => {
+    const ready = Boolean(process.env.LLM_PROXY_SECRET);
+    res.status(ready ? 200 : 503).json({ ready });
+  });
+
   registerStorageProxy(app);
   registerLocalAuthRoutes(app);
 
