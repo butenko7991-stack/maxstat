@@ -14,6 +14,8 @@ import { serveStatic } from "./serveStatic";
 import { externalReminderHandler } from "../scheduledHandlers";
 import { ensureCreativeSchema } from "../creativeSchema";
 import { probeAnalyticsGateway } from "../analyticsGatewayClient";
+import { fetchAnalyticsSource } from "../analyticsGatewayClient";
+import { MARKETLY_FETCH_HEADERS, parseMarketlyAnalyticsPage } from "../marketly";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -55,6 +57,22 @@ async function startServer() {
   app.get("/api/analytics-gateway-probe", async (_req, res) => {
     const outcome = await probeAnalyticsGateway();
     res.status(outcome === "authorized" ? 200 : 503).json({ outcome });
+  });
+  app.get("/api/analytics-gateway-case", async (_req, res) => {
+    // Fixed public report supplied by the owner; this route does not accept
+    // arbitrary URLs or expose credentials, user records, or raw report data.
+    const url = "https://otlozhka.marketly.ru/analytics/stats/ba08bc8a-1ab5-4127-879f-c54425d7c734";
+    try {
+      const source = await fetchAnalyticsSource(url, {
+        headers: { ...MARKETLY_FETCH_HEADERS, Referer: "https://marketly.ru/" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!source.ok) return res.json({ sourceStatus: source.status, views24h: null });
+      const report = parseMarketlyAnalyticsPage(await source.text(), url);
+      return res.json({ sourceStatus: source.status, posts: report.posts.length, views24h: report.summary.views24h });
+    } catch (error) {
+      return res.status(502).json({ errorType: error instanceof Error ? error.name : "Unknown" });
+    }
   });
 
   registerStorageProxy(app);

@@ -10,5 +10,7 @@ describe("операционная диагностика шлюза", () => {
     expect(server).toContain('res.status(ready ? 200 : 503).json({ ready })');
     expect(server).toContain('app.get("/api/analytics-gateway-probe"');
     expect(server).toContain('res.status(outcome === "authorized" ? 200 : 503).json({ outcome })');
+    expect(server).toContain('app.get("/api/analytics-gateway-case"');
+    expect(server).toContain('views24h: report.summary.views24h');
   });
 });
