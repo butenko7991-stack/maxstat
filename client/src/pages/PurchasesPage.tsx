@@ -332,7 +332,7 @@ export default function PurchasesPage() {
     if (!record.link?.startsWith("http")) return;
 
     autoExtractMutation.mutate(
-      { url: record.link, recordType: "purchase" },
+      { url: record.link, recordType: "purchase", skipCreativeMatching: true },
       {
         onSuccess: (data) => {
           const reach = getPurchaseReach24h(data);
@@ -449,6 +449,7 @@ export default function PurchasesPage() {
             const report = await autoExtractMutation.mutateAsync({
               url: record.link!,
               recordType: "purchase",
+              skipCreativeMatching: true,
             });
             const reach = getPurchaseReach24h(report);
             if (reach === null) {
@@ -459,7 +460,7 @@ export default function PurchasesPage() {
             }
           } catch (error) {
             const message = error instanceof Error && error.message ? error.message : "ошибка загрузки";
-            const sourceError = `${source}: ${message}`;
+            const sourceError = `Закуп №${record.id} (${source}): ${message}`;
             progress = {
               ...progress,
               failed: progress.failed + 1,

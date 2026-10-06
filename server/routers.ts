@@ -1729,6 +1729,7 @@ const ocrRouter = router({
     .input(z.object({
       url: z.string().url(),
       recordType: z.enum(["purchase", "sale"]).optional(),
+      skipCreativeMatching: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { url } = input;
@@ -1823,7 +1824,7 @@ const ocrRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Аналитики МАХ не найдены размещения" });
         }
         const posts = await withOptionalCreativeMatching(
-          shouldUseCreativeMatching(input.recordType), report.posts,
+          shouldUseCreativeMatching(input.recordType) && !input.skipCreativeMatching, report.posts,
           () => attachCreativeMatches(report.posts, ctx.user.id),
         );
         return { ...report, posts };
@@ -1934,7 +1935,7 @@ const ocrRouter = router({
               continue;
             }
             const posts = await withOptionalCreativeMatching(
-              shouldUseCreativeMatching(input.recordType), report.posts,
+              shouldUseCreativeMatching(input.recordType) && !input.skipCreativeMatching, report.posts,
               () => attachCreativeMatches(report.posts, ctx.user.id),
             );
             return { ...report, posts };
@@ -1956,7 +1957,7 @@ const ocrRouter = router({
             const report = parseMarketlyReaderMarkdown(await readerResponse.text(), url);
             if (report) {
               const posts = await withOptionalCreativeMatching(
-                shouldUseCreativeMatching(input.recordType), report.posts,
+                shouldUseCreativeMatching(input.recordType) && !input.skipCreativeMatching, report.posts,
                 () => attachCreativeMatches(report.posts, ctx.user.id),
               );
               return { ...report, posts };
