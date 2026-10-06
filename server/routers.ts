@@ -100,7 +100,7 @@ import {
 import { getPostXbotReportHash, isPostXbotWatchUrl, parsePostXbotApiReport, parsePostXbotReport, POSTXBOT_WATCH_API_URL } from "./postxbot";
 import { normalizeGenericAnalyticsReport } from "./genericAnalytics";
 import { CreativeImageMime, readCreativeImageDataUrl, removeCreativeImage, saveCreativeImage } from "./creativeUpload";
-import { matchCreativeToChannel, shouldUseCreativeMatching } from "./creativeMatching";
+import { matchCreativeToChannel, shouldUseCreativeMatching, withOptionalCreativeMatching } from "./creativeMatching";
 import { isReachVerificationCurrent } from "./reachCorrectionState";
 import { ensureReachVerificationSchema } from "./creativeSchema";
 import {
@@ -1822,9 +1822,10 @@ const ocrRouter = router({
         if (report.posts.length === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "В отчёте Аналитики МАХ не найдены размещения" });
         }
-        const posts = shouldUseCreativeMatching(input.recordType)
-          ? await attachCreativeMatches(report.posts, ctx.user.id)
-          : report.posts;
+        const posts = await withOptionalCreativeMatching(
+          shouldUseCreativeMatching(input.recordType), report.posts,
+          () => attachCreativeMatches(report.posts, ctx.user.id),
+        );
         return { ...report, posts };
       }
 
@@ -1932,9 +1933,10 @@ const ocrRouter = router({
               lastFailure = `${new URL(reportUrl).hostname}: в отчёте нет размещений`;
               continue;
             }
-            const posts = shouldUseCreativeMatching(input.recordType)
-              ? await attachCreativeMatches(report.posts, ctx.user.id)
-              : report.posts;
+            const posts = await withOptionalCreativeMatching(
+              shouldUseCreativeMatching(input.recordType), report.posts,
+              () => attachCreativeMatches(report.posts, ctx.user.id),
+            );
             return { ...report, posts };
           } catch (error) {
             lastFailure = error instanceof Error ? error.message : "ошибка загрузки";
@@ -1953,9 +1955,10 @@ const ocrRouter = router({
           if (readerResponse.ok) {
             const report = parseMarketlyReaderMarkdown(await readerResponse.text(), url);
             if (report) {
-              const posts = shouldUseCreativeMatching(input.recordType)
-                ? await attachCreativeMatches(report.posts, ctx.user.id)
-                : report.posts;
+              const posts = await withOptionalCreativeMatching(
+                shouldUseCreativeMatching(input.recordType), report.posts,
+                () => attachCreativeMatches(report.posts, ctx.user.id),
+              );
               return { ...report, posts };
             }
           }

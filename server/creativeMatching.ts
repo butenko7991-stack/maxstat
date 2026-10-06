@@ -13,6 +13,21 @@ export function shouldUseCreativeMatching(recordType: "purchase" | "sale" | unde
   return recordType === "purchase";
 }
 
+/** Optional matching must never turn a valid analytics report into a source error. */
+export async function withOptionalCreativeMatching<T>(
+  enabled: boolean,
+  posts: T[],
+  enrich: () => Promise<T[]>,
+): Promise<T[]> {
+  if (!enabled) return posts;
+  try {
+    return await enrich();
+  } catch (error) {
+    console.warn("[Creatives] Matching skipped after analytics extraction:", error);
+    return posts;
+  }
+}
+
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "")
     .toLocaleLowerCase("ru-RU")

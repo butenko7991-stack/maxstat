@@ -44,6 +44,20 @@ export function decodeAnalyticsGatewayResponse(payload: GatewayPayload): Respons
   return new Response(body, { status, headers });
 }
 
+class AnalyticsGatewayAuthError extends Error {}
+
+export function parseAnalyticsGatewayEnvelope(status: number, contentType: string | null, payload: GatewayPayload): Response {
+  if (typeof payload.status === "number" && typeof payload.body === "string") {
+    // The gateway itself replied successfully, even when the source returned
+    // 404/429. Preserve that source response; do not fetch the bot a second time.
+    return decodeAnalyticsGatewayResponse(payload);
+  }
+  if (status === 401 || status === 403) {
+    throw new AnalyticsGatewayAuthError("Шлюз отклонил ключ доступа; прямой запрос к источнику не выполнен");
+  }
+  throw new Error(`Analytics gateway returned HTTP ${status} (${contentType ?? "unknown"})`);
+}
+
 export async function probeAnalyticsGateway(): Promise<"not_configured" | "authorized" | "rejected" | "unreachable"> {
   if (!ENV.llmProxySecret) return "not_configured";
   const gatewayUrl = resolveAnalyticsGatewayUrl(
@@ -96,14 +110,17 @@ export async function fetchAnalyticsSource(url: string, init: RequestInit = {}):
         headers: headersToRecord(init.headers),
         body,
       }),
-      signal: init.signal ?? AbortSignal.timeout(40_000),
+      // The relay can take longer than a direct read: do not use the original
+      // 15-second source timeout for the extra server-to-server round trip.
+      signal: AbortSignal.timeout(40_000),
     });
-
-    if (!response.ok) {
-      throw new Error(`Analytics gateway HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type");
+    if (!contentType?.includes("application/json")) {
+      throw new Error(`Analytics gateway returned non-JSON (${response.status})`);
     }
-    return decodeAnalyticsGatewayResponse(await response.json() as GatewayPayload);
-  } catch {
+    return parseAnalyticsGatewayEnvelope(response.status, contentType, await response.json() as GatewayPayload);
+  } catch (error) {
+    if (error instanceof AnalyticsGatewayAuthError) throw error;
     return fetch(url, init);
   }
 }

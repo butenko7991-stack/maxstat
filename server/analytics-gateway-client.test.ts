@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeAnalyticsGatewayResponse, resolveAnalyticsGatewayUrl } from "./analyticsGatewayClient";
+import { decodeAnalyticsGatewayResponse, parseAnalyticsGatewayEnvelope, resolveAnalyticsGatewayUrl } from "./analyticsGatewayClient";
 
 describe("клиент шлюза аналитики", () => {
   it("строит endpoint аналитики из уже настроенного LLM-прокси", () => {
@@ -31,5 +31,17 @@ describe("клиент шлюза аналитики", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(response.headers.get("retry-after")).toBe("30");
     await expect(response.text()).resolves.toBe("rate limited");
+  });
+
+  it("считает 404 отчёта ответом источника, а не ошибкой авторизации шлюза", async () => {
+    const response = parseAnalyticsGatewayEnvelope(404, "application/json", {
+      status: 404, contentType: "text/html", body: "Not found",
+    });
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toBe("Not found");
+  });
+
+  it("явно сообщает о несовпадении ключа вместо скрытого прямого запроса", () => {
+    expect(() => parseAnalyticsGatewayEnvelope(403, "application/json", {})).toThrow("отклонил ключ");
   });
 });
