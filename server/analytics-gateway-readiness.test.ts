@@ -8,5 +8,7 @@ describe("операционная диагностика шлюза", () => {
   it("не возвращает секрет в публичном статусе", () => {
     expect(server).toContain('app.get("/api/analytics-gateway-ready"');
     expect(server).toContain('res.status(ready ? 200 : 503).json({ ready })');
+    expect(server).toContain('app.get("/api/analytics-gateway-probe"');
+    expect(server).toContain('res.status(outcome === "authorized" ? 200 : 503).json({ outcome })');
   });
 });

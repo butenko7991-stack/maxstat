@@ -13,6 +13,7 @@ import { createContext } from "./context";
 import { serveStatic } from "./serveStatic";
 import { externalReminderHandler } from "../scheduledHandlers";
 import { ensureCreativeSchema } from "../creativeSchema";
+import { probeAnalyticsGateway } from "../analyticsGatewayClient";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -50,6 +51,10 @@ async function startServer() {
   app.get("/api/analytics-gateway-ready", (_req, res) => {
     const ready = Boolean(process.env.LLM_PROXY_SECRET);
     res.status(ready ? 200 : 503).json({ ready });
+  });
+  app.get("/api/analytics-gateway-probe", async (_req, res) => {
+    const outcome = await probeAnalyticsGateway();
+    res.status(outcome === "authorized" ? 200 : 503).json({ outcome });
   });
 
   registerStorageProxy(app);

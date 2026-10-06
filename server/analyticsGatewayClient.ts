@@ -44,6 +44,29 @@ export function decodeAnalyticsGatewayResponse(payload: GatewayPayload): Respons
   return new Response(body, { status, headers });
 }
 
+export async function probeAnalyticsGateway(): Promise<"not_configured" | "authorized" | "rejected" | "unreachable"> {
+  if (!ENV.llmProxySecret) return "not_configured";
+  const gatewayUrl = resolveAnalyticsGatewayUrl(
+    ENV.llmProxyUrl,
+    process.env.ANALYTICS_GATEWAY_URL ?? DEFAULT_ANALYTICS_GATEWAY_URL,
+  );
+  try {
+    // Invalid address intentionally returns 400 *after* the secret is verified.
+    // No report is fetched and no user data leaves the VPS.
+    const response = await fetch(gatewayUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-proxy-secret": ENV.llmProxySecret },
+      body: JSON.stringify({ url: "https://invalid.example" }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status === 400) return "authorized";
+    if (response.status === 401 || response.status === 403) return "rejected";
+    return "unreachable";
+  } catch {
+    return "unreachable";
+  }
+}
+
 /**
  * Requests public analytics reports through the managed gateway when the VPS
  * has the already configured LLM proxy credentials. A direct request remains
