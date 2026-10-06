@@ -89,6 +89,7 @@ import { saleRecords, purchaseRecords as purchaseRecordsTable } from "../drizzle
 import { invokeLLM } from "./_core/llm";
 import { hashPassword } from "./_core/localAuth";
 import { getMaxAnalyticsApiUrl, getMaxAnalyticsReportCode, MAX_ANALYTICS_FETCH_HEADERS, parseMaxAnalyticsReport } from "./maxAnalytics";
+import { fetchAnalyticsSource } from "./analyticsGatewayClient";
 import {
   getMarketlyReportMirrors,
   isMarketlyAnalyticsUrl,
@@ -1750,7 +1751,7 @@ const ocrRouter = router({
         let lastFailure = "отчёт ещё не отдал показатель за 24 часа";
         if (reportHash) {
           try {
-            const apiResponse = await fetch(POSTXBOT_WATCH_API_URL, {
+            const apiResponse = await fetchAnalyticsSource(POSTXBOT_WATCH_API_URL, {
               method: "POST",
               headers: {
                 "Accept": "application/json, text/plain, */*",
@@ -1775,7 +1776,7 @@ const ocrRouter = router({
         }
         for (let attempt = 0; attempt < 3; attempt += 1) {
           try {
-            const response = await fetch(url, {
+            const response = await fetchAnalyticsSource(url, {
               cache: "no-store",
               headers: {
                 "Accept": "text/html,application/xhtml+xml",
@@ -1804,7 +1805,7 @@ const ocrRouter = router({
       const maxAnalyticsCode = getMaxAnalyticsReportCode(parsedUrl);
       if (maxAnalyticsCode) {
         const apiUrl = getMaxAnalyticsApiUrl(parsedUrl, maxAnalyticsCode);
-        const response = await fetch(apiUrl, {
+        const response = await fetchAnalyticsSource(apiUrl, {
           headers: MAX_ANALYTICS_FETCH_HEADERS,
           signal: AbortSignal.timeout(15_000),
         });
@@ -1832,7 +1833,7 @@ const ocrRouter = router({
         /anypost\.trustat\.me\/share\/stats\/([a-f0-9]+)/i
       );
       if (trustatMatch) {
-        const rscResp = await fetch(url, {
+        const rscResp = await fetchAnalyticsSource(url, {
           headers: {
             "RSC": "1",
             "Next-Url": new URL(url).pathname,
@@ -1918,7 +1919,7 @@ const ocrRouter = router({
         let lastFailure = "источник не ответил";
         for (const reportUrl of getMarketlyReportMirrors(parsedUrl)) {
           try {
-            const resp = await fetch(reportUrl, {
+            const resp = await fetchAnalyticsSource(reportUrl, {
               headers: { ...MARKETLY_FETCH_HEADERS, "Referer": "https://marketly.ru/" },
               signal: AbortSignal.timeout(15_000),
             });
@@ -1982,7 +1983,7 @@ const ocrRouter = router({
       let pageText = "";
       let pageHtml = "";
       try {
-        const resp = await fetch(url, {
+        const resp = await fetchAnalyticsSource(url, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
